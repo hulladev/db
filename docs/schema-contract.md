@@ -617,6 +617,8 @@ adds configurable primary-key types. See
 3. Additional field types, dynamic default execution, and wire protocol envelopes
    and versions. Literal defaults, initial scalar ranges, nullable-versus-omitted
    behavior, and the initial lossless JSON record codec are implemented.
-4. Stable table/field identities, validation diagnostics, and explicit projections.
+4. Stable table/field identities, broader validation diagnostics, and generated
+   projection types. Explicit entity projection normalization and projected-record
+   validation are now implemented; see [query coverage](query-coverage.md).
 
 Protocol framing, code generation, and storage mappings remain later chunks.

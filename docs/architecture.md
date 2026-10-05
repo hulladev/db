@@ -1,7 +1,9 @@
 # Hulla DB — architecture and implementation design
 
-**Status:** Architecture proposal; tooling, initial schema/value contracts, and JSON record codec implemented; storage enforcement remains future work  
-**Updated:** 2 October 2026  
+**Status:** Architecture proposal; schema/value/projection contracts, JSON codec, benchmarks, an authoritative PostgreSQL command/query backend and bounded CDC capture/snapshot/replica implemented; CDC is the sole PostgreSQL sync model; general storage enforcement, exported-snapshot transport, authorized CDC query serving, and configurable concurrency remain future work
+
+**Updated:** 5 October 2026
+
 **Audience:** Product owner, future implementation agents, and contributors
 
 ## 1. Product direction
@@ -61,12 +63,17 @@ This is initially a database platform built around an existing storage engine. B
   validation does not replace storage constraints and transaction isolation.
 - A live development workflow that watches schema changes and regenerates runtime schemas, both SDKs' types, and migration plans, while keeping data transformations explicit.
 - Server-authoritative transactions, permissions, and business rules.
+- Application-defined concurrency behavior, with safe built-in defaults and
+  operation-level policies for specialized workloads. Collaboration must use
+  the same authoritative mutation and sync foundations as single-client use.
 - Reactive local reads over an authorized subset of server data.
 - Both optimistic local-plus-server writes and server-confirmed writes, selectable by the application developer.
 - Optimistic changes reconcile to server results and roll back on definitive rejection.
 - No requirement to accept new writes while disconnected.
 - Free self-hosting, with a possible paid managed hosting offering.
 - Client data exposure must be controlled on the server.
+- A lean production package and low runtime overhead. End-user query/write
+  responsiveness and client/server latency take priority over build/compile speed.
 - Public API syntax remains provisional.
 
 ### Recommendations requiring eventual product approval
@@ -76,14 +83,74 @@ The choices below guide this proposal but are not previously agreed requirements
 1. Native schema authoring in Rust or TypeScript, compiled into one language-neutral internal contract that drives both SDKs and storage definitions. Each project chooses one authoritative authoring source.
 2. Query-driven synchronization, with explicit preloading of bounded datasets.
 3. Separate confirmed client data and optimistic layers.
-4. All supported v1 writes through platform-managed transactions.
-5. A transactional change log as the initial change source.
+4. Platform mutations use managed transactions. External writers may be observed
+   through CDC once its correctness is proven; their business rules remain the
+   responsibility of the application and database constraints.
+5. PostgreSQL CDC feeding committed sync events and separate bounded sync storage.
+   This is the selected sole PostgreSQL synchronization model. Commands write
+   authoritative rows and receipts; they do not emit a separate delivery feed.
 6. A constrained portable query model, with explicit backend-specific extensions.
 7. In-memory client querying first; persistence behind a separate adapter.
 8. Server-confirmed writes as the safe initial default, overridable per operation and call.
 9. One authoritative write region per deployment initially.
 
 An implementation agent must preserve confirmed requirements, identify changes to these recommendations, and avoid treating illustrative API spelling as a specification.
+
+### Runtime priorities and production consolidation
+
+User priority, confirmed on 5 October 2026: applications should feel immediate;
+runtime responsiveness and client/server latency matter more than short builds.
+Move reproducible schema/query preparation into compilation where appropriate,
+while retaining authoritative runtime authorization, input validation, and database
+constraints. A longer build is acceptable when it reduces shipped code or runtime
+work without changing query semantics.
+
+Decision, confirmed on 5 October 2026: use one PostgreSQL synchronization path:
+committed WAL → Rust CDC capture → bounded durable event history → durable replica
+→ authorized query results → SDKs. The command-written task feed, RAM replica,
+comparison harness, demo and obsolete baselines are removed. Keep authorization,
+version checks, atomic receipts and bounded queries in the authoritative backend.
+A generation-two internal schema upgrade preserves tasks and receipts and removes
+the old source delivery table. A command receipt is an acknowledgement and query
+freshness token, never a second sync event.
+
+Keep privileged PostgreSQL capture and server sync storage out of SDK dependencies.
+Use one shared Rust query/replica core, native for Rust and through a Wasm binding
+for TypeScript, with thin TypeScript UI integration. Storage adapters may vary by
+platform. Measure bundle size, startup, worker scheduling and batched interop before
+shipping; sharing Rust semantics does not establish a latency advantage over TS.
+Do not ship independent Rust and TS query engines by default.
+
+Separate interactive latency from synchronization work:
+
+| Metric | Intended behavior and measurement |
+| --- | --- |
+| Covered local query to rendered UI | Read confirmed cached data without a network round trip; measure query execution plus rendering, allocations, and payload size. |
+| Cold query to usable result | Return a bounded authorized result promptly; measure realistic RTT, server work, transfer/decoding, and initial client application. |
+| Write submission to durable acknowledgement | Authorize, validate, commit PostgreSQL rows and the request receipt, then return the committed result. Do not normally wait for CDC log/replica persistence or subscriber fan-out. |
+| Commit to subscription visibility | Deliver authorized committed changes promptly through the sync path; measure queueing, capture, materialization, fan-out, and client application separately. |
+
+Committed and visible are distinct statuses. Preserve receipt recovery for ambiguous
+outcomes and correlate committed operation results with sync delivery. An explicit
+read-after-write request may need to wait for a visibility fence or read authoritative
+state. A fast acknowledgement must not label a lagging replica current. Optimistic
+UI remains optional per operation; retain prediction/reconciliation state until its
+committed effects are represented rather than introducing a visual reversal while
+subscriptions catch up.
+
+The [current benchmark suites](benchmarks.md) measure command acknowledgement,
+commit-to-replica lag, durable materialization and bounded queries separately.
+They use the actual command table, with no shadow/mirror table. Local streaming
+and internal row views do not measure client/server RTT, authorized subscriptions,
+browser rendering or production tails. Use p50/p95/p99 under representative RTT,
+concurrency, result sizes and subscriber counts as those layers are implemented.
+
+Capture now uses a persistent replication connection; the SQL peek/advance path
+has been removed. Exported-snapshot bootstrap remains next within this same CDC
+path. Replace the overlapping bootstrap after the recovery/handoff scenarios pass;
+do not add a selectable alternate sync engine. Current correctness limits remain
+explicit until implemented and verified. Local streaming measurements do not
+establish a client/server or browser latency improvement.
 
 ## 3. Lessons from comparable systems
 
@@ -229,13 +296,13 @@ Browser, native, and backend environments may have different transports and pers
 Recommended implementation direction:
 
 - Share schema, query, value, and protocol definitions through code generation.
-- Implement a reusable Rust replica/query core; use it natively from Rust and evaluate a WebAssembly binding for TypeScript browsers.
+- Implement one reusable Rust replica/query core, native for Rust and through WebAssembly for TypeScript browsers.
 - Keep TypeScript ergonomics and framework integration in TypeScript.
-- Confirm WASM bundle size, startup time, worker overhead, and interop costs in an early spike. A TypeScript replica implementation with the same conformance suite is the fallback.
+- Validate WASM bundle size, startup time, worker overhead and batched interop costs before shipping. Optimize the shared engine and bindings around interactive latency.
 - Keep persistence separate: IndexedDB is a browser candidate; SQLite is a native candidate. Server backend selection does not determine client storage.
 - Keep React bindings outside the core SDK; additional frameworks consume the same subscription interface.
 
-This direction minimizes semantic divergence but is not a settled dependency decision. Do not ship two independently evolving interpretations of query semantics without differential tests.
+This selects shared semantics and one execution engine. Browser dependencies and persistence are still unimplemented; there is no measured claim that Wasm outperforms TS.
 
 ## 7. Write execution and optimistic behavior
 
@@ -280,7 +347,75 @@ Predictor code is a UI behavior, never an authorization mechanism. Clients do no
 - Support expected-version preconditions for edits based on previously read state.
 - Semantic commands such as increment execute against authoritative state inside the transaction.
 
-The transaction contract should provide serializable behavior for supported commands, using adapter-specific mechanisms. Retry internal serialization failures only for operations that can safely be rerun. External side effects execute after commit through a transactional job/outbox mechanism with idempotent handling, not inside retried transactions.
+### Application concurrency policies
+
+Concurrency customization is a confirmed requirement; the policies below are
+design proposals, not implemented public APIs. Keep application conflict rules
+separate from database isolation, resource scheduling, and sync ordering.
+
+Recommend safe defaults based on the operation's meaning rather than one policy
+for all writes:
+
+| Operation / policy | Proposed behavior | Tradeoff / requirement |
+| --- | --- | --- |
+| Ordinary edit or delete based on a prior read | Require an expected row version; reject a stale request explicitly | Protects against silent lost updates; unrelated field changes can also conflict |
+| Semantic command such as increment or conditional reservation | Evaluate against authoritative state atomically, preserving declared preconditions | Avoids stale read/replace cycles; concurrent updates to the same resource still contend |
+| Explicit overwrite | Apply the specified fields to current state; later server serialization wins on overlapping fields | Deliberately permits replacement of another edit; client clocks do not determine the winner |
+| Merge independent field edits | Accept only when touched fields still match their base values or field versions | Requires trustworthy base comparisons/version metadata; fields with shared invariants cannot be merged independently |
+| Custom resolver | Backend handler decides whether to reject, merge, or recompute using authoritative current state and the submitted intent/preconditions | Runs within the transaction's concurrency protection; output is revalidated against permissions, constraints, and business invariants |
+| Specialized collaborative data | Explicit CRDT or other domain-specific operation model | Requires its own convergence, validation, deletion, and bounded-storage contract; not the ordinary row default |
+
+An application can establish defaults, but the registered backend operation owns
+the effective policy. Clients cannot choose a weaker policy or bypass a required
+precondition. Changes to these semantics must be versioned with the operation;
+retrying an existing request identity must preserve its original meaning.
+
+Custom conflict logic can read through the authoritative transaction API and
+must be safe to rerun. Materializers and client predictors remain deterministic;
+custom resolution executes on the backend, not independently on each client.
+Any generated values or request inputs needed for stable retry semantics must
+have an explicit lifecycle. External side effects execute after commit through
+a transactional job/outbox mechanism with idempotent handling.
+
+### Isolation, retries, and contention
+
+Default general read/modify/write handlers should provide serializable behavior
+using adapter-specific mechanisms. Built-in atomic commands may use narrower
+isolation/locking when equivalent operation guarantees are established. A
+backend-specific isolation override must document its weaker guarantees and
+required application enforcement; unsupported options fail explicitly rather
+than silently degrading. ACID transactions, declared storage constraints,
+authorization, and request idempotency remain mandatory for managed operations.
+
+Keep internal transaction retries distinct from application conflicts. Retry
+serialization failures or deadlocks only when the entire handler can safely be
+rerun, with a bounded attempt/deadline budget and backoff. An expected-version
+failure is an application conflict; do not automatically replace its version
+with the latest one and retry. A custom operation may explicitly recompute its
+intent against current state. Ambiguous commit outcomes use the existing request
+identity and recovery contract.
+
+For contention, coordinate the smallest scope needed by the operation: a row,
+declared aggregate/resource, or the database's transaction conflict detection.
+Multi-row invariants need transaction-wide protection; row versions alone do not
+prevent write skew. Use stable lock ordering, deadlines, bounded queues, and
+backpressure. Serialization of one hot resource is different from serializing
+all unrelated writes in a workspace. An event log does not remove contention on
+a shared resource or make business conflicts disappear.
+
+The fixed command backend deliberately locks one workspace before every
+command and supports only row-level expected-version edits/deletes. This is not
+the production policy API. With PostgreSQL CDC, sync order should follow actual
+committed transaction boundaries rather than requiring all writers to acquire
+an application-wide sequence lock. Ordering and duplicate-safe delivery remain
+sync guarantees regardless of the chosen application conflict policy.
+
+Benchmark independent records, a hot record, a hot aggregate, and multi-row
+invariants separately. Record successful throughput, conflict/retry rates,
+attempts per command, p95/p99 latency, lock wait, queue depth, and commit-to-client
+lag. Use the current workspace-serialization benchmark;
+choose defaults from representative correctness and workload evidence. The aim
+to cover most applications is a product target, not a measured coverage claim.
 
 ## 8. Read synchronization and local query coverage
 
@@ -353,24 +488,63 @@ Use backend-independent values and opaque cursors above this boundary. Postgres 
 
 SQLite, libSQL, and Turso Database share lineage or compatibility goals but must each demonstrate conformance. Do not assume one driver swap establishes identical concurrency, extension, or replication behavior.
 
-### Recommended initial change source
+### Selected change source
 
-All supported v1 application writes pass through managed transactions. Atomically commit application changes, an idempotency receipt, and a durable delivery-log batch in the same database transaction.
+PostgreSQL WAL logical decoding is the sole committed change source. Managed
+commands commit authoritative rows and idempotency receipts in one transaction,
+then acknowledge without waiting for capture or materialization. CDC captures the
+actual effects, including supported external SQL and triggers, in commit order.
+No per-command delivery-log insert or alternate in-memory sync engine remains.
 
-The delivery log describes committed changes needed for sync; current relational state remains authoritative. History may be compacted or expired. A client whose cursor is too old receives a new snapshot.
+The SQLite event log persists complete transactions and its checkpoint before
+PostgreSQL acknowledgement. Bounded history can expire; consumers must bootstrap
+again after expiry. Replica rows and their cursor commit atomically. Incremental
+size accounting is saved once in that same transaction, so checking the live bound
+does not scan every retained row after each commit.
 
-For an initial correctness-first implementation, serialize commit/log sequence allocation within each defined consistency scope using transactional coordination. Postgres can use a locked metadata row; SQLite can use its transaction serialization. This introduces contention and must be measured. A sequence number allocated before commit alone does not guarantee commit order.
+Command query freshness revisions are separate from CDC cursors. The fixed backend
+still serializes managed writes per workspace for receipt ordering and query
+invalidation. This is a remaining contention cost, not required by WAL capture.
+Move query coverage and visibility correlation to the authorized CDC serving layer
+before removing that coordination. Do not weaken authorization or duplicate-request
+recovery as part of that optimization.
 
-The adapter must account for supported cascades, generated values, and triggers. Either capture their actual effects or explicitly restrict unsupported database-side behavior. Writing a log from only the application's requested changes is insufficient.
+### Intended PostgreSQL event boundary
 
-| Change source | Recommendation / tradeoff |
-| --- | --- |
-| **Transactional delivery log** | Recommended for platform-owned v1 writes and portability; introduces log writes and requires complete change capture. |
-| Native CDC / logical replication | Best candidate when arbitrary external writers are supported; backend-specific bootstrap, ordering, failover, and retention complexity. |
-| Database triggers | Can capture changes from multiple writers; migrations, cascades, transaction grouping, and portability need careful design. |
-| In-memory notifications only | Insufficient as the durable source: process crashes can lose notifications. May be a wake-up optimization over durable state. |
+Keep ordinary PostgreSQL business tables authoritative. The backend accepts
+commands under their registered concurrency policies; CDC observes the actual
+committed effects, including supported external writers. The sync layer derives
+authorized snapshots and result changes that clients materialize locally.
+These sync events are a delivery contract, not a requirement to make event
+history the business source of truth.
 
-Do not combine independently emitted native CDC and application events without an explicit deduplication and ordering design. Add SQLite through the same contract, and validate the abstraction early with a minimal adapter spike and shared tests.
+External writers remain responsible for database constraints and their own
+business/concurrency rules; CDC observes their effects but does not enforce
+platform operation policies on SQL that bypasses those operations. Optional
+semantic domain events need an atomic publication contract and explicit
+correlation with row changes.
+
+The current server materialization, recent delivery history and subscription
+metadata belong to separately managed sync storage with bounded retention. Event
+delivery and client queryable state remain the selected model; a separate durable
+server copy is not yet a proven production requirement. Evaluate its cost and
+benefit when authorized serving, fan-out and recovery have concrete workloads.
+Slow consumers must not indefinitely pin upstream WAL. Client working sets do not replace authoritative
+conflict resolution.
+
+The [capture implementation](cdc-slice.md) persists complete transactions before
+acknowledgement and handles restart deduplication and expired cursors. The
+[snapshot and replica](cdc-snapshot.md) implement a bounded overlapping MVCC copy
+and whole-transaction materialization. An integration test captures the actual
+authoritative task table, including scoped composite physical identities, receipt
+replay, external SQL and durable reopening. The logical SDK primary-key contract
+still selects one field; physical tenant keys do not broaden it.
+
+Current capture uses persistent streaming; bootstrap rejects XID epochs beyond
+the first. Exported snapshots, authorized CDC query serving, receipt-to-visibility
+correlation and pushed SDK delivery remain required work.
+These are missing layers of the selected model, not reasons to preserve the old
+execution path.
 
 ## 11. Subscription execution strategy
 
@@ -488,6 +662,16 @@ The provider is not an architectural dependency or an approved deployment choice
 
 This sequence is guidance for future authorized implementation, not an instruction to begin implementation now.
 
+Current implementation has the logical schema and JSON record foundations plus
+an [authoritative PostgreSQL command/query backend](postgres-slice.md). It moves
+a narrow workload ahead of broad code generation so
+transaction semantics and costs can be verified early. It does not satisfy the
+full phase gates below; SDKs, migrations, general query-driven synchronization,
+and pushed subscriptions remain unimplemented. The [bounded coverage chunk](query-coverage.md)
+now adds explicit entity projection validation and exact task-summary query caches.
+The [CDC snapshot implementation](cdc-snapshot.md) adds a bounded MVCC bootstrap and
+durable whole-transaction materialization; it does not yet serve authorized queries.
+
 ### Phase 1 — Contracts and semantics
 
 Specify logical types, projection rules, query coverage, operation lifecycle, errors, transaction consistency, snapshot boundaries, and protocol compatibility. Build schema generation for Rust and TypeScript against a small representative schema, including watch mode, versioned output generations, and source-level diagnostics.
@@ -496,7 +680,7 @@ Specify logical types, projection rules, query coverage, operation lifecycle, er
 
 ### Phase 2 — Authoritative vertical slice
 
-Implement one Postgres-backed service, named commands, structured errors, idempotency receipts, and the transactional delivery log. Add migration planning/journaling and safe development auto-apply with separate candidate and active schema versions. Add a minimal SQLite adapter spike to challenge the storage contract before it hardens.
+Implement one Postgres-backed service, named commands, structured errors, idempotency receipts, and the sole CDC capture/replica path. Add migration planning/journaling and safe development auto-apply with separate candidate and active schema versions. Add a minimal SQLite adapter spike to challenge the storage contract before it hardens.
 
 **Gate:** update/delete races, duplicate submissions, transaction rollback, commit ordering, and crash recovery behave according to the same adapter conformance tests.
 
@@ -549,10 +733,11 @@ Use property-based/differential tests for query and adapter semantics, and fault
 | --- | --- | --- |
 | Public API syntax | Keep behavior independent from spelling | Compare small Rust and TS application examples before stabilization |
 | Schema authoring | Rust or TypeScript native definitions compiled to one canonical representation; one source per project | Single-language frontend or neutral source file; validate authoring ergonomics and semantic parity |
-| Browser replica implementation | Shared Rust core through WASM, subject to a spike | Native TS core with differential conformance testing |
+| Browser replica implementation | One shared Rust core through WASM | Measure startup, bundle size and batch interop before release; SDKs remain unimplemented |
 | Initial query expressiveness | Named constrained queries with projections and bounded results | Broader relational DSL; assess joins and pagination costs |
 | Write presentation default | Server-confirmed, with explicit optimism | Application-wide optimistic default where predictors exist |
-| External database writers | Unsupported in v1 production contract | Native CDC connector with equivalent snapshot/change guarantees |
+| Application concurrency policies | Version-checked ordinary edits; atomic semantic commands; explicit overwrite/merge/custom extensions | Public API and adapter conformance pending; measure independent and hot-resource workloads without workspace-wide serialization |
+| PostgreSQL change capture and external writers | Sole Rust CDC path with separate bounded durable sync storage | Exported bootstrap, failover and authorized serving remain; obsolete task feed is removed |
 | SQLite release timing | Early contract-validation spike; production support later | Ship both only if resources and conformance evidence justify it |
 | Tenant isolation | Separate application namespaces and enforced auth; choose physical deployment after workload tests | Database/schema per application vs. pooled storage, with operational and cost implications |
 | License | Free self-hosting is required; exact license unresolved | Review ecosystem goals and competing-hosting policy |
@@ -568,7 +753,7 @@ Reviewed during the architecture discussion on 29 September 2026. These are desi
 - Electric: [sync overview](https://electric.ax/docs/sync/), [shapes](https://electric.ax/docs/sync/guides/shapes), [authorization](https://electric.ax/docs/sync/guides/auth), [writes](https://electric.ax/docs/sync/guides/writes), [Electric Circuits repository](https://github.com/electric-sql/electric-circuits).
 - InstantDB: [architecture](https://www.instantdb.com/essays/architecture), [permissions](https://www.instantdb.com/docs/permissions).
 - LiveStore: [sync architecture](https://docs.livestore.dev/building-with-livestore/syncing/), [Store API](https://docs.livestore.dev/api/livestore/classes/store/).
-- PostgreSQL: [logical decoding and snapshot concepts](https://www.postgresql.org/docs/current/logicaldecoding-explanation.html).
+- PostgreSQL: [logical decoding and snapshot concepts](https://www.postgresql.org/docs/current/logicaldecoding-explanation.html), [transaction isolation](https://www.postgresql.org/docs/18/transaction-iso.html), [explicit locking](https://www.postgresql.org/docs/18/explicit-locking.html).
 - SQLite: [write-ahead logging and concurrency](https://www.sqlite.org/wal.html).
 - Turso: [engine repository](https://github.com/tursodatabase/turso), [SQLite compatibility](https://github.com/tursodatabase/turso/blob/main/COMPAT.md).
 - Hosting: [AWS Fargate](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/AWS_Fargate.html), [RDS Multi-AZ](https://aws.amazon.com/rds/features/multi-az/), [Fly volumes](https://docs.fly.io/volumes/overview/).
