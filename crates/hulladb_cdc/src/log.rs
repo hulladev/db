@@ -47,7 +47,7 @@ impl EventLog {
         {
             return Err(Error::Invalid("invalid retention bounds"));
         }
-        let db = Connection::open(path)?;
+        let mut db = Connection::open(path)?;
         db.busy_timeout(Duration::from_secs(5))?;
         // FULL commits flush the SQLite WAL before PostgreSQL may be acknowledged.
         db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;")?;
@@ -70,12 +70,33 @@ impl EventLog {
             [],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )?;
-        if format != 1 {
+        if !matches!(format, 1 | 2) {
             return Err(Error::Corrupt);
         }
         if serde_json::from_str::<Source>(&existing)? != source {
             return Err(Error::SourceMismatch);
         }
+        // Upgrade once under the same write lock used by append. Format two
+        // prevents older collectors from opening storage they cannot account for.
+        let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let format: i64 =
+            tx.query_row("SELECT format FROM metadata WHERE singleton=1", [], |r| {
+                r.get(0)
+            })?;
+        if format == 1 {
+            tx.execute_batch("CREATE TABLE event_usage(singleton INTEGER PRIMARY KEY CHECK(singleton=1), batches INTEGER NOT NULL CHECK(batches>=0), bytes INTEGER NOT NULL CHECK(bytes>=0));
+                INSERT INTO event_usage SELECT 1,count(*),coalesce(sum(length(CAST(payload AS BLOB))),0) FROM batches;
+                UPDATE metadata SET format=2 WHERE singleton=1;")?;
+        } else if format != 2 {
+            return Err(Error::Corrupt);
+        }
+        // Also fail immediately if a current-format log lost its accounting row.
+        tx.query_row(
+            "SELECT batches,bytes FROM event_usage WHERE singleton=1",
+            [],
+            |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)),
+        )?;
+        tx.commit()?;
         Ok(Self {
             db,
             source,
@@ -142,10 +163,11 @@ impl EventLog {
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let (checkpoint, head): (String, i64) = tx.query_row(
-            "SELECT checkpoint,head FROM metadata WHERE singleton=1",
+        let (checkpoint, head, mut count, mut bytes): (String, i64, i64, i64) = tx.query_row(
+            "SELECT checkpoint,head,event_usage.batches,event_usage.bytes FROM metadata
+             JOIN event_usage ON event_usage.singleton=metadata.singleton WHERE metadata.singleton=1",
             [],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )?;
         let checkpoint: Lsn = checkpoint.parse()?;
         if batch.end <= checkpoint {
@@ -173,22 +195,37 @@ impl EventLog {
             "UPDATE metadata SET checkpoint=?1,head=?2 WHERE singleton=1",
             params![batch.end.to_string(), sequence],
         )?;
-        loop {
-            let (count, bytes): (i64, i64) = tx.query_row(
-                "SELECT count(*),coalesce(sum(length(CAST(payload AS BLOB))),0) FROM batches",
+        count = count.checked_add(1).ok_or(Error::Limit)?;
+        bytes = bytes
+            .checked_add(payload.len() as i64)
+            .ok_or(Error::Limit)?;
+        let mut floor = None;
+        while count > i64::from(self.retention.max_batches)
+            || bytes > self.retention.max_bytes as i64
+        {
+            let (oldest, removed_bytes): (i64, i64) = tx.query_row(
+                "DELETE FROM batches WHERE sequence=(SELECT min(sequence) FROM batches)
+                 RETURNING sequence,length(CAST(payload AS BLOB))",
                 [],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )?;
-            if count <= i64::from(self.retention.max_batches)
-                && bytes <= self.retention.max_bytes as i64
-            {
-                break;
-            }
-            let oldest: i64 =
-                tx.query_row("SELECT min(sequence) FROM batches", [], |r| r.get(0))?;
-            tx.execute("DELETE FROM batches WHERE sequence=?1", [oldest])?;
-            tx.execute("UPDATE metadata SET floor=?1 WHERE singleton=1", [oldest])?;
+            count = count
+                .checked_sub(1)
+                .filter(|value| *value >= 0)
+                .ok_or(Error::Corrupt)?;
+            bytes = bytes
+                .checked_sub(removed_bytes)
+                .filter(|value| *value >= 0)
+                .ok_or(Error::Corrupt)?;
+            floor = Some(oldest);
         }
+        if let Some(floor) = floor {
+            tx.execute("UPDATE metadata SET floor=?1 WHERE singleton=1", [floor])?;
+        }
+        tx.execute(
+            "UPDATE event_usage SET batches=?1,bytes=?2 WHERE singleton=1",
+            params![count, bytes],
+        )?;
         tx.commit()?;
         Ok(Some(Cursor {
             generation: self.source.generation,
@@ -242,7 +279,7 @@ impl EventLog {
 
     pub fn stats(&self) -> Result<StorageStats, Error> {
         let (batches, payload_bytes): (i64, i64) = self.db.query_row(
-            "SELECT count(*),coalesce(sum(length(CAST(payload AS BLOB))),0) FROM batches",
+            "SELECT batches,bytes FROM event_usage WHERE singleton=1",
             [],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )?;
