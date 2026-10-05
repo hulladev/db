@@ -5,7 +5,7 @@ mod commands;
 use std::{hint::black_box, time::Instant};
 
 use commands::CommandFixture;
-use hulladb_cdc::{Capture, EventLog, Replica, Retention, SnapshotReader, Value};
+use hulladb_cdc::{Capture, EventLog, Replica, Retention, Value};
 use hulladb_postgres::{Command, Uuid};
 use serde_json::{Value as Json, json};
 
@@ -25,8 +25,8 @@ fn result(name: &str, rows: i32, samples: Vec<f64>) -> Json {
         .collect::<Vec<_>>();
     let mut sorted = samples.clone();
     sorted.sort_by(f64::total_cmp);
-    json!({"name":format!("{name}/{rows}"),"fixture_version":2,
-        "workload":{"workspace_rows":rows,"storage":"SQLite WAL/FULL","capture":"pgoutput persistent stream","source":"actual command table","projection":"full rows"},
+    json!({"name":format!("{name}/{rows}"),"fixture_version":3,
+        "workload":{"workspace_rows":rows,"storage":"SQLite WAL/FULL","capture":"pgoutput persistent stream","source":"actual command table","bootstrap":"slot creation and exported snapshot","projection":"full rows"},
         "sample_kind":"request_latency","iterations_per_sample":1,
         "median_ns":center,"mad_ns":median(&deviations),"p95_ns":sorted[(95*sorted.len()).div_ceil(100)-1],"samples_ns":samples})
 }
@@ -52,10 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut boot = Vec::new();
         for sample in 0..SAMPLES + WARMUP {
             let start = Instant::now();
-            let snapshot = SnapshotReader::begin(&f.url, &f.source)
-                .await?
-                .read()
-                .await?;
+            let snapshot = f.bootstrap().await?.read().await?;
             let replica = Replica::initialize(&f.replica_path, snapshot)?;
             let elapsed = start.elapsed().as_nanos() as f64;
             let view = replica.view(f.table, 1000)?;
@@ -71,13 +68,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 boot.push(elapsed);
             }
             drop(replica);
+            f.db.query_one("SELECT pg_drop_replication_slot($1)", &[&f.source.slot])
+                .await?;
             clear(&f.replica_path);
         }
         results.push(result("bootstrap", rows, boot));
-        let snapshot = SnapshotReader::begin(&f.url, &f.source)
-            .await?
-            .read()
-            .await?;
+        let snapshot = f.bootstrap().await?.read().await?;
         let mut replica = Replica::initialize(&f.replica_path, snapshot)?;
         let mut log = EventLog::open(&f.log_path, f.source.clone(), Retention::default())?;
         let mut capture = Capture::connect(&f.url, &f.source).await?;

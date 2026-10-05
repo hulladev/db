@@ -2,9 +2,11 @@
 //!
 //! Captures pgoutput v1 transactions through a persistent replication connection and
 //! persists them in a separate SQLite log before sending durable feedback.
-//! A bounded snapshot/replica implementation uses an overlapping MVCC visibility fence.
+//! Bootstrap imports a new slot's exported snapshot; materialization applies every
+//! emitted transaction without an overlapping XID visibility filter.
 //! It does not implement a public network protocol or client authorization.
 
+mod bootstrap;
 mod capture;
 mod log;
 mod model;

@@ -1,6 +1,6 @@
 use std::{path::PathBuf, time::Duration};
 
-use hulladb_cdc::{Error, Source};
+use hulladb_cdc::{Error, Lsn, SnapshotReader, Source};
 use tokio::task::JoinHandle;
 use tokio_postgres::{Client, NoTls};
 use uuid::Uuid;
@@ -15,11 +15,25 @@ pub struct Fixture {
 }
 
 impl Fixture {
+    #[allow(dead_code)]
     pub async fn create() -> Result<Self, Error> {
-        Self::create_with_seed(false).await
+        Self::create_inner(false, true).await
     }
 
-    pub async fn create_with_seed(seed: bool) -> Result<Self, Error> {
+    #[allow(dead_code)]
+    pub async fn create_for_bootstrap(seed: bool) -> Result<Self, Error> {
+        Self::create_inner(seed, false).await
+    }
+
+    #[allow(dead_code)]
+    pub async fn bootstrap(&mut self) -> Result<SnapshotReader, Error> {
+        let reader =
+            SnapshotReader::begin(&self.url, &self.source.slot, &self.source.publication).await?;
+        self.source = reader.source().clone();
+        Ok(reader)
+    }
+
+    async fn create_inner(seed: bool, create_slot: bool) -> Result<Self, Error> {
         let url = std::env::var("HULLADB_TEST_URL")
             .unwrap_or_else(|_| "postgresql://db_dev:db_dev@127.0.0.1:55432/db_dev".into());
         let mut config: tokio_postgres::Config = url.parse()?;
@@ -43,13 +57,17 @@ impl Fixture {
             ))
             .await?;
         }
-        let row = db
-            .query_one(
+        let start = if create_slot {
+            db.query_one(
                 "SELECT lsn::text FROM pg_create_logical_replication_slot($1,'pgoutput')",
                 &[&slot],
             )
-            .await?;
-        let start = row.get::<_, String>(0).parse()?;
+            .await?
+            .get::<_, String>(0)
+            .parse()?
+        } else {
+            Lsn(0)
+        };
         let row = db.query_one("SELECT (pg_control_system()).system_identifier::text, (SELECT oid FROM pg_database WHERE datname=current_database()), (SELECT oid FROM pg_publication WHERE pubname=$1)", &[&publication]).await?;
         let source = Source {
             generation: Uuid::now_v7(),
@@ -73,7 +91,7 @@ impl Fixture {
 
     pub async fn cleanup(self) -> Result<(), Error> {
         self.db
-            .query_one("SELECT pg_drop_replication_slot($1)", &[&self.source.slot])
+            .query("SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name=$1", &[&self.source.slot])
             .await?;
         self.db
             .batch_execute(&format!(

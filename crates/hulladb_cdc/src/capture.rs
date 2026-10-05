@@ -11,7 +11,7 @@ pub struct Capture {
     pub(crate) db: Client,
     connection: JoinHandle<Result<(), tokio_postgres::Error>>,
     slot: String,
-    config: ReplicationConfig,
+    pub(crate) config: ReplicationConfig,
     stream: Option<ReplicationClient>,
     decoder: Decoder,
     resetting: bool,
@@ -37,13 +37,41 @@ impl Drop for Capture {
 impl Capture {
     /// Local development only. Does not create/drop slots or bootstrap existing rows.
     pub async fn connect(url: &str, source: &Source) -> Result<Self, Error> {
-        name(&source.slot)?;
-        name(&source.publication)?;
+        let mut capture =
+            Self::bootstrap_connection(url, &source.slot, &source.publication).await?;
+        if capture.source.system_id != source.system_id
+            || capture.source.database_oid != source.database_oid
+            || capture.source.publication_oid != source.publication_oid
+        {
+            return Err(Error::SourceMismatch);
+        }
+        capture.source = source.clone();
+        capture.feedback = source.start;
+        capture.persisted = source.start;
+        Ok(capture)
+    }
+
+    pub(crate) async fn bootstrap_connection(
+        url: &str,
+        slot: &str,
+        publication: &str,
+    ) -> Result<Self, Error> {
+        name(slot)?;
+        name(publication)?;
+        let source = Source {
+            generation: uuid::Uuid::now_v7(),
+            system_id: String::new(),
+            database_oid: 0,
+            publication_oid: 0,
+            slot: slot.into(),
+            publication: publication.into(),
+            start: Lsn(0),
+        };
         let mut config: tokio_postgres::Config = url.parse()?;
         config.connect_timeout(Duration::from_secs(5));
-        let replication = replication_config(&config, source)?;
+        let replication = replication_config(&config, &source)?;
         let (db, connection) = config.connect(NoTls).await?;
-        let capture = Self {
+        let mut capture = Self {
             db,
             connection: tokio::spawn(connection),
             slot: source.slot.clone(),
@@ -72,12 +100,9 @@ impl Capture {
         }
         let row = capture.db.query_one("SELECT (pg_control_system()).system_identifier::text, (SELECT oid FROM pg_database WHERE datname=current_database()), (SELECT oid FROM pg_publication WHERE pubname=$1), current_setting('server_encoding'), current_setting('wal_level')", &[&source.publication]).await?;
         let publication_oid: Option<u32> = row.get(2);
-        if row.get::<_, String>(0) != source.system_id
-            || row.get::<_, u32>(1) != source.database_oid
-            || publication_oid != Some(source.publication_oid)
-        {
-            return Err(Error::SourceMismatch);
-        }
+        capture.source.system_id = row.get(0);
+        capture.source.database_oid = row.get(1);
+        capture.source.publication_oid = publication_oid.ok_or(Error::SourceMismatch)?;
         if row.get::<_, String>(3) != "UTF8" || row.get::<_, String>(4) != "logical" {
             return Err(Error::Invalid("CDC requires logical WAL and UTF8"));
         }
@@ -272,7 +297,7 @@ impl Capture {
         self.decoder = Decoder::default();
     }
 
-    async fn wait_inactive(&self) -> Result<(), Error> {
+    pub(crate) async fn wait_inactive(&self) -> Result<(), Error> {
         let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
         loop {
             let active = self

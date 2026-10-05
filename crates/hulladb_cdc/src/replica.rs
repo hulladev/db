@@ -2,10 +2,7 @@ use std::{path::Path, time::Duration};
 
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 
-use crate::{
-    Change, Cursor, Error, Event, EventLog, Lsn, Relation, Snapshot, Source, Value,
-    snapshot::Visibility,
-};
+use crate::{Change, Cursor, Error, Event, EventLog, Lsn, Relation, Snapshot, Source, Value};
 
 /// Separate durable internal materialization. Never expose it without authorization.
 /// Rows retain PostgreSQL text values; this is not a general SQL/type adapter.
@@ -40,7 +37,7 @@ impl Replica {
     pub fn initialize(path: impl AsRef<Path>, snapshot: Snapshot) -> Result<Self, Error> {
         let mut db = storage(path)?;
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        tx.execute_batch("CREATE TABLE IF NOT EXISTS replica_metadata(singleton INTEGER PRIMARY KEY CHECK(singleton=1),format INTEGER NOT NULL,source TEXT NOT NULL,visibility TEXT NOT NULL,through_lsn TEXT NOT NULL,sequence INTEGER NOT NULL,end_lsn TEXT NOT NULL);
+        tx.execute_batch("CREATE TABLE IF NOT EXISTS replica_metadata(singleton INTEGER PRIMARY KEY CHECK(singleton=1),format INTEGER NOT NULL,source TEXT NOT NULL,sequence INTEGER NOT NULL,end_lsn TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS replica_relations(oid INTEGER PRIMARY KEY,definition TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS replica_rows(relation_oid INTEGER NOT NULL,key TEXT NOT NULL,payload TEXT NOT NULL,PRIMARY KEY(relation_oid,key));")?;
         let exists: bool =
@@ -53,13 +50,8 @@ impl Replica {
         install_usage(&tx)?;
         let source = snapshot.source;
         tx.execute(
-            "INSERT INTO replica_metadata VALUES(1,1,?1,?2,?3,0,?4)",
-            params![
-                serde_json::to_string(&source)?,
-                serde_json::to_string(&snapshot.visibility)?,
-                snapshot.through.to_string(),
-                source.start.to_string(),
-            ],
+            "INSERT INTO replica_metadata VALUES(1,2,?1,0,?2)",
+            params![serde_json::to_string(&source)?, source.start.to_string(),],
         )?;
         let mut usage = Usage::read(&tx)?;
         for (relation, rows) in snapshot.tables {
@@ -86,8 +78,14 @@ impl Replica {
             [],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )?;
-        if format != 1 {
-            return Err(Error::Corrupt);
+        match format {
+            1 => {
+                return Err(Error::Invalid(
+                    "legacy overlap replicas require a new exported bootstrap",
+                ));
+            }
+            2 => {}
+            _ => return Err(Error::Corrupt),
         }
         if serde_json::from_str::<Source>(&stored)? != *source {
             return Err(Error::SourceMismatch);
@@ -131,9 +129,10 @@ impl Replica {
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let (sequence, end, visibility, through): (i64,String,String,String) = tx.query_row(
-            "SELECT sequence,end_lsn,visibility,through_lsn FROM replica_metadata WHERE singleton=1", [],
-            |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)),
+        let (sequence, end): (i64, String) = tx.query_row(
+            "SELECT sequence,end_lsn FROM replica_metadata WHERE singleton=1",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
         )?;
         if event.cursor.generation != self.source.generation
             || sequence.checked_add(1) != Some(event.cursor.sequence)
@@ -144,73 +143,69 @@ impl Replica {
             return Err(Error::Corrupt);
         }
         let mut usage = Usage::read(&tx)?;
-        let visibility: Visibility = serde_json::from_str(&visibility)?;
-        let already_copied =
-            event.batch.commit < through.parse::<Lsn>()? && visibility.visible(event.batch.xid)?;
-        // Commit positions after the fence cannot already be present in the copy.
-        // This also makes future XID wrap irrelevant to the completed bootstrap.
-        if !already_copied {
-            for change in &event.batch.changes {
-                match change {
-                    Change::Insert { relation, row } => {
-                        check_relation(&tx, relation)?;
-                        insert(&tx, relation, row, &mut usage)?;
-                    }
-                    Change::Update { relation, old, row } => {
-                        check_relation(&tx, relation)?;
-                        let key = key(relation, old.as_deref().unwrap_or(row))?;
-                        let previous: Option<String> = tx
-                            .query_row(
-                                "SELECT payload FROM replica_rows WHERE relation_oid=?1 AND key=?2",
-                                params![relation.oid, key],
-                                |r| r.get(0),
-                            )
-                            .optional()?;
-                        let previous = previous.ok_or(Error::Corrupt)?;
-                        let prior_bytes = previous.len() as i64;
-                        let previous: Vec<Value> = serde_json::from_str(&previous)?;
-                        if row.len() != relation.columns.len() || previous.len() != row.len() {
-                            return Err(Error::Corrupt);
-                        }
-                        let merged = row
-                            .iter()
-                            .zip(previous)
-                            .map(|(new, prior)| {
-                                if *new == Value::UnchangedToast {
-                                    prior
-                                } else {
-                                    new.clone()
-                                }
-                            })
-                            .collect::<Vec<_>>();
-                        tx.execute(
-                            "DELETE FROM replica_rows WHERE relation_oid=?1 AND key=?2",
+        // The slot's exported snapshot includes exactly the state before its
+        // consistent point. Every emitted transaction must be applied, regardless
+        // of the 32-bit pgoutput XID or PostgreSQL's current XID epoch.
+        for change in &event.batch.changes {
+            match change {
+                Change::Insert { relation, row } => {
+                    check_relation(&tx, relation)?;
+                    insert(&tx, relation, row, &mut usage)?;
+                }
+                Change::Update { relation, old, row } => {
+                    check_relation(&tx, relation)?;
+                    let key = key(relation, old.as_deref().unwrap_or(row))?;
+                    let previous: Option<String> = tx
+                        .query_row(
+                            "SELECT payload FROM replica_rows WHERE relation_oid=?1 AND key=?2",
                             params![relation.oid, key],
-                        )?;
-                        usage.adjust(-1, -prior_bytes)?;
-                        insert(&tx, relation, &merged, &mut usage)?;
+                            |r| r.get(0),
+                        )
+                        .optional()?;
+                    let previous = previous.ok_or(Error::Corrupt)?;
+                    let prior_bytes = previous.len() as i64;
+                    let previous: Vec<Value> = serde_json::from_str(&previous)?;
+                    if row.len() != relation.columns.len() || previous.len() != row.len() {
+                        return Err(Error::Corrupt);
                     }
-                    Change::Delete { relation, old } => {
-                        check_relation(&tx, relation)?;
-                        let removed: Option<i64> = tx.query_row(
+                    let merged = row
+                        .iter()
+                        .zip(previous)
+                        .map(|(new, prior)| {
+                            if *new == Value::UnchangedToast {
+                                prior
+                            } else {
+                                new.clone()
+                            }
+                        })
+                        .collect::<Vec<_>>();
+                    tx.execute(
+                        "DELETE FROM replica_rows WHERE relation_oid=?1 AND key=?2",
+                        params![relation.oid, key],
+                    )?;
+                    usage.adjust(-1, -prior_bytes)?;
+                    insert(&tx, relation, &merged, &mut usage)?;
+                }
+                Change::Delete { relation, old } => {
+                    check_relation(&tx, relation)?;
+                    let removed: Option<i64> = tx.query_row(
                             "DELETE FROM replica_rows WHERE relation_oid=?1 AND key=?2 RETURNING length(CAST(payload AS BLOB))",
                             params![relation.oid, key(relation, old)?], |r|r.get(0),
                         ).optional()?;
-                        usage.adjust(-1, -removed.ok_or(Error::Corrupt)?)?;
-                    }
-                    Change::Truncate { relations, .. } => {
-                        for relation in relations {
-                            check_relation(&tx, relation)?;
-                            let (rows, bytes): (i64,i64) = tx.query_row(
+                    usage.adjust(-1, -removed.ok_or(Error::Corrupt)?)?;
+                }
+                Change::Truncate { relations, .. } => {
+                    for relation in relations {
+                        check_relation(&tx, relation)?;
+                        let (rows, bytes): (i64,i64) = tx.query_row(
                                 "SELECT count(*),coalesce(sum(length(CAST(payload AS BLOB))),0) FROM replica_rows WHERE relation_oid=?1",
                                 [relation.oid], |r| Ok((r.get(0)?,r.get(1)?)),
                             )?;
-                            tx.execute(
-                                "DELETE FROM replica_rows WHERE relation_oid=?1",
-                                [relation.oid],
-                            )?;
-                            usage.adjust(-rows, -bytes)?;
-                        }
+                        tx.execute(
+                            "DELETE FROM replica_rows WHERE relation_oid=?1",
+                            [relation.oid],
+                        )?;
+                        usage.adjust(-rows, -bytes)?;
                     }
                 }
             }
@@ -443,8 +438,6 @@ mod tests {
     fn snapshot(source: &Source) -> Snapshot {
         Snapshot {
             source: source.clone(),
-            visibility: Visibility::parse("10:20:10,14").unwrap(),
-            through: Lsn(100),
             tables: vec![(relation(), vec![row("1", "copied")])],
         }
     }
@@ -532,63 +525,30 @@ mod tests {
     }
 
     #[test]
-    fn visibility_fence_handles_commits_during_snapshot_acquisition() {
+    fn exported_snapshot_applies_every_transaction_across_xid_wrap_and_reopen() {
         let file = File::new();
         let source = source();
         let mut replica = Replica::initialize(&file.0, snapshot(&source)).unwrap();
-        replica
-            .apply(&event(
-                &source,
-                1,
-                11,
-                20,
-                vec![Change::Insert {
-                    relation: relation(),
-                    row: row("1", "copied"),
-                }],
-            ))
-            .unwrap();
-        replica
-            .apply(&event(
-                &source,
-                2,
-                14,
-                30,
-                vec![Change::Insert {
-                    relation: relation(),
-                    row: row("2", "active"),
-                }],
-            ))
-            .unwrap();
-        replica
-            .apply(&event(
-                &source,
-                3,
-                20,
-                40,
-                vec![Change::Insert {
-                    relation: relation(),
-                    row: row("3", "new"),
-                }],
-            ))
-            .unwrap();
-        // After the fence, ignore XID visibility altogether, including wrap.
-        replica
-            .apply(&event(
-                &source,
-                4,
-                3,
-                100,
-                vec![Change::Insert {
-                    relation: relation(),
-                    row: row("4", "wrapped"),
-                }],
-            ))
-            .unwrap();
-        assert_eq!(replica.view(3, 100).unwrap().rows.len(), 4);
+        for (sequence, xid) in [(1, u32::MAX - 1), (2, u32::MAX), (3, 3), (4, 4)] {
+            replica
+                .apply(&event(
+                    &source,
+                    sequence,
+                    xid,
+                    20 + sequence as u64 * 10,
+                    vec![Change::Insert {
+                        relation: relation(),
+                        row: row(&(sequence + 1).to_string(), "new"),
+                    }],
+                ))
+                .unwrap();
+            drop(replica);
+            replica = Replica::open(&file.0, &source).unwrap();
+        }
+        assert_eq!(replica.view(3, 100).unwrap().rows.len(), 5);
         assert_eq!(replica.cursor().unwrap().sequence, 4);
         assert!(matches!(
-            replica.apply(&event(&source, 6, 21, 110, vec![])),
+            replica.apply(&event(&source, 6, 5, 80, vec![])),
             Err(Error::InvalidCursor)
         ));
         assert_eq!(replica.cursor().unwrap().sequence, 4);
@@ -606,6 +566,35 @@ mod tests {
         assert!(Replica::initialize(&file.0, snapshot(&source)).is_err());
         assert_eq!(replica.view(3, 100).unwrap().rows, vec![row("1", "copied")]);
         assert!(Replica::initialize(":memory:", snapshot(&source)).is_err());
+    }
+
+    #[test]
+    fn legacy_overlap_replica_is_rejected_without_rewriting_its_rows() {
+        let file = File::new();
+        let source = source();
+        let replica = Replica::initialize(&file.0, snapshot(&source)).unwrap();
+        replica
+            .db
+            .execute("UPDATE replica_metadata SET format=1", [])
+            .unwrap();
+        drop(replica);
+        assert!(matches!(
+            Replica::open(&file.0, &source),
+            Err(Error::Invalid(_))
+        ));
+        let db = Connection::open(&file.0).unwrap();
+        assert_eq!(
+            db.query_row("SELECT count(*) FROM replica_rows", [], |r| r
+                .get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            db.query_row("SELECT format FROM replica_metadata", [], |r| r
+                .get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
     }
 
     #[test]

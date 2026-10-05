@@ -4,7 +4,7 @@ mod support;
 
 use std::{hint::black_box, time::Instant};
 
-use hulladb_cdc::{Capture, Cursor, EventLog, Replica, Retention, SnapshotReader};
+use hulladb_cdc::{Capture, Cursor, EventLog, Replica, Retention};
 use serde_json::{Value, json};
 use support::Fixture;
 
@@ -147,7 +147,7 @@ async fn reads_and_growth() -> Result<(Vec<Value>, Vec<Value>, Value), Box<dyn s
 }
 
 async fn snapshot_and_replica() -> Result<Vec<Value>, Box<dyn std::error::Error>> {
-    let f = Fixture::create().await?;
+    let mut f = Fixture::create_for_bootstrap(false).await?;
     f.db.batch_execute(&format!(
         "INSERT INTO {}.tasks SELECT i,'benchmark task',false FROM generate_series(1,1000) i",
         f.schema
@@ -157,12 +157,14 @@ async fn snapshot_and_replica() -> Result<Vec<Value>, Box<dyn std::error::Error>
     let mut samples = Vec::new();
     for index in 0..SAMPLES + WARMUP {
         // Connection establishment, snapshot acquisition, and locks are excluded.
-        let reader = SnapshotReader::begin(&f.url, &f.source).await?;
+        let reader = f.bootstrap().await?;
         let start = Instant::now();
         let replica = Replica::initialize(&replica_path, reader.read().await?)?;
         let elapsed = start.elapsed().as_nanos() as f64;
         black_box(&replica);
         drop(replica);
+        f.db.query_one("SELECT pg_drop_replication_slot($1)", &[&f.source.slot])
+            .await?;
         for suffix in ["", "-wal", "-shm"] {
             let _ = std::fs::remove_file(format!("{}{suffix}", replica_path.display()));
         }
@@ -170,20 +172,17 @@ async fn snapshot_and_replica() -> Result<Vec<Value>, Box<dyn std::error::Error>
             samples.push(elapsed);
         }
     }
-    let copy = result(
+    let mut copy = result(
         "cdc_snapshot_copy/1000",
         json!({"rows":1000,"title_bytes":14,"sqlite_synchronous":"FULL","includes":"metadata_and_copy_and_sqlite_initialization","connection_and_snapshot_acquisition_included":false}),
         samples,
     );
-    let snapshot = SnapshotReader::begin(&f.url, &f.source)
-        .await?
-        .read()
-        .await?;
+    copy["fixture_version"] = json!(3);
+    copy["workload"]["bootstrap"] = json!("slot-exported snapshot");
+    let snapshot = f.bootstrap().await?.read().await?;
     let mut replica = Replica::initialize(&replica_path, snapshot)?;
     let mut log = EventLog::open(&f.path, f.source.clone(), Retention::default())?;
     let mut capture = Capture::connect(&f.url, &f.source).await?;
-    assert_eq!(capture_one(&mut capture, &mut log).await?.appended.len(), 1);
-    assert_eq!(replica.catch_up(&log, 100)?, 1);
     let mut samples = Vec::new();
     for index in 0..SAMPLES + WARMUP {
         f.db.batch_execute(&format!(
@@ -200,11 +199,13 @@ async fn snapshot_and_replica() -> Result<Vec<Value>, Box<dyn std::error::Error>
             samples.push(elapsed);
         }
     }
-    let apply = result(
+    let mut apply = result(
         "cdc_replica_apply/100",
         json!({"rows_per_transaction":100,"materialized_rows":1000,"sqlite_synchronous":"FULL","includes":"log_read_decode_and_atomic_replica_apply_and_size_check","sql_write_and_capture_included":false}),
         samples,
     );
+    apply["fixture_version"] = json!(3);
+    apply["workload"]["bootstrap"] = json!("slot-exported snapshot");
     capture.close().await?;
     drop(replica);
     drop(log);

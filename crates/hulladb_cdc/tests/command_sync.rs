@@ -2,7 +2,7 @@
 mod commands;
 
 use commands::CommandFixture;
-use hulladb_cdc::{Capture, EventLog, Replica, Retention, SnapshotReader, Value};
+use hulladb_cdc::{Capture, EventLog, Replica, Retention, Value};
 use hulladb_postgres::{Command, Error, Uuid};
 
 async fn publish(capture: &mut Capture, log: &mut EventLog, replica: &mut Replica, expected: i64) {
@@ -40,16 +40,11 @@ async fn real_commands_external_writes_scoped_keys_and_restart_share_one_cdc_pat
         .execute(other, Uuid::now_v7(), create.clone())
         .await
         .unwrap();
-    let snapshot = SnapshotReader::begin(&f.url, &f.source)
-        .await
-        .unwrap()
-        .read()
-        .await
-        .unwrap();
+    let snapshot = f.bootstrap().await.unwrap().read().await.unwrap();
     let mut replica = Replica::initialize(&f.replica_path, snapshot).unwrap();
     let mut log = EventLog::open(&f.log_path, f.source.clone(), Retention::default()).unwrap();
     let mut capture = Capture::connect(&f.url, &f.source).await.unwrap();
-    publish(&mut capture, &mut log, &mut replica, 2).await;
+    assert_eq!(replica.view(f.table, 1000).unwrap().rows.len(), 2);
     assert_eq!(
         f.store.execute(f.session, request, create).await.unwrap(),
         receipt
@@ -60,8 +55,8 @@ async fn real_commands_external_writes_scoped_keys_and_restart_share_one_cdc_pat
     }
     assert_eq!(
         log.head().unwrap().sequence,
-        2,
-        "receipt replay must not emit a mutation"
+        0,
+        "copied rows and receipt replay must not emit mutations"
     );
     f.store
         .execute(
@@ -93,7 +88,7 @@ async fn real_commands_external_writes_scoped_keys_and_restart_share_one_cdc_pat
     assert!(f.store.receipt(f.session, failed).await.unwrap().is_none());
     // External SQL is captured by the same WAL path, without a command log.
     f.db.execute("UPDATE _hulladb_task_probe.tasks SET title='external update',version=version+1 WHERE workspace=$1 AND id=$2", &[&other.workspace, &id]).await.unwrap();
-    publish(&mut capture, &mut log, &mut replica, 4).await;
+    publish(&mut capture, &mut log, &mut replica, 2).await;
     let view = replica.view(f.table, 1000).unwrap();
     assert!(view.complete);
     let own: Vec<_> = view
@@ -122,7 +117,7 @@ async fn real_commands_external_writes_scoped_keys_and_restart_share_one_cdc_pat
         )
         .await
         .unwrap();
-    publish(&mut capture, &mut log, &mut replica, 5).await;
+    publish(&mut capture, &mut log, &mut replica, 3).await;
     capture.close().await.unwrap();
     drop(replica);
     drop(log);

@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use hulladb_cdc::Source;
+use hulladb_cdc::{Lsn, SnapshotReader, Source};
 use hulladb_postgres::{Session, Store, Uuid};
 use tokio::task::JoinHandle;
 use tokio_postgres::{Client, NoTls};
@@ -37,14 +37,7 @@ impl CommandFixture {
             "CREATE PUBLICATION {publication} FOR TABLE _hulladb_task_probe.tasks"
         ))
         .await?;
-        let start = db
-            .query_one(
-                "SELECT lsn::text FROM pg_create_logical_replication_slot($1,'pgoutput')",
-                &[&slot],
-            )
-            .await?
-            .get::<_, String>(0)
-            .parse()?;
+        let start = Lsn(0);
         let identity = db.query_one("SELECT (pg_control_system()).system_identifier::text, (SELECT oid FROM pg_database WHERE datname=current_database()), (SELECT oid FROM pg_publication WHERE pubname=$1), '_hulladb_task_probe.tasks'::regclass::oid", &[&publication]).await?;
         let source = Source {
             generation: Uuid::now_v7(),
@@ -69,9 +62,16 @@ impl CommandFixture {
         })
     }
 
+    pub async fn bootstrap(&mut self) -> Result<SnapshotReader, hulladb_cdc::Error> {
+        let reader =
+            SnapshotReader::begin(&self.url, &self.source.slot, &self.source.publication).await?;
+        self.source = reader.source().clone();
+        Ok(reader)
+    }
+
     pub async fn cleanup(mut self) -> Result<(), Box<dyn std::error::Error>> {
         self.db
-            .query_one("SELECT pg_drop_replication_slot($1)", &[&self.source.slot])
+            .query("SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name=$1", &[&self.source.slot])
             .await?;
         self.db
             .batch_execute(&format!("DROP PUBLICATION {}", self.source.publication))

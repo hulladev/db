@@ -1,7 +1,6 @@
 use futures_util::TryStreamExt;
-use serde::{Deserialize, Serialize};
 
-use crate::{Capture, Column, Error, Lsn, Relation, Source, Value};
+use crate::{Capture, Column, Error, Relation, Source, Value, bootstrap::ExportConnection};
 
 pub const MAX_SNAPSHOT_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_SNAPSHOT_ROWS: usize = 100_000;
@@ -10,85 +9,31 @@ pub const MAX_SNAPSHOT_ROWS: usize = 100_000;
 /// Constructed only after the repeatable-read copy has completed successfully.
 pub struct Snapshot {
     pub(crate) source: Source,
-    pub(crate) visibility: Visibility,
-    pub(crate) through: Lsn,
     pub(crate) tables: Vec<(Relation, Vec<Vec<Value>>)>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct Visibility {
-    xmin: u32,
-    xmax: u32,
-    active: Vec<u32>,
-}
-
-impl Visibility {
-    pub(crate) fn parse(text: &str) -> Result<Self, Error> {
-        let mut parts = text.split(':');
-        let xmin = parts
-            .next()
-            .ok_or(Error::Corrupt)?
-            .parse::<u32>()
-            .map_err(|_| {
-                Error::Invalid("snapshot XID epoch is unsupported; exported bootstrap required")
-            })?;
-        let xmax = parts
-            .next()
-            .ok_or(Error::Corrupt)?
-            .parse::<u32>()
-            .map_err(|_| {
-                Error::Invalid("snapshot XID epoch is unsupported; exported bootstrap required")
-            })?;
-        let list = parts.next().ok_or(Error::Corrupt)?;
-        if parts.next().is_some() || xmin < 3 || xmax < xmin {
-            return Err(Error::Corrupt);
-        }
-        let active: Vec<u32> = if list.is_empty() {
-            Vec::new()
-        } else {
-            list.split(',')
-                .map(|v| v.parse().map_err(|_| Error::Corrupt))
-                .collect::<Result<_, _>>()?
-        };
-        if active.iter().any(|x| *x < xmin || *x >= xmax)
-            || active.windows(2).any(|pair| pair[0] >= pair[1])
-        {
-            return Err(Error::Corrupt);
-        }
-        Ok(Self { xmin, xmax, active })
-    }
-
-    pub(crate) fn visible(&self, xid: u32) -> Result<bool, Error> {
-        if xid < 3 {
-            return Err(Error::Corrupt);
-        }
-        Ok(xid < self.xmin || (xid < self.xmax && self.active.binary_search(&xid).is_err()))
-    }
-}
-
 /// Owns the slot cooperatively while copying a stable MVCC snapshot.
-/// The caller creates a fresh dedicated slot first; existing slots are never reset.
+/// Creates a new dedicated slot with an exported snapshot; existing slots are never reset.
 pub struct SnapshotReader {
     capture: Capture,
-    visibility: Visibility,
-    through: Lsn,
     locked: Vec<u32>,
 }
 
 impl SnapshotReader {
-    pub async fn begin(url: &str, source: &Source) -> Result<Self, Error> {
-        let capture = Capture::connect(url, source).await?;
-        capture.check_slot(source.start).await?;
-        let confirmed: String = capture
+    pub async fn begin(url: &str, slot: &str, publication: &str) -> Result<Self, Error> {
+        let mut capture = Capture::bootstrap_connection(url, slot, publication).await?;
+        if capture
             .db
-            .query_one(
-                "SELECT confirmed_flush_lsn::text FROM pg_replication_slots WHERE slot_name=$1",
-                &[&source.slot],
+            .query_opt(
+                "SELECT 1 FROM pg_replication_slots WHERE slot_name=$1",
+                &[&slot],
             )
             .await?
-            .get(0);
-        if confirmed.parse::<Lsn>()? != source.start {
-            return Err(Error::SlotAhead);
+            .is_some()
+        {
+            return Err(Error::Invalid(
+                "exported bootstrap requires a new dedicated slot",
+            ));
         }
         let tables = capture
             .db
@@ -96,7 +41,7 @@ impl SnapshotReader {
                 "SELECT c.oid,n.nspname,c.relname FROM pg_publication_rel pr
              JOIN pg_class c ON c.oid=pr.prrelid JOIN pg_namespace n ON n.oid=c.relnamespace
              WHERE pr.prpubid=$1 ORDER BY c.oid",
-                &[&source.publication_oid],
+                &[&capture.source.publication_oid],
             )
             .await?;
         if tables.is_empty() || tables.len() > 64 {
@@ -115,33 +60,26 @@ impl SnapshotReader {
             .collect::<Vec<_>>()
             .join(",");
         capture.db.batch_execute(&format!("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY; LOCK TABLE {names} IN ACCESS SHARE MODE")).await?;
-        // The statement acquires its snapshot before evaluating the WAL position.
-        // Every commit visible to this snapshot precedes this insert boundary.
-        let row = capture
+        // LOCK is a utility command and does not acquire an MVCC snapshot.
+        // Hold these locks before exporting, since TRUNCATE is not MVCC-safe.
+        let mut exporter = ExportConnection::connect(&capture.config, &capture.source).await?;
+        let (start, snapshot) = exporter.export(slot).await?;
+        capture.source.start = start;
+        capture
             .db
-            .query_one(
-                "SELECT pg_current_snapshot()::text, pg_current_wal_insert_lsn()::text",
-                &[],
-            )
+            .batch_execute(&format!("SET TRANSACTION SNAPSHOT '{snapshot}'"))
             .await?;
-        let visibility = Visibility::parse(&row.get::<_, String>(0))?;
-        let through = row.get::<_, String>(1).parse()?;
-        // Allocate an XID after sampling WAL. Reject crossing the first XID
-        // wrap during acquisition as well as databases already in later epochs.
-        let anchor: String = capture
-            .db
-            .query_one("SELECT pg_current_xact_id()::text", &[])
-            .await?
-            .get(0);
-        anchor.parse::<u32>().map_err(|_| {
-            Error::Invalid("snapshot XID epoch is unsupported; exported bootstrap required")
-        })?;
-        Ok(Self {
-            capture,
-            visibility,
-            through,
-            locked,
-        })
+        // An imported snapshot survives the exporting session. Close it only
+        // after successful import; cancellation drops both owned connections.
+        drop(exporter);
+        capture.wait_inactive().await?;
+        capture.check_slot(start).await?;
+        Ok(Self { capture, locked })
+    }
+
+    /// Persist this identity with the initialized log and replica for recovery.
+    pub fn source(&self) -> &Source {
+        &self.capture.source
     }
 
     /// Bounded copy of explicit ordinary tables with default primary-key identity.
@@ -245,7 +183,12 @@ impl SnapshotReader {
                 replica_identity: b'd',
                 columns,
             };
-            bytes += serde_json::to_vec(&relation)?.len();
+            bytes = bytes
+                .checked_add(serde_json::to_vec(&relation)?.len())
+                .ok_or(Error::Limit)?;
+            if bytes > MAX_SNAPSHOT_BYTES {
+                return Err(Error::Limit);
+            }
             let expressions = relation
                 .columns
                 .iter()
@@ -288,8 +231,6 @@ impl SnapshotReader {
         self.capture.close().await?;
         Ok(Snapshot {
             source,
-            visibility: self.visibility,
-            through: self.through,
             tables: copied,
         })
     }
@@ -297,31 +238,4 @@ impl SnapshotReader {
 
 fn quote(identifier: &str) -> String {
     format!("\"{}\"", identifier.replace('"', "\"\""))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn visibility_uses_active_transactions_and_rejects_unknown_epochs() {
-        let snapshot = Visibility::parse("10:20:10,14,15").unwrap();
-        for xid in [3, 9, 11, 13, 16, 19] {
-            assert!(snapshot.visible(xid).unwrap());
-        }
-        for xid in [10, 14, 15, 20, 21] {
-            assert!(!snapshot.visible(xid).unwrap());
-        }
-        for text in [
-            "",
-            "1:2:",
-            "20:10:",
-            "10:20:9",
-            "10:20:14,10",
-            "10:20:10,10",
-            "10:4294967296:",
-        ] {
-            assert!(Visibility::parse(text).is_err(), "{text}");
-        }
-        assert_eq!(quote("a\"b"), "\"a\"\"b\"");
-    }
 }
