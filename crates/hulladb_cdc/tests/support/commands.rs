@@ -1,0 +1,95 @@
+use std::path::PathBuf;
+
+use hulladb_cdc::Source;
+use hulladb_postgres::{Session, Store, Uuid};
+use tokio::task::JoinHandle;
+use tokio_postgres::{Client, NoTls};
+
+/// The real command table, publication and slot; no mirror table or trigger.
+pub struct CommandFixture {
+    pub store: Store,
+    pub session: Session,
+    pub db: Client,
+    pub url: String,
+    pub source: Source,
+    pub table: u32,
+    pub log_path: PathBuf,
+    pub replica_path: PathBuf,
+    connection: JoinHandle<Result<(), tokio_postgres::Error>>,
+}
+
+impl CommandFixture {
+    pub async fn create(rows: i32) -> Result<Self, Box<dyn std::error::Error>> {
+        let url = std::env::var("HULLADB_TEST_URL")
+            .unwrap_or_else(|_| "postgresql://db_dev:db_dev@127.0.0.1:55432/db_dev".into());
+        let mut store = Store::connect(&url).await?;
+        store.initialize().await?;
+        let session = store.create_workspace(Uuid::now_v7()).await?;
+        store.seed_fixture(session, rows).await?;
+        let (db, connection) = tokio_postgres::connect(&url, NoTls).await?;
+        let connection = tokio::spawn(connection);
+        db.batch_execute("SET statement_timeout='5s'; SET lock_timeout='5s';")
+            .await?;
+        let id = Uuid::now_v7().simple().to_string();
+        let publication = format!("hccp_{id}");
+        let slot = format!("hccs_{id}");
+        db.batch_execute(&format!(
+            "CREATE PUBLICATION {publication} FOR TABLE _hulladb_task_probe.tasks"
+        ))
+        .await?;
+        let start = db
+            .query_one(
+                "SELECT lsn::text FROM pg_create_logical_replication_slot($1,'pgoutput')",
+                &[&slot],
+            )
+            .await?
+            .get::<_, String>(0)
+            .parse()?;
+        let identity = db.query_one("SELECT (pg_control_system()).system_identifier::text, (SELECT oid FROM pg_database WHERE datname=current_database()), (SELECT oid FROM pg_publication WHERE pubname=$1), '_hulladb_task_probe.tasks'::regclass::oid", &[&publication]).await?;
+        let source = Source {
+            generation: Uuid::now_v7(),
+            system_id: identity.get(0),
+            database_oid: identity.get(1),
+            publication_oid: identity.get(2),
+            slot,
+            publication,
+            start,
+        };
+        let base = std::env::temp_dir().join(format!("hulladb-command-cdc-{id}"));
+        Ok(Self {
+            store,
+            session,
+            db,
+            url,
+            source,
+            table: identity.get(3),
+            log_path: base.with_extension("log.sqlite"),
+            replica_path: base.with_extension("replica.sqlite"),
+            connection,
+        })
+    }
+
+    pub async fn cleanup(mut self) -> Result<(), Box<dyn std::error::Error>> {
+        self.db
+            .query_one("SELECT pg_drop_replication_slot($1)", &[&self.source.slot])
+            .await?;
+        self.db
+            .batch_execute(&format!("DROP PUBLICATION {}", self.source.publication))
+            .await?;
+        self.store
+            .delete_fixture_workspace(self.session.workspace)
+            .await?;
+        Ok(())
+    }
+}
+
+impl Drop for CommandFixture {
+    fn drop(&mut self) {
+        self.connection.abort();
+        for path in [&self.log_path, &self.replica_path] {
+            for suffix in ["", "-wal", "-shm"] {
+                let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
+            }
+        }
+    }
+}
