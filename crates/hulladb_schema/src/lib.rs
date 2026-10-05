@@ -192,8 +192,27 @@
 //! # Ok::<(), hulladb_schema::SchemaError>(())
 //! ```
 
+//! Validate an explicit entity projection without treating it as a full row:
+//!
+//! ```
+//! use hulladb_schema::{FieldDefinition, RecordValues, ScalarType, TableDeclaration, Value};
+//! let tasks = TableDeclaration::new("tasks", vec![
+//!     FieldDefinition::new("title", ScalarType::String),
+//!     FieldDefinition::new("version", ScalarType::Int64),
+//! ]).normalize()?;
+//! let summary = tasks.projection("summary", &["id", "title"])?;
+//! let values = RecordValues::from([
+//!     ("id".into(), Value::Uuid([1; 16])),
+//!     ("title".into(), Value::String("Ship".into())),
+//! ]);
+//! summary.validate_record(&values)?;
+//! assert!(tasks.validate_row(&values).is_err()); // A full row also needs version.
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
+
 mod error;
 mod key;
+mod projection;
 mod schema;
 mod table;
 mod types;
@@ -203,6 +222,7 @@ mod value;
 
 pub use error::SchemaError;
 pub use key::{InsertKeyPolicy, KeyGeneration, UuidGeneration};
+pub use projection::{ProjectionContract, ProjectionError, ProjectionErrorKind};
 pub use schema::{ReferenceContract, ReferenceDeclaration, SchemaContract, SchemaDeclaration};
 pub use table::{TableContract, TableDeclaration};
 pub use types::{FieldDefinition, ScalarType};
