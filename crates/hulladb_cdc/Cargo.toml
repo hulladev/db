@@ -20,3 +20,12 @@ workspace = true
 
 [dev-dependencies]
 hulladb_postgres = { path = "../hulladb_postgres" }
+
+[[bench]]
+name = "capture"
+harness = false
+
+
+[[bench]]
+name = "sync"
+harness = false

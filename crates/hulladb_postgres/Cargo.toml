@@ -18,3 +18,7 @@ hulladb_wire = { path = "../hulladb_wire" }
 
 [lints]
 workspace = true
+
+[[bench]]
+name = "command_queries"
+harness = false
