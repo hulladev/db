@@ -108,8 +108,12 @@ large-transaction handling remain production requirements.
 JSON currently repeats relation metadata per change. The decoder charges that
 expansion before cloning, and JSON serialization enforces its byte limit while
 writing. This is an inspectable internal envelope, not a stable SDK/wire format
-or an optimized representation. Retention currently scans the bounded history
-to account for bytes; high-volume retention should maintain counters instead.
+or an optimized representation. Retention maintains durable batch/encoded-byte
+counters in the append transaction. Pruning reads only the removed payloads rather
+than rescanning the retained history; rollback preserves rows, counters, cursor and
+checkpoint together. Opening an older format-one log upgrades it atomically to
+format two, counting its retained history once without changing source identity or
+progress. Earlier collectors reject the new storage format.
 
 Deleting history bounds live payload but does not immediately shrink SQLite's
 files. Freed pages can be reused, and SQLite's own WAL has a separate footprint.
@@ -130,7 +134,8 @@ rejection, cancelled waits,
 buffered commits across disconnect, ignored logical messages, and a full event
 queue paused beyond a 500 ms sender timeout without premature acknowledgement.
 Pure tests cover SQLite rollback/reopen/deduplication, rejection of volatile storage,
-count/byte retention, cursor scope, LSN roundtrips, truncated protocol frames,
+count/byte retention, atomic accounting upgrades and pruning rollback, cursor scope,
+LSN roundtrips, truncated protocol frames,
 ignored-message transaction limits, and unsupported tuple formats.
 
 The current six-case suite uses five warmups and 31 measured requests, recording
