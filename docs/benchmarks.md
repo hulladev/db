@@ -62,7 +62,7 @@ Capture measures a precommitted one-row or 100-row transaction, a SQL commit plu
 capture through a persistent stream, and reading/decoding 100 retained batches.
 The obsolete idle-poll case is removed; an idle stream waits for source progress.
 Snapshot cases measure copying/initializing 1,000 rows and log-read/decode/application of a
-100-row transaction to that replica. Copy excludes connection/snapshot acquisition;
+100-row transaction to that replica. Copy excludes connection/slot creation/snapshot import;
 application excludes SQL write/capture. Replica size checks use atomic counters.
 
 Count/payload/page/WAL diagnostics at 64/128/256/512 one-row commits verify
@@ -79,14 +79,17 @@ creation. No fixture mirror trigger, command-written log or secondary engine run
 
 | Metric | Timed boundary |
 | --- | --- |
-| `bootstrap` | Connection and MVCC snapshot acquisition, source copy and durable replica initialization |
+| `bootstrap` | Connections, dedicated slot creation, snapshot export/import, source copy and durable replica initialization |
 | `command_commit` | Authorized version-checked patch through PostgreSQL commit and returned receipt |
 | `commit_to_replica` | After receipt return through streaming reception, durable event-log commit and atomic replica application; asynchronous upstream feedback is excluded |
 | `command_to_replica` | Combined command and visibility stages, measured on the same operation |
 | `replica_view` | Reading/decoding an internal bounded full-row view from durable SQLite |
 
-Bootstrap runs against a fresh unacknowledged dedicated slot; each replica file is
-removed between samples. Patch samples alternate completion, check versions and
+Each bootstrap sample creates its own dedicated slot and imports that slot's
+exported snapshot; the owned slot and replica file are removed between samples.
+Slot cleanup is outside the timer. Unlike the earlier overlap fixture, the timed
+bootstrap includes slot creation/export, so this fixture uses version three and
+requires an explicit new baseline. Patch samples alternate completion, check versions and
 verify the materialized row/cursor. Fixture creation, slot setup, validation and
 cleanup are excluded. Bootstrap intentionally includes acquisition costs that the
 isolated CDC copy case excludes.
@@ -96,17 +99,24 @@ results. Total latency excludes remote client RTT, pushed delivery, browser
 startup/rendering and fan-out. The capture socket remains open across measured
 operations. Upstream feedback follows durable event persistence asynchronously;
 visibility does not wait for the feedback interval. Graceful shutdown waits for
-reported feedback, outside the measurement. Streaming fixtures use version 2 and
-new baselines; their timing boundary differs from SQL peek/advance measurements.
+reported feedback, outside the measurement. The CDC copy/application and sync fixtures use version three for exported
+bootstrap. Capture-only fixtures remain version two; their timing boundaries are
+unchanged. Versions and workload metadata reject comparisons across this handoff
+change, as well as earlier SQL peek/advance measurements.
 Do not interpret these timings as proof that Rust Wasm is faster than TS or that
 server state is instantly visible to every client.
 
-The local streaming baseline recorded on 5 October 2026 reports these medians:
+The local exported-bootstrap baseline recorded on 5 October 2026 reports these medians:
 
 | Workspace tasks | Command acknowledgement | Acknowledgement to replica | Command through replica |
 | --- | --- | --- | --- |
-| 1 | 2.65 ms | 0.47 ms | 3.15 ms |
-| 512 | 2.55 ms | 0.40 ms | 2.98 ms |
+| 1 | 2.83 ms | 0.63 ms | 3.51 ms |
+| 512 | 3.10 ms | 0.68 ms | 3.85 ms |
+
+Bootstrap medians are 35.33 ms at one task and 30.51 ms at 512 tasks, including
+slot creation/export/import. They cannot be compared directly with the earlier
+bootstrap fixture, which excluded slot creation. Current CDC and sync baselines
+record explicit replacement reasons and changed fixture/workload identities.
 
 Each column is a separately computed median, so their sums need not match exactly.
 The committed-versus-visible distinction remains even when local delivery is fast.

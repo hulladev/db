@@ -21,9 +21,9 @@ SDKs and Wasm bindings are not implemented or benchmarked yet.
 
 Implemented today: logical schema/value/projection contracts, a lossless JSON
 codec, fixed PostgreSQL commands and bounded queries, pgoutput transaction capture,
-bounded MVCC bootstrap, SQLite event history and atomic durable materialization.
-Capture uses a persistent PostgreSQL replication connection. Exported snapshots,
-authorized CDC query serving, receipt-to-visibility correlation and pushed client
+bounded slot-exported bootstrap, SQLite event history and atomic durable materialization.
+Capture uses a persistent PostgreSQL replication connection.
+Authorized CDC query serving, receipt-to-visibility correlation and pushed client
 delivery remain the next layers of this direction. The current server materialization
 does not establish that an additional durable server copy is mandatory in production.
 
@@ -106,6 +106,7 @@ Changing PostgreSQL major versions requires a database upgrade.
 | `scripts/bench.py` | Reproducible release benchmarks and comparison safeguards |
 | `Makefile`, `compose.yaml` | Local checks and PostgreSQL development service |
 
-The current bootstrap is bounded and rejects unsupported XID epochs, schemas and
-publication shapes. Raw server logs/replicas have no client authorization boundary.
+The current bootstrap is bounded and rejects unsupported schemas and publication
+shapes. It imports the slot-exported snapshot without interpreting XID epochs.
+Raw server logs/replicas have no client authorization boundary.
 Completing the serving layer is required before these internals become a SDK API.

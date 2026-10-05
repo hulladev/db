@@ -1,6 +1,6 @@
 # Hulla DB — architecture and implementation design
 
-**Status:** Architecture proposal; schema/value/projection contracts, JSON codec, benchmarks, an authoritative PostgreSQL command/query backend and bounded CDC capture/snapshot/replica implemented; CDC is the sole PostgreSQL sync model; general storage enforcement, exported-snapshot transport, authorized CDC query serving, and configurable concurrency remain future work
+**Status:** Architecture proposal; schema/value/projection contracts, JSON codec, benchmarks, an authoritative PostgreSQL command/query backend and bounded CDC capture/snapshot/replica implemented; CDC is the sole PostgreSQL sync model; general storage enforcement, authorized CDC query serving, and configurable concurrency remain future work
 
 **Updated:** 5 October 2026
 
@@ -146,10 +146,11 @@ browser rendering or production tails. Use p50/p95/p99 under representative RTT,
 concurrency, result sizes and subscriber counts as those layers are implemented.
 
 Capture now uses a persistent replication connection; the SQL peek/advance path
-has been removed. Exported-snapshot bootstrap remains next within this same CDC
-path. Replace the overlapping bootstrap after the recovery/handoff scenarios pass;
-do not add a selectable alternate sync engine. Current correctness limits remain
-explicit until implemented and verified. Local streaming measurements do not
+has been removed. Bootstrap now creates a dedicated slot through a bounded
+replication command connection and imports its exported snapshot. The overlapping
+bootstrap and its XID epoch restriction are removed. Recovery, external writes,
+TRUNCATE locking and cancellation scenarios verify the handoff; retain the stated
+schema/publication and resource limits. Local streaming measurements do not
 establish a client/server or browser latency improvement.
 
 ## 3. Lessons from comparable systems
@@ -534,14 +535,14 @@ conflict resolution.
 
 The [capture implementation](cdc-slice.md) persists complete transactions before
 acknowledgement and handles restart deduplication and expired cursors. The
-[snapshot and replica](cdc-snapshot.md) implement a bounded overlapping MVCC copy
+[snapshot and replica](cdc-snapshot.md) implement a bounded slot-exported copy
 and whole-transaction materialization. An integration test captures the actual
 authoritative task table, including scoped composite physical identities, receipt
 replay, external SQL and durable reopening. The logical SDK primary-key contract
 still selects one field; physical tenant keys do not broaden it.
 
-Current capture uses persistent streaming; bootstrap rejects XID epochs beyond
-the first. Exported snapshots, authorized CDC query serving, receipt-to-visibility
+Current capture uses persistent streaming and slot-exported bootstrap without an
+application XID epoch restriction. Authorized CDC query serving, receipt-to-visibility
 correlation and pushed SDK delivery remain required work.
 These are missing layers of the selected model, not reasons to preserve the old
 execution path.
@@ -737,7 +738,7 @@ Use property-based/differential tests for query and adapter semantics, and fault
 | Initial query expressiveness | Named constrained queries with projections and bounded results | Broader relational DSL; assess joins and pagination costs |
 | Write presentation default | Server-confirmed, with explicit optimism | Application-wide optimistic default where predictors exist |
 | Application concurrency policies | Version-checked ordinary edits; atomic semantic commands; explicit overwrite/merge/custom extensions | Public API and adapter conformance pending; measure independent and hot-resource workloads without workspace-wide serialization |
-| PostgreSQL change capture and external writers | Sole Rust CDC path with separate bounded durable sync storage | Exported bootstrap, failover and authorized serving remain; obsolete task feed is removed |
+| PostgreSQL change capture and external writers | Sole Rust CDC path with separate bounded durable sync storage | Failover and authorized serving remain; obsolete task feed is removed |
 | SQLite release timing | Early contract-validation spike; production support later | Ship both only if resources and conformance evidence justify it |
 | Tenant isolation | Separate application namespaces and enforced auth; choose physical deployment after workload tests | Database/schema per application vs. pooled storage, with operational and cost implications |
 | License | Free self-hosting is required; exact license unresolved | Review ecosystem goals and competing-hosting policy |

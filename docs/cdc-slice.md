@@ -148,17 +148,18 @@ and the separate actual-command CDC suite for the commit/visibility boundary.
 
 The growth fixture samples 64, 128, 256, and 512 one-row commits. At 256 and 512,
 live history stayed at 128 batches / 57,344 payload bytes. SQLite page footprint
-stayed at 90,112 bytes, with 8,192 reusable bytes; its WAL file was roughly 4 MiB.
+stayed at 94,208 bytes, with 8,192 reusable bytes; its WAL file was roughly 4 MiB.
 The ordinary PostgreSQL business table grew as records were inserted. No source
 event/receipt table was created by this capture path. These small fixed fixtures
 establish a baseline, not a general storage-amplification ratio.
 
 ## Next boundary
 
-An overlapping repeatable-read bootstrap and durable queryable replica are now
-implemented in the [snapshot implementation](cdc-snapshot.md). Prove exported-snapshot
-bootstrap through a replication connection, including arbitrary XID epochs. Add typed/schema evolution
-handling, authorization-aware bounded query results, and mutation correlation.
+Slot-exported repeatable-read bootstrap and a durable queryable replica are now
+implemented in the [snapshot implementation](cdc-snapshot.md). Bootstrap has no
+application XID epoch restriction; older overlap replicas require a fresh source
+generation. Add typed/schema evolution handling, authorization-aware bounded query
+results, and mutation correlation.
 Evaluate PostgreSQL versus SQLite sync storage with equivalent durability/workloads.
 Configurable backend concurrency policies remain a separate mutation-execution task; CDC follows whatever commits
 without changing application conflict rules.
