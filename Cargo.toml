@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/hulladb_schema", "crates/hulladb_wire"]
+members = ["crates/hulladb_schema", "crates/hulladb_wire", "crates/hulladb_postgres"]
 resolver = "3"
 
 [workspace.package]
