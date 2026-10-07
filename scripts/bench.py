@@ -19,7 +19,7 @@ SUITES = {
     "contracts": ("hulladb_wire", "baseline", BASELINE),
     "backend": ("hulladb_postgres", "command_queries", ROOT / "benchmarks/baselines/backend-local.json"),
     "cdc": ("hulladb_cdc", "capture", ROOT / "benchmarks/baselines/cdc-snapshot-local.json"),
-    "sync": ("hulladb_cdc", "sync", ROOT / "benchmarks/baselines/sync-local.json"),
+    "sync": ("hulladb_sync", "sync", ROOT / "benchmarks/baselines/sync-local.json"),
 }
 ENVIRONMENT_KEYS = ("machine", "platform", "compiler", "build_config", "compiled_profile")
 
@@ -54,9 +54,10 @@ def environment():
 
 def run_suite(suite="contracts"):
     package, target, _ = SUITES[suite]
+    features = ("--features", "diagnostic-replica") if suite == "cdc" else ()
     compiled = command(
         "cargo", "bench", "--locked", "-p", package, "--bench", target,
-        "--no-run", "--message-format=json",
+        *features, "--no-run", "--message-format=json",
     )
     executables = []
     for line in compiled.splitlines():
