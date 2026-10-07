@@ -1,0 +1,27 @@
+[package]
+name = "hulladb_server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
+futures-util = "0.3"
+hulladb_postgres = { path = "../hulladb_postgres" }
+hulladb_protocol = { path = "../hulladb_protocol" }
+hulladb_sync = { path = "../hulladb_sync" }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "net", "signal"] }
+tokio-postgres = "0.7"
+uuid = { version = "1", features = ["serde", "v7"] }
+
+[dev-dependencies]
+serde_json = "1"
+hulladb_client = { path = "../hulladb_client" }
+http-body-util = "0.1"
+hyper = { version = "1", features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+tower = { version = "0.5", features = ["util"] }
+
+[lints]
+workspace = true
