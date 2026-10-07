@@ -1,13 +1,10 @@
 CREATE SCHEMA IF NOT EXISTS _hulladb_task_probe;
+-- Persisted source identity detects replacements/restores; it is not a schema version.
 CREATE TABLE IF NOT EXISTS _hulladb_task_probe.metadata (
-    singleton boolean PRIMARY KEY CHECK (singleton), generation integer NOT NULL
+    singleton boolean PRIMARY KEY CHECK (singleton),
+    source uuid NOT NULL DEFAULT gen_random_uuid()
 );
-INSERT INTO _hulladb_task_probe.metadata VALUES (true, 2) ON CONFLICT DO NOTHING;
-DO $$ BEGIN
-    IF (SELECT generation FROM _hulladb_task_probe.metadata) NOT IN (1, 2) THEN
-        RAISE EXCEPTION 'unsupported task probe schema generation';
-    END IF;
-END $$;
+INSERT INTO _hulladb_task_probe.metadata(singleton) VALUES (true) ON CONFLICT DO NOTHING;
 CREATE TABLE IF NOT EXISTS _hulladb_task_probe.workspaces (
     id uuid PRIMARY KEY, sequence bigint NOT NULL DEFAULT 0 CHECK (sequence >= 0)
 );
@@ -29,19 +26,3 @@ CREATE TABLE IF NOT EXISTS _hulladb_task_probe.receipts (
     payload jsonb NOT NULL, receipt jsonb NOT NULL,
     PRIMARY KEY (workspace, principal, request_id)
 );
--- Upgrade the earlier internal schema atomically. Receipts and authoritative
--- rows survive; the command-written feed has no role in CDC synchronization.
-DO $$ BEGIN
-    IF (SELECT generation FROM _hulladb_task_probe.metadata) = 1 THEN
-        IF EXISTS (SELECT 1 FROM _hulladb_task_probe.receipts
-                   WHERE jsonb_array_length(receipt->'batch'->'changes') IS DISTINCT FROM 1) THEN
-            RAISE EXCEPTION 'cannot migrate malformed command receipts';
-        END IF;
-        UPDATE _hulladb_task_probe.receipts SET receipt = jsonb_build_object(
-            'request_id', receipt->'request_id',
-            'revision', (receipt->'batch'->'cursor') || '{"generation":2}'::jsonb,
-            'change', receipt->'batch'->'changes'->0);
-        DROP TABLE IF EXISTS _hulladb_task_probe.changes;
-        UPDATE _hulladb_task_probe.metadata SET generation=2;
-    END IF;
-END $$;

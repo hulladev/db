@@ -332,10 +332,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "hulladb_client"
+version = "0.1.0"
+dependencies = [
+ "hulladb_protocol",
+ "rusqlite",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
 name = "hulladb_postgres"
 version = "0.1.0"
 dependencies = [
- "hulladb_schema",
+ "hulladb_protocol",
  "hulladb_wire",
  "serde",
  "serde_json",
@@ -345,8 +355,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "hulladb_protocol"
+version = "0.1.0"
+dependencies = [
+ "hulladb_schema",
+ "serde",
+ "uuid",
+]
+
+[[package]]
 name = "hulladb_schema"
 version = "0.1.0"
+
+[[package]]
+name = "hulladb_sync"
+version = "0.1.0"
+dependencies = [
+ "hulladb_client",
+ "hulladb_postgres",
+ "hulladb_protocol",
+ "serde_json",
+ "tokio",
+ "tokio-postgres",
+ "uuid",
+]
 
 [[package]]
 name = "hulladb_wire"

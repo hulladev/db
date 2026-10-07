@@ -18,11 +18,11 @@ fn session() -> Session {
 }
 fn snapshot(session: Session, sequence: i64) -> QuerySnapshot {
     QuerySnapshot {
+        source: Uuid::from_u128(123),
         session,
         query: query(),
         revision: QueryRevision {
             workspace: session.workspace,
-            generation: 2,
             sequence,
         },
         tasks: vec![TaskSummary {
@@ -134,7 +134,7 @@ fn wrong_scopes_queries_and_malformed_results_never_publish() {
     other.query.limit = 1;
     invalid.push(other);
     let mut other = snapshot(session, 2);
-    other.revision.generation = 3;
+    other.source = Uuid::now_v7();
     invalid.push(other);
     let mut other = snapshot(session, 2);
     other.revision.workspace = Uuid::now_v7();

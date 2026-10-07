@@ -1,66 +1,18 @@
-use std::sync::OnceLock;
+use crate::{Error, QueryRevision, Session, TaskQuery, TaskSummary};
 
-use hulladb_schema::{ProjectionContract, RecordValues, Value};
-use serde::{Deserialize, Serialize};
-
-use crate::{
-    Error, MAX_PAGE, QueryRevision, Session, Uuid,
-    model::{task_contract, validate_title},
-};
-
-/// The fixed task-summary query: ID order, optional status/keyset bound, explicit limit.
-/// Its entity projection is always id/title/completed; version is not delivered.
+/// Durable invalidation state, read with authorization in one database snapshot.
+/// The source UUID changes on a new deployment or explicit administrative reset.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TaskQuery {
-    pub completed: Option<bool>,
-    pub after: Option<Uuid>,
-    pub limit: u16,
-}
-
-impl TaskQuery {
-    pub(crate) fn validate(self) -> Result<(), Error> {
-        if self.limit == 0 || self.limit > MAX_PAGE {
-            return Err(Error::InvalidInput("query limit must be 1..100"));
-        }
-        Ok(())
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct TaskSummary {
-    pub id: Uuid,
-    pub title: String,
-    pub completed: bool,
-}
-
-impl TaskSummary {
-    pub fn values(&self) -> RecordValues {
-        RecordValues::from([
-            ("id".into(), Value::Uuid(*self.id.as_bytes())),
-            ("title".into(), Value::String(self.title.clone())),
-            ("completed".into(), Value::Boolean(self.completed)),
-        ])
-    }
-
-    pub(crate) fn validate(&self) -> Result<(), Error> {
-        static PROJECTION: OnceLock<ProjectionContract> = OnceLock::new();
-        validate_title(&self.title)?;
-        PROJECTION
-            .get_or_init(|| {
-                task_contract()
-                    .projection("summary", &["id", "title", "completed"])
-                    .expect("fixed projection is valid")
-            })
-            .validate_record(&self.values())
-            .map_err(|_| Error::CorruptData)
-    }
+pub struct ManagedHead {
+    pub source: uuid::Uuid,
+    pub revision: QueryRevision,
 }
 
 /// An authoritative result complete for THIS bounded query at its managed-query revision.
 /// It makes no completeness claim about the underlying workspace or other queries.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QuerySnapshot {
+    pub source: uuid::Uuid,
     pub session: Session,
     pub query: TaskQuery,
     pub revision: QueryRevision,
@@ -70,7 +22,9 @@ pub struct QuerySnapshot {
 impl QuerySnapshot {
     fn validate(&self) -> Result<(), Error> {
         self.query.validate()?;
-        self.revision.validate(self.session.workspace)?;
+        self.revision
+            .validate(self.session.workspace)
+            .map_err(|_| Error::InvalidQueryRevision)?;
         if self.tasks.len() > usize::from(self.query.limit) {
             return Err(Error::CorruptData);
         }
@@ -108,7 +62,7 @@ pub struct QueryView<'a> {
     pub status: QueryStatus,
 }
 
-/// One exact query, projection, principal, workspace, and schema generation.
+/// One exact query, projection, principal, workspace, and source identity.
 /// No inferred coverage across filters, limits, pages, or account identities.
 pub struct QueryCache {
     session: Session,
@@ -163,6 +117,9 @@ impl QueryCache {
         }
         snapshot.validate()?;
         if let Some(previous) = &self.snapshot {
+            if snapshot.source != previous.source {
+                return Err(Error::InvalidQueryRevision);
+            }
             if snapshot.revision.sequence < previous.revision.sequence {
                 return Err(Error::InvalidQueryRevision);
             }
@@ -195,7 +152,9 @@ impl QueryCache {
         if self.revoked {
             return Err(Error::Forbidden);
         }
-        revision.validate(self.session.workspace)?;
+        revision
+            .validate(self.session.workspace)
+            .map_err(|_| Error::InvalidQueryRevision)?;
         if self
             .observed
             .is_none_or(|previous| revision.sequence > previous.sequence)

@@ -444,7 +444,7 @@ async fn bounded_summary_coverage_refills_top_n_and_clears_revoked_data() {
         .unwrap();
     let view = cache.read(session, query).unwrap();
     assert_eq!(view.status, QueryStatus::Ready);
-    assert_eq!(view.complete_at.unwrap().sequence, 1);
+    assert_eq!(view.complete_at.unwrap(), receipt.revision);
     assert_eq!(
         view.tasks.iter().map(|task| task.id).collect::<Vec<_>>(),
         first_three[1..]
@@ -482,104 +482,4 @@ async fn bounded_summary_coverage_refills_top_n_and_clears_revoked_data() {
         .delete_fixture_workspace(session.workspace)
         .await
         .unwrap();
-}
-
-#[tokio::test]
-#[ignore = "requires local PostgreSQL; run make db-test"]
-async fn schema_upgrade_preserves_rows_receipts_and_recovery_but_removes_old_feed() {
-    let (db, connection) = tokio_postgres::connect(&url(), tokio_postgres::NoTls)
-        .await
-        .unwrap();
-    let connection = tokio::spawn(connection);
-    let schema = format!("hupgrade_{}", Uuid::now_v7().simple());
-    let workspace = Uuid::now_v7();
-    let principal = Uuid::now_v7();
-    let request = Uuid::now_v7();
-    let id = Uuid::now_v7();
-    // Isolated previous schema; exercise the same SQL used by Store::initialize.
-    db.batch_execute(&format!(
-        "CREATE SCHEMA {schema};
-        CREATE TABLE {schema}.metadata(singleton boolean PRIMARY KEY,generation integer NOT NULL);
-        INSERT INTO {schema}.metadata VALUES(true,1);
-        CREATE TABLE {schema}.changes(workspace uuid,sequence bigint,changes jsonb);"
-    ))
-    .await
-    .unwrap();
-    let migration = include_str!("../src/schema.sql").replace("_hulladb_task_probe", &schema);
-    // Install the remaining previous tables while leaving generation one intact.
-    let tables = migration
-        .split("-- Upgrade the earlier internal schema")
-        .next()
-        .unwrap();
-    db.batch_execute(tables).await.unwrap();
-    db.execute(
-        &format!("INSERT INTO {schema}.workspaces VALUES($1,1)"),
-        &[&workspace],
-    )
-    .await
-    .unwrap();
-    db.execute(
-        &format!("INSERT INTO {schema}.members VALUES($1,$2,true)"),
-        &[&workspace, &principal],
-    )
-    .await
-    .unwrap();
-    db.execute(
-        &format!("INSERT INTO {schema}.tasks VALUES($1,$2,'Task',false,1)"),
-        &[&workspace, &id],
-    )
-    .await
-    .unwrap();
-    let payload = serde_json::to_value(create(id)).unwrap();
-    let change =
-        serde_json::json!({"Upsert":{"id":id,"title":"Task","completed":false,"version":1}});
-    let old = serde_json::json!({"request_id":request,"batch":{"cursor":{"workspace":workspace,"generation":1,"sequence":1},"changes":[change]}});
-    db.execute(
-        &format!("INSERT INTO {schema}.receipts VALUES($1,$2,$3,$4,$5)"),
-        &[&workspace, &principal, &request, &payload, &old],
-    )
-    .await
-    .unwrap();
-    for _ in 0..2 {
-        db.batch_execute("BEGIN").await.unwrap();
-        db.batch_execute(&migration).await.unwrap();
-        db.batch_execute("COMMIT").await.unwrap();
-    }
-    let row = db
-        .query_one(
-            &format!("SELECT receipt,payload FROM {schema}.receipts"),
-            &[],
-        )
-        .await
-        .unwrap();
-    let recovered: hulladb_postgres::Receipt = serde_json::from_value(row.get(0)).unwrap();
-    assert_eq!(recovered.request_id, request);
-    assert_eq!(recovered.revision.generation, 2);
-    assert_eq!(recovered.revision.sequence, 1);
-    assert_eq!(serde_json::to_value(recovered.change).unwrap(), change);
-    assert_eq!(row.get::<_, serde_json::Value>(1), payload);
-    assert_eq!(
-        db.query_one(
-            &format!("SELECT count(*),min(version) FROM {schema}.tasks"),
-            &[]
-        )
-        .await
-        .unwrap()
-        .get::<_, i64>(0),
-        1
-    );
-    assert_eq!(
-        db.query_one(
-            "SELECT to_regclass($1)::text",
-            &[&format!("{schema}.changes")]
-        )
-        .await
-        .unwrap()
-        .get::<_, Option<String>>(0),
-        None
-    );
-    db.batch_execute(&format!("DROP SCHEMA {schema} CASCADE"))
-        .await
-        .unwrap();
-    connection.abort();
 }

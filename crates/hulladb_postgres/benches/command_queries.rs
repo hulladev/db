@@ -182,11 +182,11 @@ fn cached_query() -> Value {
     let mut cache = QueryCache::new(session, query).unwrap();
     cache
         .install(QuerySnapshot {
+            source: Uuid::now_v7(),
             session,
             query,
             revision: QueryRevision {
                 workspace: session.workspace,
-                generation: 2,
                 sequence: 0,
             },
             tasks: (1..=50)

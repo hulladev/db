@@ -5,10 +5,9 @@ mod model;
 mod query;
 mod store;
 
-pub use model::{Change, Command, Error, Page, QueryRevision, Receipt, Session, Task};
-pub use query::{QueryCache, QuerySnapshot, QueryStatus, QueryView, TaskQuery, TaskSummary};
+pub use model::{Change, Command, Error, Page, QueryRevision, Receipt, Task};
+pub use query::{ManagedHead, QueryCache, QuerySnapshot, QueryStatus, QueryView};
 pub use store::Store;
 pub use uuid::Uuid;
 
-pub const MAX_PAGE: u16 = 100;
-const GENERATION: i32 = 2;
+pub use hulladb_protocol::{MAX_PAGE, Session, TaskQuery, TaskSummary};

@@ -1,5 +1,6 @@
 [workspace]
-members = ["crates/hulladb_schema", "crates/hulladb_wire", "crates/hulladb_postgres", "crates/hulladb_cdc"]
+members = ["crates/hulladb_schema", "crates/hulladb_wire", "crates/hulladb_protocol", "crates/hulladb_client", "crates/hulladb_postgres", "crates/hulladb_sync", "crates/hulladb_cdc"]
+default-members = ["crates/hulladb_schema", "crates/hulladb_wire", "crates/hulladb_protocol", "crates/hulladb_client", "crates/hulladb_postgres", "crates/hulladb_sync"]
 resolver = "3"
 
 [workspace.package]

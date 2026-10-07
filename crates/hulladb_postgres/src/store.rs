@@ -8,8 +8,8 @@ use tokio_postgres::{
 use uuid::Uuid;
 
 use crate::{
-    Change, Command, Error, MAX_PAGE, Page, QueryRevision, QuerySnapshot, Receipt, Session, Task,
-    TaskQuery, TaskSummary,
+    Change, Command, Error, MAX_PAGE, ManagedHead, Page, QueryRevision, QuerySnapshot, Receipt,
+    Session, Task, TaskQuery, TaskSummary,
 };
 
 pub struct Store {
@@ -24,9 +24,25 @@ impl Drop for Store {
 }
 
 impl Store {
-    /// Local development connection. Production TLS and pooling are later work.
+    /// Recheck current read permission at an internal delivery boundary.
+    /// The session must come from trusted authentication, not client arguments.
+    pub async fn authorize_read(&self, session: Session) -> Result<(), Error> {
+        authorize(&self.client, session, false).await
+    }
+
+    /// Used by a bounded host pool to discard failed connections before reuse.
+    pub fn is_closed(&self) -> bool {
+        self.client.is_closed()
+    }
+
+    /// Development connection. The HTTP host pools these connections; a native
+    /// PostgreSQL TLS connector remains later work.
     pub async fn connect(url: &str) -> Result<Self, Error> {
-        let mut config: tokio_postgres::Config = url.parse()?;
+        Self::connect_config(url.parse()?).await
+    }
+
+    /// Development connection with explicit driver configuration; never client credentials.
+    pub async fn connect_config(mut config: tokio_postgres::Config) -> Result<Self, Error> {
         config.connect_timeout(Duration::from_secs(5));
         let (client, connection) = config.connect(NoTls).await?;
         let connection = tokio::spawn(connection);
@@ -90,6 +106,9 @@ impl Store {
             )
             .await?;
         }
+        // Permissions are query dependencies too. Advance under the same workspace
+        // lock as commands so neither data nor policy can commit without invalidation.
+        advance_revision(&tx, workspace).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -121,6 +140,7 @@ impl Store {
         let next = sequence.checked_add(1).ok_or(Error::CorruptData)?;
         let receipt = Receipt {
             request_id,
+            source: source_identity(&tx).await?,
             revision: QueryRevision::new(session.workspace, next),
             change,
         };
@@ -225,6 +245,7 @@ impl Store {
             .start()
             .await?;
         authorize(&tx, session, false).await?;
+        let source = source_identity(&tx).await?;
         let sequence: i64 = tx
             .query_one(
                 "SELECT sequence FROM _hulladb_task_probe.workspaces WHERE id=$1",
@@ -255,11 +276,31 @@ impl Store {
         }
         tx.commit().await?;
         Ok(QuerySnapshot {
+            source,
             session,
             query,
             revision: QueryRevision::new(session.workspace, sequence),
             tasks,
         })
+    }
+
+    /// Identity, permission and revision from one snapshot. Polling this durable
+    /// state is sufficient for recovery; notifications are only optional wake-ups.
+    pub async fn managed_head(&self, session: Session) -> Result<ManagedHead, Error> {
+        // A single statement gives policy, identity and revision one MVCC snapshot.
+        let row = self.client.query_opt(
+            "SELECT d.source,w.sequence FROM _hulladb_task_probe.metadata d CROSS JOIN _hulladb_task_probe.workspaces w JOIN _hulladb_task_probe.members m ON m.workspace=w.id WHERE d.singleton AND w.id=$1 AND m.principal=$2",
+            &[&session.workspace, &session.principal],
+        ).await?.ok_or(Error::Forbidden)?;
+        Ok(ManagedHead {
+            source: row.try_get(0)?,
+            revision: QueryRevision::new(session.workspace, row.try_get(1)?),
+        })
+    }
+
+    /// Bind a sync service to the initialized authoritative deployment.
+    pub async fn managed_source(&self) -> Result<Uuid, Error> {
+        source_identity(&self.client).await
     }
 
     /// Bulk bootstrap for query benchmarks only, before any tasks or mutation receipts exist.
@@ -282,6 +323,9 @@ impl Store {
         }
         tx.execute("INSERT INTO _hulladb_task_probe.tasks SELECT $1,md5(i::text)::uuid,'task '||i,(i%2=0),1 FROM generate_series(1,$2::integer) i",
             &[&session.workspace, &count]).await?;
+        if count > 0 {
+            advance_revision(&tx, session.workspace).await?;
+        }
         tx.commit().await?;
         Ok(())
     }
@@ -393,7 +437,7 @@ fn task(row: &Row) -> Result<Task, Error> {
         completed: row.try_get("completed")?,
         version: row.try_get("version")?,
     };
-    task.validate()?;
+    task.validate().map_err(|_| Error::CorruptData)?;
     Ok(task)
 }
 
@@ -455,4 +499,23 @@ async fn missing_or_conflict(
     } else {
         Error::NotFound
     })
+}
+
+async fn source_identity(client: &impl GenericClient) -> Result<Uuid, Error> {
+    let row = client
+        .query_one(
+            "SELECT source FROM _hulladb_task_probe.metadata WHERE singleton",
+            &[],
+        )
+        .await?;
+    Ok(row.try_get(0)?)
+}
+
+async fn advance_revision(tx: &Transaction<'_>, workspace: Uuid) -> Result<(), Error> {
+    tx.execute(
+        "UPDATE _hulladb_task_probe.workspaces SET sequence=sequence+1 WHERE id=$1",
+        &[&workspace],
+    )
+    .await?;
+    Ok(())
 }
