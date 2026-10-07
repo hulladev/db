@@ -19,3 +19,7 @@ tokio-postgres = { version = "0.7", features = ["with-uuid-1"] }
 
 [lints]
 workspace = true
+
+[[bench]]
+name = "sync"
+harness = false
