@@ -1,4 +1,4 @@
-.PHONY: check fmt fmt-check lint test bench bench-compare bench-baseline bench-check db-up db-down db-shell db-config db-test db-bench db-bench-compare cdc-test cdc-bench cdc-bench-compare sync-bench sync-bench-compare
+.PHONY: check fmt fmt-check lint test bench bench-compare bench-baseline bench-check db-up db-down db-shell db-config db-test db-bench db-bench-compare cdc-test cdc-bench cdc-bench-compare sync-bench sync-bench-compare cdc-diagnostic-test sync-test server-test
 
 BENCH_BASELINE ?= benchmarks/baselines/local.json
 
@@ -41,13 +41,23 @@ db-bench-compare:
 	python3 scripts/bench.py compare --suite backend
 
 cdc-test:
-	cargo test -p hulladb_cdc --test postgres_capture --test postgres_snapshot --test command_sync --locked -- --ignored --test-threads=1
+	cargo test -p hulladb_cdc --test postgres_capture --test command_sync --locked -- --ignored --test-threads=1
+
+cdc-diagnostic-test:
+	cargo test -p hulladb_cdc --features diagnostic-replica --lib --locked
+	cargo test -p hulladb_cdc --features diagnostic-replica --test postgres_snapshot --locked -- --ignored --test-threads=1
 
 cdc-bench:
 	python3 scripts/bench.py run --suite cdc
 
 cdc-bench-compare:
 	python3 scripts/bench.py compare --suite cdc
+
+sync-test:
+	cargo test -p hulladb_sync --test task_feed --test command_sync --locked -- --ignored --test-threads=1
+
+server-test:
+	cargo test -p hulladb_server --test http_host --locked -- --ignored --test-threads=1
 
 sync-bench:
 	python3 scripts/bench.py run --suite sync
