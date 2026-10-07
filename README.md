@@ -5,27 +5,34 @@ Rust and TypeScript SDKs (`hulladb` and `@hulla/db`). Runtime responsiveness,
 interactive queries/writes and client/server latency take priority over short
 builds. See [architecture](docs/architecture.md) and [schema contracts](docs/schema-contract.md).
 
-CDC is the sole PostgreSQL synchronization model:
+PostgreSQL remains authoritative. Managed commands authorize, validate and commit
+business rows, synchronization revisions and recovery receipts in one transaction.
+The sync service polls durable revisions and reevaluates authorized queries; native
+clients store their authorized working sets in SQLite.
 
 ```text
-PostgreSQL commit → Rust CDC → durable bounded event log → durable replica
-                                                    → authorized queries → SDKs
+Managed PostgreSQL transaction → durable revision → authorized query results → client SQLite
 ```
 
-Commands authorize, validate and commit rows plus recovery receipts, then return.
-They do not wait for replica visibility or write a separate delivery feed. The
-previous task feed, RAM replica, mirror-based comparison and obsolete baselines
-have been removed. The selected client direction is a shared Rust query/replica
-core, native for Rust and through Wasm for TypeScript, with thin TS integration.
-SDKs and Wasm bindings are not implemented or benchmarked yet.
+The serving path has no full server row mirror, replication connection or raw event
+log. Client bootstrap chunks, rows, retained delivery history, delivery cursors and
+visibility progress publish atomically. Stored dataset size is independent of
+chunk working budgets.
 
-Implemented today: logical schema/value/projection contracts, a lossless JSON
-codec, fixed PostgreSQL commands and bounded queries, pgoutput transaction capture,
-bounded slot-exported bootstrap, SQLite event history and atomic durable materialization.
-Capture uses a persistent PostgreSQL replication connection.
-Authorized CDC query serving, receipt-to-visibility correlation and pushed client
-delivery remain the next layers of this direction. The current server materialization
-does not establish that an additional durable server copy is mandatory in production.
+Implemented today: schema/value/projection contracts, lossless JSON codec, a fixed
+authoritative PostgreSQL command/query slice, managed revision-based task serving,
+native client SQLite persistence and receipt-to-query visibility fences. Portable
+delivery contracts have no backend drivers. The [task host](docs/task-host.md) adds
+authenticated HTTP commands/receipts, SSE subscriptions, periodic polling and
+connection recovery. SDKs, production role provisioning, general operation runtimes
+and browser storage remain future work. Application writes must use managed operations; arbitrary external SQL is not
+automatically synchronized.
+
+The separate `hulladb_cdc` crate retains diagnostic logical capture/recovery and an
+optional full-publication mirror behind `diagnostic-replica`. Its dependencies and
+limits are not part of managed task delivery. See [managed synchronization](docs/managed-sync.md)
+for correctness, recovery, source resets and the write boundary, and
+[client persistence](docs/client-replica.md) for SQLite publication.
 
 ## Development
 
@@ -36,28 +43,35 @@ is needed for database checks. SQLite is bundled through `rusqlite`.
 rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
 make check
 make db-up
-make db-test cdc-test
+make db-test sync-test server-test
+make cdc-test              # Optional capture diagnostics.
 ```
+
+Default builds exclude the diagnostic CDC crate; `--workspace` checks include it.
 
 `make check` runs formatting, Clippy, workspace/doc tests and benchmark runner
 checks without a database. Database cases are explicitly ignored in ordinary
 Cargo tests. `make fmt` formats edits. Packages are unpublished; a license and
 public API spelling remain open. Keep `Cargo.lock` for reproducible builds.
 
+For incremental changes, run checks for the affected behavior and its consumers;
+reserve the full suite for changes with broad regression risk. See
+[agent guidance](AGENTS.md) for validation scope and test quality expectations.
+
 ## Performance
 
 ```sh
 make bench                 # Schema/value/codec operations.
 make db-bench              # Authoritative queries, commits, retries and contention.
-make cdc-bench             # Capture, event log, bootstrap and durable application.
-make sync-bench            # Actual command-to-CDC replica lifecycle, 1/512 tasks.
-make sync-bench-compare     # Compare the retained execution model to its baseline.
+make cdc-bench             # Capture/log and optional diagnostic mirror workloads.
+make sync-bench            # Command-to-authorized-client lifecycle, 1/512 source tasks.
+make sync-bench-compare     # Requires a new fixture-v6 managed client lifecycle baseline.
 ```
 
 Suites record raw samples, median/MAD and coarse p95 for individual requests.
-The sync suite separates command acknowledgement, commit-to-replica delay and
+The sync suite separates command acknowledgement, commit-to-client persistence delay and
 combined latency. It has no alternate engine, mirror table or extra source log.
-Local streaming measurements do not establish network, subscription or browser
+Local native measurements do not establish network, subscription or browser
 latency. See [methodology and baseline updates](docs/benchmarks.md).
 
 ## Local PostgreSQL
@@ -77,13 +91,16 @@ postgresql://db_dev:db_dev@127.0.0.1:55432/db_dev
 ```
 
 Use `HULLADB_TEST_URL` for another instance. Set `DB_PORT=55433` when starting
-Compose to change the port. Logical WAL is enabled with a 256 MB slot-retained WAL
+Compose to change the port. Logical WAL is enabled for optional diagnostics with a 256 MB slot-retained WAL
 limit enforced at checkpoints. Lagging slots may expire; this is not an exact
 instantaneous disk cap. Startup waits for readiness and preserves the data volume.
 `db-down` removes the container/network while retaining that volume.
 
-Initialization upgrades the earlier internal task schema, preserving tasks and
-receipts and removing the old delivery table. Database tests use owned UUID
+Initialization creates the current development schema and a stable source identity.
+Until Cargo/npm publication, incompatible schemas and local fixtures are recreated
+explicitly; no upgrade migrations or protocol-version compatibility are maintained.
+Initialization never resets existing data. See the managed-sync maintenance/reset
+contract. Database tests use owned UUID
 workspaces/publications/slots and temporary SQLite files. Successful runs clean
 up their fixtures; failed runs can leave diagnostic resources. Never reset an
 existing slot or database to hide a failure. See [backend guarantees](docs/postgres-slice.md),
@@ -99,14 +116,18 @@ Changing PostgreSQL major versions requires a database upgrade.
 | `crates/hulladb_schema` | Logical table/key/reference/unique constraints, validation and projections |
 | `crates/hulladb_wire` | Lossless tagged JSON values and record codec |
 | `crates/hulladb_postgres` | Authoritative commands, receipts, indexed queries and exact query caches |
-| `crates/hulladb_cdc` | Sole PostgreSQL capture/bootstrap/log/replica execution path |
+| `crates/hulladb_protocol` | Portable scoped query and delivery contracts |
+| `crates/hulladb_client` | Native client SQLite rows, bootstrap chunks, history and cursors |
+| `crates/hulladb_sync` | Managed revision polling, authorized query maintenance and delivery |
+| `crates/hulladb_server` | Authenticated HTTP/SSE, scheduled polling, pooling and recovery |
+| `crates/hulladb_cdc` | Optional diagnostic PostgreSQL capture/log |
 | `docs/architecture.md` | Requirements, selected boundaries and implementation gates |
 | `docs/query-coverage.md` | Projection, bounded coverage, freshness and revocation contracts |
 | `docs/benchmarks.md` | Current workloads, comparison rules and baseline policy |
 | `scripts/bench.py` | Reproducible release benchmarks and comparison safeguards |
 | `Makefile`, `compose.yaml` | Local checks and PostgreSQL development service |
 
-The current bootstrap is bounded and rejects unsupported schemas and publication
-shapes. It imports the slot-exported snapshot without interpreting XID epochs.
-Raw server logs/replicas have no client authorization boundary.
-Completing the serving layer is required before these internals become a SDK API.
+The optional diagnostic bootstrap imports a slot-exported snapshot and rejects
+unsupported schemas/publication shapes. Raw CDC logs and diagnostic mirrors are
+privileged server data. Clients receive authorized logical projections only. The
+fixed task slice has authenticated transport; general queries and SDK integration remain future work.

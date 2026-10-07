@@ -1,18 +1,19 @@
-# PostgreSQL CDC tail and separate event storage
+# Diagnostic PostgreSQL CDC tail and event storage
 
-`hulladb_cdc` is the selected internal capture implementation. PostgreSQL business tables remain
+`hulladb_cdc` is a retained diagnostic capture implementation, not the managed sync path. PostgreSQL business tables remain
 authoritative. It consumes actual committed row changes through `pgoutput` v1 and
-persists complete transaction batches in a separate SQLite file. It creates no
+stages encoded changes in bounded SQLite chunks and publishes complete transactions
+in a separate SQLite file. It creates no
 per-mutation event tables in the source database and requires no workspace-wide
 sequence lock on writers.
 
-This is a **tail-only capture boundary**, not a complete sync service or serving
-replica. This raw capture path does not copy existing rows. The separate
-[snapshot and replica](cdc-snapshot.md) now provides a bounded MVCC copy
-and transaction materialization. Cursor zero in the event log means the start of this tail,
-not a complete snapshot of the database. Never expose this raw log to clients:
-query coverage, field/row authorization, and transaction-aware result derivation
-belong to the subsequent service layer.
+This is a **tail-only capture boundary**. `Capture::create` starts a dedicated
+slot at its consistent point without copying existing rows. The production
+[managed feed](managed-sync.md) does not use this tail, a publication, or a slot.
+The raw [snapshot and replica](cdc-snapshot.md) is an optional diagnostic feature.
+Cursor zero in the event log means the start of this tail, not a complete snapshot
+of the database. Never expose this raw log to clients: it contains unauthorised
+source rows, while the task feed returns scoped projections.
 
 ## Run
 
@@ -61,9 +62,12 @@ supported PostgreSQL provider/version combinations are not established.
    markers. Type OIDs accompany text values; typed conversion remains separate.
    Logical messages are ignored with byte accounting; they are not domain events.
    Message-only transactions advance progress without creating row-delivery batches.
-5. One SQLite WAL/FULL transaction inserts a complete batch, updates checkpoint and
-   delivery sequence, and trims history. Opening storage verifies those durability
-   modes and rejects volatile in-memory databases.
+5. The decoder emits individual changes, without an accumulating transaction Vec.
+   JSON is written through a bounded buffer into hidden durable SQLite chunks.
+   At COMMIT, one WAL/FULL transaction publishes their sequence, advances the
+   checkpoint and trims complete history. A transaction fitting one chunk writes
+   its body and publication together, avoiding extra staging commits. Opening
+   storage verifies durability modes and rejects volatile in-memory databases.
 6. Only after that commit does capture report its checkpoint to the replication
    worker. Upstream feedback is asynchronous; visibility does not wait for it.
    XLogData's advertised server WAL end is never used as a durable acknowledgement.
@@ -72,9 +76,12 @@ supported PostgreSQL provider/version combinations are not established.
    publications to release unrelated WAL while preserving transactions that commit
    later; PostgreSQL still retains their required restart WAL.
 
-Cancellation while awaiting input retains the decoder and connection. Decode,
-transport or storage failure aborts the stream and discards partial decoding; the
-next receive rechecks the slot and replays from its acknowledgement. Complete
+Cancellation while awaiting input retains the decoder, connection and staging. Decode,
+transport or storage failure aborts the stream and discards partial decoding and
+unpublished staging; the next receive rechecks the slot and replays from its
+acknowledgement. A crash
+may leave hidden chunks; the next ingestion owner removes them before replay.
+Opening a log for inspection does not remove another owner's active staging. Complete
 batches already persisted deduplicate by their commit boundary, including batches
 consumed from the queue before a disconnect surfaces. No partial transaction is
 published or acknowledged. `persist_next()` leaves feedback unchanged to exercise
@@ -84,36 +91,63 @@ dropping capture stops both connections without advancing feedback.
 
 Advisory ownership coordinates these collectors only. Another application or
 administrator must not consume, advance, drop, or recreate the dedicated slot.
-The caller owns a stable source generation. Source resets and publication changes
+The caller owns a stable source identity. Source resets and publication changes
 require explicit reconfiguration/bootstrap; this probe has no automatic repair.
 
 ## Bounded history and growth
 
 Default retention is at most **128 complete batches and 16 MiB of encoded payload**
 after each append. Retention runs in the same transaction as append/checkpoint.
-The persisted floor makes an expired cursor return `CursorExpired`, which the
-future service must handle by delivering a fresh authorized snapshot. Client lag
+The persisted floor makes an expired raw-log cursor return `CursorExpired`.
+The task feed uses the current head for invalidation and reads fresh authorized
+PostgreSQL results, so it does not require retained raw history. Client lag
 does not extend history retention or delay upstream acknowledgement.
 
-Limits are explicit: 1 MiB per protocol message, 4 MiB of accumulated/expanded
-transaction data and encoded batch, 10,000 changes, and bounded relation/column
-metadata. Exceeding a limit halts capture without publishing or acknowledging a
-partial transaction. A large transaction can therefore block later capture;
-production support needs a bounded spill/large-transaction strategy. The transport
-allocates wire frames before our decoder applies its 1 MiB message limit, and its
-own frame cap is 1 GiB. The 32-event queue therefore does not establish a small
-maximum memory footprint. A byte-limited frame/queue transport and upstream
-large-transaction handling remain production requirements.
+The former 4 MiB/10,000-change transaction ceilings are removed. `StorageOptions`
+controls the encoded chunk buffer (default 256 KiB), SQLite busy timeout and an
+optional `max_staged_payload_bytes` quota. `EventLog::open_with_options` lets a
+host select these budgets; defaults impose no total transaction-size ceiling.
+The buffer may split JSON or UTF-8 across chunks. Readers reconstruct the stream,
+not a complete encoded transaction. A decoded change and relation cache still
+consume memory independently; this is not a total process RSS guarantee.
 
-JSON currently repeats relation metadata per change. The decoder charges that
-expansion before cloning, and JSON serialization enforces its byte limit while
-writing. This is an inspectable internal envelope, not a stable SDK/wire format
-or an optimized representation. Retention maintains durable batch/encoded-byte
-counters in the append transaction. Pruning reads only the removed payloads rather
-than rescanning the retained history; rollback preserves rows, counters, cursor and
-checkpoint together. Opening an older format-one log upgrades it atomically to
-format two, counting its retained history once without changing source identity or
-progress. Earlier collectors reject the new storage format.
+The staging quota is an operator disk-pressure policy, independent of history
+retention. Exceeding it returns `StagingBudget` without publication/feedback.
+Disk exhaustion behaves the same way; recovery requires freeing space or changing
+that configured policy. The quota measures encoded change bytes, not database/WAL
+file size or filesystem capacity.
+
+A transaction larger than the retained history byte budget is published and pruned
+whole in the same checkpoint transaction. Capture and PostgreSQL acknowledgement
+continue; an older raw-log reader gets `CursorExpired`. The authorized task feed
+requeries PostgreSQL and does not require retained row history. Diagnostic mirrors
+must rebootstrap after expiry. Staging can therefore temporarily exceed retained
+history size; disk provisioning/checkpoint maintenance remain operational work.
+
+`visit_transactions` / `StoredTransaction::for_each_change` provide streaming
+reads inside one consistent SQLite snapshot. Consumers applying derived rows must
+keep their own write transaction open until the stream completes successfully;
+decoding/storage errors can occur after a prefix. Diagnostic replica application uses
+these reads and publishes its rows/cursor atomically. `since` remains a convenience
+API collecting results into a Vec, with a default whole-page budget of 4 MiB and
+10,000 changes. `since_with_budget` makes that read budget explicit; `ReadBudget`
+failures neither halt capture nor change its checkpoint. Encoded-byte budgets are
+not exact heap limits.
+
+The separate 1 MiB protocol-message and relation/column bounds remain. The transport
+allocates wire frames before the decoder's check and has its own 1 GiB frame cap.
+Its 32-event queue therefore does not establish a small maximum memory footprint.
+Byte-limited transport allocation is the next resource-policy issue, not solved by
+transaction staging. Ignored logical messages are validated individually but do
+not accumulate transaction memory or consume change-history quota.
+
+Log storage keeps transaction headers and ordered encoded-change chunks.
+Incompatible development files must be recreated explicitly; opening a file does
+not upgrade it. The payload counter counts encoded changes (including delimiters),
+excluding headers. Pruning deletes whole transactions and
+cascades their chunks; accounting/checkpoint failures roll back publication and
+pruning together. Retained replay compares canonical bytes incrementally, including
+when the configured chunk size changes between runs.
 
 Deleting history bounds live payload but does not immediately shrink SQLite's
 files. Freed pages can be reused, and SQLite's own WAL has a separate footprint.
@@ -129,40 +163,47 @@ Database tests cover external SQL writes, transaction grouping, rollback
 exclusion, actual trigger results, concurrent independent writers, local
 failure-before-checkpoint, durable-before-feedback restart, cooperative ownership,
 quiet-publication progress with a long-running transaction, expired cursors,
-slot loss/ahead detection, stale replacement-log rejection, oversized transaction
-rejection, cancelled waits,
+slot loss/ahead detection, stale replacement-log rejection, large transactions
+beyond both former ceilings, durable-before-feedback replay
+with changed chunk sizes, cancelled waits,
 buffered commits across disconnect, ignored logical messages, and a full event
 queue paused beyond a 500 ms sender timeout without premature acknowledgement.
 Pure tests cover SQLite rollback/reopen/deduplication, rejection of volatile storage,
-count/byte retention, atomic accounting upgrades and pruning rollback, cursor scope,
+count/byte retention, atomic accounting and pruning rollback, cursor scope,
 LSN roundtrips, truncated protocol frames,
-ignored-message transaction limits, and unsupported tuple formats.
+individual ignored-message validation, hidden staging/restart, quota failures,
+streamed large reads, and unsupported tuple formats.
 
 The current six-case suite uses five warmups and 31 measured requests, recording
-median/MAD, raw samples and coarse p95. Its baseline is
-`benchmarks/baselines/cdc-snapshot-local.json`. Startup, fixture setup and cleanup
+median/MAD, raw samples and coarse p95. The retained
+`benchmarks/baselines/cdc-snapshot-local.json` baseline predates chunked storage;
+fixture version four requires an explicit new baseline. Startup, fixture setup and cleanup
 are excluded after warmup. Capture measures persistent streaming reception and
 durable local append, without waiting for asynchronous PostgreSQL feedback.
 Assertions verify complete transactions rather than timing empty polls. See [methodology](benchmarks.md)
-and the separate actual-command CDC suite for the commit/visibility boundary.
+and an actual-command capture diagnostic. Managed visibility is tested separately
+in `hulladb_sync`, without WAL capture.
 
-The growth fixture samples 64, 128, 256, and 512 one-row commits. At 256 and 512,
+An earlier storage growth fixture sampled 64, 128, 256, and 512 one-row
+commits. At 256 and 512,
 live history stayed at 128 batches / 57,344 payload bytes. SQLite page footprint
 stayed at 94,208 bytes, with 8,192 reusable bytes; its WAL file was roughly 4 MiB.
 The ordinary PostgreSQL business table grew as records were inserted. No source
 event/receipt table was created by this capture path. These small fixed fixtures
-establish a baseline, not a general storage-amplification ratio.
+are historical evidence, not measurements of the current chunked storage or a general
+storage-amplification ratio. Current chunked workloads require fresh baselines.
 
 ## Next boundary
 
-Slot-exported repeatable-read bootstrap and a durable queryable replica are now
-implemented in the [snapshot implementation](cdc-snapshot.md). Bootstrap has no
-application XID epoch restriction; older overlap replicas require a fresh source
-generation. Add typed/schema evolution handling, authorization-aware bounded query
-results, and mutation correlation.
-Evaluate PostgreSQL versus SQLite sync storage with equivalent durability/workloads.
-Configurable backend concurrency policies remain a separate mutation-execution task; CDC follows whatever commits
-without changing application conflict rules.
+Native authorized query bootstrap and durable local application are implemented
+in the [managed task feed](managed-sync.md) and [client replica](client-replica.md).
+Production work still includes authenticated network delivery, browser storage,
+typed/schema evolution handling and mutation visibility correlation. Raw MVCC
+copying remains [diagnostic](cdc-snapshot.md), with no application XID epoch
+restriction.
+Configurable backend concurrency policies remain separate work. Diagnostic CDC
+observes commits without enforcing application conflict rules. This crate is not
+a supported external-writer connector or a production serving dependency.
 
 References: PostgreSQL [logical decoding and snapshot concepts](https://www.postgresql.org/docs/18/logicaldecoding-explanation.html),
 [logical replication messages](https://www.postgresql.org/docs/18/protocol-logicalrep-message-formats.html),

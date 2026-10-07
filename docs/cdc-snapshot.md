@@ -1,9 +1,11 @@
-# Bounded CDC snapshot and durable replica
+# Optional diagnostic CDC snapshot and raw mirror
 
-`hulladb_cdc` now copies existing published rows into a separate SQLite replica
-and applies retained CDC transactions. PostgreSQL remains authoritative. This is
-the internal full-publication materialization, not an authorized client snapshot, a
-public SDK, or a general query-serving service.
+The `diagnostic-replica` feature retains the original full-publication snapshot
+and raw SQLite mirror solely to test PostgreSQL exported-snapshot handoff and
+transaction application. It is excluded from the default serving path. Its raw
+physical values and size restrictions are not a client model or production quota.
+Authorized bootstrap queries read PostgreSQL directly; [native client SQLite](client-replica.md)
+stores logical projected results with bounded chunks and no total dataset ceiling.
 
 ## Snapshot handoff
 
@@ -23,7 +25,7 @@ creation; it never advances, resets or drops one to recover a bootstrap.
 4. The SQL transaction imports the returned snapshot before its first query. The
    exporter stays connected until import succeeds, then closes. The imported
    snapshot remains valid while the SQL copy transaction is open.
-5. `reader.source()` returns the new generation, source identity and consistent
+5. `reader.source()` returns the new source identity and consistent
    starting LSN. Persist this identity with the log and replica for recovery.
    `read()` streams supported columns with the same native text settings as CDC;
    booleans are `t`/`f`, and null stays distinct from text.
@@ -48,6 +50,10 @@ and [TRUNCATE caveats](https://www.postgresql.org/docs/18/sql-truncate.html).
 
 ## Materialization and recovery
 
+Catch-up streams each retained transaction from chunked event storage into one
+replica SQLite transaction; it does not collect a whole batch in memory. The
+diagnostic replica's own dataset ceiling remains separate from capture budgets.
+
 Each retained transaction applies all its INSERT, UPDATE, DELETE, and TRUNCATE
 changes and advances the replica cursor in one SQLite transaction. Primary-key
 changes use the old key. Unchanged-TOAST markers merge with the already materialized
@@ -70,17 +76,15 @@ not PostgreSQL numeric ordering or collation equivalence.
 
 If retention overtakes the replica, `catch_up()` returns `CursorExpired`. Source
 mismatch, slot loss, slot acknowledgement ahead of durable state, and incompatible
-relation changes also require explicit recovery. Create a fresh source generation,
+relation changes also require explicit recovery. Create a fresh source identity,
 slot, and replica file for a new bootstrap. Initialization refuses to overwrite an
-existing replica. Replica format two records the exported boundary; older
-format-one overlap replicas fail explicitly and require a fresh bootstrap, since
-removing their replay filter would change recovery semantics. Their files are not
-rewritten or deleted.
+existing replica. Incompatible pre-publication fixtures require explicit
+recreation; there is no file-format versioning or migration path.
 
 Dropping or cancelling a bootstrap closes its owned connections and releases table
 locks. PostgreSQL may still finish slot creation after a client disconnect, so an
 interrupted command can leave an inactive durable slot. Inspect only the owned slot,
-wait for the exporting backend to exit, and select a fresh name/generation for a
+wait for the exporting backend to exit, and select a fresh name/identity for a
 retry. A failed copy leaves its slot at the consistent point and does not acknowledge
 any tail. Never delete/recreate an existing production slot to mask failure.
 
@@ -96,13 +100,13 @@ any tail. Never delete/recreate an existing production slot to mask failure.
   live replica have a 100,000-row / 16 MiB encoded row-and-relation payload bound.
   A transaction exceeding the live bound rolls back and keeps its old cursor.
   Row/payload deltas are accumulated and persisted once in the same transaction;
-  size checks read those counters instead of scanning all rows. Current-format replica
-  files missing accounting acquire it once on reopen. Composite physical identities are
-  encoded as JSON tuples; single-key files retain their existing encoding.
+  size checks read those counters instead of scanning all rows. Accounting is created
+  with the replica and updated atomically; reopening never reconstructs missing tables.
+  Composite physical identities are encoded as JSON tuples; single keys use scalar encoding.
 - The snapshot stream bounds accumulated application data, not every driver or
   PostgreSQL allocation. One unusually large source row may be allocated before
   the payload check. A paged/spilled production copy requires further work.
-- Publication and schema definitions must remain stable for a generation. Changed
+- Publication and schema definitions must remain stable for a source identity. Changed
   delivered relation metadata is detected; publication changes that silently stop
   delivering rows are not automatically detected. The source owner must coordinate
   such changes explicitly.
@@ -114,13 +118,13 @@ any tail. Never delete/recreate an existing production slot to mask failure.
 
 ## Verification and measurements
 
-`make cdc-test` includes rows predating slot creation, a writer open before export,
+`make cdc-diagnostic-test` includes rows predating slot creation, a writer open before export,
 external commits after import/during copy, multi-table transactions, key changes,
 nulls, unchanged TOAST, deletes, TRUNCATE locking before and after export, restart,
 expired handoff, changed schema, existing-slot rejection, failed oversized copies,
 and cancellation while slot creation waits. SQLite fault injection checks both
 second-table failure and cursor-commit failure. Pure tests cover materialization
-across pgoutput XID wrap/reopen, legacy-format rejection without rewriting rows,
+across pgoutput XID wrap/reopen,
 initialization failures, malformed/oversized bootstrap frames, authentication
 ordering, source/cursor checks and live replica limits. A real cluster beyond the
 first XID epoch has not been manufactured for the local integration tests.
@@ -132,15 +136,14 @@ CDC capture are excluded from the application case. Each has five warmups and 31
 measured samples. See the current baseline and [benchmark methodology](benchmarks.md).
 These measure internal durable operations, not authorized subscriptions or UI latency.
 
-`make sync-bench` additionally measures actual command commits at 1/512 tasks,
-commit-to-replica lag, the combined latency, bootstrap and internal replica views.
-`make cdc-test` covers that same table end to end, including identical logical IDs
-in different workspaces, receipt replay, failed version checks, external SQL,
-deletes and reopening. There is no comparison engine or shadow table.
+`make sync-bench` measures command acknowledgement, managed revision-triggered authorized query
+delivery, native client SQLite installation and local covered reads. It does not
+use this diagnostic raw mirror. The client fixture has its own version/baseline.
 
 ## Next boundary
 
-Derive bounded, authorized query results from the materialized transactions, including
-rows entering/leaving results, dependent-policy invalidation, shared execution,
-and mutation correlation. Public transport framing, SDKs, configurable mutation
-concurrency policies, and schema evolution remain separate work.
+The [managed task-serving slice](managed-sync.md) reads PostgreSQL for bounded, authorized summary
+results, refills rows entering/leaving top-N pages, checks current membership and
+shares identical scoped queries. Mutation correlation, authenticated transport,
+SDKs, configurable mutation concurrency policies, and schema evolution remain
+separate work.

@@ -1,7 +1,9 @@
 # Initial JSON value format
 
-**Status:** Rust record codec implemented in `hulladb_wire`; SDK conversion,
-transport envelopes, protocol versions, and network services remain future work.
+**Status:** Rust record codec implemented in `hulladb_wire`. The separate
+`hulladb_protocol` and [task host](task-host.md) implement fixed task HTTP/SSE
+contracts. General SDK conversion and network contracts remain future work; release
+protocol compatibility is deferred until publication.
 
 This format carries the current logical scalar values without depending on a
 table schema. It is an initial internal contract, not a complete network protocol

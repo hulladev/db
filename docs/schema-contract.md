@@ -490,7 +490,9 @@ not restrict every caller-supplied UUID to version 7 unless the declared validat
 requires it. A custom primary-key type changes the generated key representation.
 
 UUID timestamp ordering does not establish transaction commit ordering. Sync
-continues to use the architecture's durable delivery-log cursor.
+uses ordered delivery cursors persisted with client results. These are scoped to
+the authorized query lifecycle; raw CDC log positions and managed query revisions
+are separate server concepts.
 
 ## Proposed representative example
 
@@ -610,12 +612,12 @@ adds configurable primary-key types. See
 1. Additional relationship delete policies, cardinality/query navigation, and
    storage constraint timing. Referential integrity and restricted deletion are
    the accepted initial behavior.
-2. Storage enforcement and migration activation for named unique constraints;
+2. Storage enforcement for named unique constraints;
    partial/expression uniqueness and alternate reference targets. The initial
    single-field and multi-field unique descriptors are implemented. Composite
    primary keys and their tuple/reference representation remain future scope.
 3. Additional field types, dynamic default execution, and wire protocol envelopes
-   and versions. Literal defaults, initial scalar ranges, nullable-versus-omitted
+   (release versions are deferred until publication). Literal defaults, initial scalar ranges, nullable-versus-omitted
    behavior, and the initial lossless JSON record codec are implemented.
 4. Stable table/field identities, broader validation diagnostics, and generated
    projection types. Explicit entity projection normalization and projected-record
