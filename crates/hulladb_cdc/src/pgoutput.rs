@@ -1,10 +1,7 @@
 //! Strict subset of pgoutput protocol v1, including transaction and tuple boundaries.
 use std::collections::BTreeMap;
 
-use crate::{
-    Batch, Change, Column, Error, Lsn, MAX_TRANSACTION_BYTES, MAX_TRANSACTION_CHANGES, Relation,
-    Value,
-};
+use crate::{Change, Column, Error, Lsn, Relation, Value};
 
 const MAX_MESSAGE_BYTES: usize = 1024 * 1024;
 const MAX_COLUMNS: usize = 1024;
@@ -13,23 +10,23 @@ const MAX_RELATIONS: usize = 1024;
 #[derive(Default)]
 pub(crate) struct Decoder {
     relations: BTreeMap<u32, Relation>,
-    relation_sizes: BTreeMap<u32, usize>,
-    pending: Option<(u32, Lsn, Vec<Change>)>,
-    bytes: usize,
+    pending: Option<Lsn>,
+}
+
+pub(crate) enum DecodedEvent {
+    Begin { xid: u32, commit: Lsn },
+    Change(Change),
+    Commit { commit: Lsn, end: Lsn },
 }
 
 impl Decoder {
-    pub(crate) fn push(&mut self, data: &[u8]) -> Result<Option<Batch>, Error> {
+    pub(crate) fn push(&mut self, data: &[u8]) -> Result<Option<DecodedEvent>, Error> {
         if data.len() > MAX_MESSAGE_BYTES {
-            return Err(Error::Limit);
-        }
-        self.bytes = self.bytes.checked_add(data.len()).ok_or(Error::Limit)?;
-        if self.bytes > MAX_TRANSACTION_BYTES {
             return Err(Error::Limit);
         }
         let mut r = Reader(data);
         let tag = r.byte()?;
-        let mut batch = None;
+        let mut event = None;
         match tag {
             b'B' => {
                 if self.pending.is_some() {
@@ -38,7 +35,11 @@ impl Decoder {
                 let final_lsn = Lsn(r.u64()?);
                 r.u64()?; // PostgreSQL commit timestamp; not a conflict-resolution clock.
                 let xid = r.u32()?;
-                self.pending = Some((xid, final_lsn, Vec::new()));
+                self.pending = Some(final_lsn);
+                event = Some(DecodedEvent::Begin {
+                    xid,
+                    commit: final_lsn,
+                });
             }
             b'C' => {
                 if r.byte()? != 0 {
@@ -47,20 +48,14 @@ impl Decoder {
                 let commit = Lsn(r.u64()?);
                 let end = Lsn(r.u64()?);
                 r.u64()?;
-                let (xid, final_lsn, changes) = self
+                let final_lsn = self
                     .pending
                     .take()
                     .ok_or(Error::Protocol("COMMIT without BEGIN"))?;
                 if commit != final_lsn || end <= commit {
                     return Err(Error::Protocol("inconsistent commit LSN"));
                 }
-                batch = Some(Batch {
-                    xid,
-                    commit,
-                    end,
-                    changes,
-                });
-                self.bytes = 0;
+                event = Some(DecodedEvent::Commit { commit, end });
             }
             b'R' => {
                 let oid = r.u32()?;
@@ -97,15 +92,13 @@ impl Decoder {
                     replica_identity,
                     columns,
                 };
-                self.relation_sizes
-                    .insert(oid, serde_json::to_vec(&relation)?.len());
                 self.relations.insert(oid, relation);
             }
             b'I' => {
                 let relation = self.relation(r.u32()?)?;
                 r.expect(b'N')?;
                 let row = r.tuple(relation.columns.len())?;
-                self.change(Change::Insert { relation, row })?;
+                event = Some(self.change(Change::Insert { relation, row })?);
             }
             b'U' => {
                 let relation = self.relation(r.u32()?)?;
@@ -121,7 +114,7 @@ impl Decoder {
                     return Err(Error::Protocol("UPDATE missing new tuple"));
                 }
                 let row = r.tuple(relation.columns.len())?;
-                self.change(Change::Update { relation, old, row })?;
+                event = Some(self.change(Change::Update { relation, old, row })?);
             }
             b'D' => {
                 let relation = self.relation(r.u32()?)?;
@@ -129,7 +122,7 @@ impl Decoder {
                     return Err(Error::Protocol("DELETE missing identity"));
                 }
                 let old = r.tuple(relation.columns.len())?;
-                self.change(Change::Delete { relation, old })?;
+                event = Some(self.change(Change::Delete { relation, old })?);
             }
             b'T' => {
                 let count = usize::try_from(r.u32()?).map_err(|_| Error::Limit)?;
@@ -144,11 +137,11 @@ impl Decoder {
                 for _ in 0..count {
                     relations.push(self.relation(r.u32()?)?);
                 }
-                self.change(Change::Truncate {
+                event = Some(self.change(Change::Truncate {
                     relations,
                     cascade: flags & 1 != 0,
                     restart_identity: flags & 2 != 0,
-                })?;
+                })?);
             }
             b'O' => {
                 r.u64()?;
@@ -164,36 +157,21 @@ impl Decoder {
         if !r.0.is_empty() {
             return Err(Error::Protocol("trailing pgoutput bytes"));
         }
-        Ok(batch)
+        Ok(event)
     }
 
     fn relation(&mut self, oid: u32) -> Result<Relation, Error> {
-        // The internal JSON envelope repeats relation metadata per change.
-        // Charge that expansion before cloning, rather than bounding WAL bytes alone.
-        let size = *self
-            .relation_sizes
-            .get(&oid)
-            .ok_or(Error::Protocol("unknown relation"))?;
-        self.bytes = self.bytes.checked_add(size).ok_or(Error::Limit)?;
-        if self.bytes > MAX_TRANSACTION_BYTES {
-            return Err(Error::Limit);
-        }
         self.relations
             .get(&oid)
             .cloned()
             .ok_or(Error::Protocol("unknown relation"))
     }
 
-    fn change(&mut self, change: Change) -> Result<(), Error> {
-        let (_, _, changes) = self
-            .pending
-            .as_mut()
-            .ok_or(Error::Protocol("row change outside transaction"))?;
-        if changes.len() >= MAX_TRANSACTION_CHANGES {
-            return Err(Error::Limit);
+    fn change(&self, change: Change) -> Result<DecodedEvent, Error> {
+        if self.pending.is_none() {
+            return Err(Error::Protocol("row change outside transaction"));
         }
-        changes.push(change);
-        Ok(())
+        Ok(DecodedEvent::Change(change))
     }
 
     pub(crate) fn in_transaction(&self) -> bool {
@@ -207,22 +185,7 @@ impl Decoder {
         if transactional && self.pending.is_none() {
             return Err(Error::Protocol("transactional message outside transaction"));
         }
-        if self.pending.is_some() {
-            self.bytes = self.bytes.checked_add(size).ok_or(Error::Limit)?;
-            if self.bytes > MAX_TRANSACTION_BYTES {
-                return Err(Error::Limit);
-            }
-        }
         Ok(())
-    }
-
-    #[cfg(test)]
-    pub(crate) fn finish(self) -> Result<(), Error> {
-        if self.pending.is_some() {
-            Err(Error::Protocol("incomplete transaction"))
-        } else {
-            Ok(())
-        }
     }
 }
 
@@ -291,113 +254,5 @@ impl Reader<'_> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn begin() -> Vec<u8> {
-        let mut data = vec![b'B'];
-        data.extend(100_u64.to_be_bytes());
-        data.extend(0_u64.to_be_bytes());
-        data.extend(1_u32.to_be_bytes());
-        data
-    }
-    fn relation() -> Vec<u8> {
-        let mut data = vec![b'R'];
-        data.extend(7_u32.to_be_bytes());
-        data.extend(b"public\0tasks\0");
-        data.push(b'd');
-        data.extend(1_u16.to_be_bytes());
-        data.push(1);
-        data.extend(b"id\0");
-        data.extend(25_u32.to_be_bytes());
-        data.extend(u32::MAX.to_be_bytes());
-        data
-    }
-    fn insert() -> Vec<u8> {
-        let mut data = vec![b'I'];
-        data.extend(7_u32.to_be_bytes());
-        data.push(b'N');
-        data.extend(1_u16.to_be_bytes());
-        data.push(b't');
-        data.extend(3_u32.to_be_bytes());
-        data.extend(b"abc");
-        data
-    }
-    fn commit() -> Vec<u8> {
-        let mut data = vec![b'C', 0];
-        data.extend(100_u64.to_be_bytes());
-        data.extend(101_u64.to_be_bytes());
-        data.extend(0_u64.to_be_bytes());
-        data
-    }
-    #[test]
-    fn complete_transaction_and_truncated_messages() {
-        let mut decoder = Decoder::default();
-        for msg in [begin(), relation(), insert()] {
-            assert!(decoder.push(&msg).unwrap().is_none());
-        }
-        let batch = decoder.push(&commit()).unwrap().unwrap();
-        assert_eq!(batch.end, Lsn(101));
-        assert_eq!(batch.changes.len(), 1);
-        decoder.finish().unwrap();
-        for message in [begin(), relation(), insert(), commit()] {
-            for length in 0..message.len() {
-                let mut decoder = Decoder::default();
-                decoder.push(&begin()).unwrap();
-                decoder.push(&relation()).unwrap();
-                assert!(decoder.push(&message[..length]).is_err());
-            }
-        }
-    }
-    #[test]
-    fn refuse_gaps_unknown_messages_and_incomplete_transactions() {
-        assert!(Decoder::default().push(&insert()).is_err());
-        assert!(Decoder::default().push(&commit()).is_err());
-        assert!(Decoder::default().push(b"?").is_err());
-        let mut decoder = Decoder::default();
-        decoder.push(&begin()).unwrap();
-        assert!(decoder.finish().is_err());
-        let mut decoder = Decoder::default();
-        decoder.push(&begin()).unwrap();
-        decoder.push(&relation()).unwrap();
-        let mut malformed = insert();
-        malformed.push(0);
-        assert!(decoder.push(&malformed).is_err());
-    }
-
-    #[test]
-    fn tuple_null_toast_binary_and_count_limits() {
-        let mut reader = Reader(&[0, 2, b'n', b'u']);
-        assert_eq!(
-            reader.tuple(2).unwrap(),
-            vec![Value::Null, Value::UnchangedToast]
-        );
-        assert!(Reader(&[0, 2, b'n', b'u']).tuple(1).is_err());
-        assert!(Reader(&[0, 1, b'b', 0, 0, 0, 1, 0]).tuple(1).is_err());
-        assert!(Reader(&[0, 1, b't', 255, 255, 255, 255]).tuple(1).is_err());
-        assert!(matches!(
-            Decoder::default().push(&vec![0; MAX_MESSAGE_BYTES + 1]),
-            Err(Error::Limit)
-        ));
-    }
-
-    #[test]
-    fn ignored_logical_messages_still_enforce_transaction_bounds() {
-        let mut decoder = Decoder::default();
-        assert!(decoder.ignore_message(true, 1).is_err());
-        assert!(matches!(
-            decoder.ignore_message(false, MAX_MESSAGE_BYTES + 1),
-            Err(Error::Limit)
-        ));
-        decoder.ignore_message(false, MAX_MESSAGE_BYTES).unwrap();
-        decoder.push(&begin()).unwrap();
-        assert!(decoder.in_transaction());
-        for _ in 0..3 {
-            decoder.ignore_message(true, MAX_MESSAGE_BYTES).unwrap();
-        }
-        assert!(matches!(
-            decoder.ignore_message(true, MAX_MESSAGE_BYTES),
-            Err(Error::Limit)
-        ));
-    }
-}
+#[path = "../tests/unit/pgoutput.rs"]
+mod tests;

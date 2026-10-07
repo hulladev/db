@@ -1,3 +1,5 @@
+#![cfg(feature = "diagnostic-replica")]
+
 mod support;
 
 use hulladb_cdc::{Capture, Error, EventLog, Replica, Retention, SnapshotReader, Value};
@@ -92,7 +94,7 @@ async fn exported_snapshot_external_writes_open_transaction_and_restart() {
     let replica = Replica::open(&replica_path, &f.source).unwrap();
     assert_eq!(replica.view(table, 100).unwrap().rows, view.rows);
     let mut other = f.source.clone();
-    other.generation = uuid::Uuid::now_v7();
+    other.source_id = uuid::Uuid::now_v7();
     assert!(matches!(
         Replica::open(&replica_path, &other),
         Err(Error::SourceMismatch)

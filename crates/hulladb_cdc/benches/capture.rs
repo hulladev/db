@@ -21,7 +21,7 @@ fn result(name: &str, workload: Value, samples: Vec<f64>) -> Value {
     let deviations: Vec<_> = samples.iter().map(|value| (value - center).abs()).collect();
     let mut sorted = samples.clone();
     sorted.sort_by(f64::total_cmp);
-    json!({"name": name, "fixture_version": 2, "workload": workload,
+    json!({"name": name, "fixture_version": 4, "workload": workload,
         "sample_kind": "request_latency", "iterations_per_sample": 1,
         "median_ns": center, "mad_ns": median(&deviations), "samples_ns": samples,
         "p95_ns": sorted[(95 * sorted.len()).div_ceil(100) - 1]})
@@ -121,7 +121,7 @@ async fn reads_and_growth() -> Result<(Vec<Value>, Vec<Value>, Value), Box<dyn s
         }
     }
     let cursor = Cursor {
-        generation: f.source.generation,
+        source_id: f.source.source_id,
         sequence: log.head()?.sequence - 100,
     };
     let mut samples = Vec::new();
@@ -177,7 +177,7 @@ async fn snapshot_and_replica() -> Result<Vec<Value>, Box<dyn std::error::Error>
         json!({"rows":1000,"title_bytes":14,"sqlite_synchronous":"FULL","includes":"metadata_and_copy_and_sqlite_initialization","connection_and_snapshot_acquisition_included":false}),
         samples,
     );
-    copy["fixture_version"] = json!(3);
+    copy["fixture_version"] = json!(4);
     copy["workload"]["bootstrap"] = json!("slot-exported snapshot");
     let snapshot = f.bootstrap().await?.read().await?;
     let mut replica = Replica::initialize(&replica_path, snapshot)?;
@@ -204,7 +204,7 @@ async fn snapshot_and_replica() -> Result<Vec<Value>, Box<dyn std::error::Error>
         json!({"rows_per_transaction":100,"materialized_rows":1000,"sqlite_synchronous":"FULL","includes":"log_read_decode_and_atomic_replica_apply_and_size_check","sql_write_and_capture_included":false}),
         samples,
     );
-    apply["fixture_version"] = json!(3);
+    apply["fixture_version"] = json!(4);
     apply["workload"]["bootstrap"] = json!("slot-exported snapshot");
     capture.close().await?;
     drop(replica);

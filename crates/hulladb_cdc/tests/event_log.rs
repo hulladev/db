@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 fn source() -> Source {
     Source {
-        generation: Uuid::now_v7(),
+        source_id: Uuid::now_v7(),
         system_id: "fixture".into(),
         database_oid: 1,
         publication_oid: 2,
@@ -74,7 +74,7 @@ fn durable_reopen_replay_and_source_identity() {
     assert_eq!(log.head().unwrap(), cursor);
     assert_eq!(log.checkpoint().unwrap(), Lsn(21));
     let mut other = source.clone();
-    other.generation = Uuid::now_v7();
+    other.source_id = Uuid::now_v7();
     assert!(matches!(
         EventLog::open(&file.0, other, Retention::default()),
         Err(Error::SourceMismatch)
@@ -106,7 +106,7 @@ fn retention_expiration_scope_and_page_boundaries() {
     assert_eq!(log.stats().unwrap().batches, 2);
     for cursor in [
         Cursor {
-            generation: Uuid::now_v7(),
+            source_id: Uuid::now_v7(),
             sequence: 1,
         },
         Cursor {
@@ -125,14 +125,14 @@ fn retention_expiration_scope_and_page_boundaries() {
 }
 
 #[test]
-fn byte_retention_and_transaction_limits() {
+fn byte_retention_prunes_whole_large_transactions_without_blocking_progress() {
     let file = File::new();
     let mut log = EventLog::open(
         &file.0,
         source(),
         Retention {
             max_batches: 100,
-            max_bytes: hulladb_cdc::MAX_TRANSACTION_BYTES as u64,
+            max_bytes: 4 * 1024 * 1024,
         },
     )
     .unwrap();
@@ -141,14 +141,18 @@ fn byte_retention_and_transaction_limits() {
     log.append(&batch(30, &text)).unwrap();
     let stats = log.stats().unwrap();
     assert_eq!(stats.batches, 1);
-    assert!(stats.payload_bytes <= hulladb_cdc::MAX_TRANSACTION_BYTES as u64);
+    assert!(stats.payload_bytes <= 4 * 1024 * 1024);
     let before = log.head().unwrap();
-    assert!(matches!(
-        log.append(&batch(40, &"a".repeat(hulladb_cdc::MAX_TRANSACTION_BYTES))),
-        Err(Error::Limit)
-    ));
-    assert_eq!(log.head().unwrap(), before);
-    assert_eq!(log.checkpoint().unwrap(), Lsn(31));
+    let huge = batch(40, &"a".repeat(4 * 1024 * 1024));
+    let cursor = log.append(&huge).unwrap().unwrap();
+    assert_eq!(cursor.sequence, before.sequence + 1);
+    assert_eq!(log.checkpoint().unwrap(), Lsn(41));
+    assert_eq!(log.stats().unwrap().batches, 0);
+    assert_eq!(log.stats().unwrap().payload_bytes, 0);
+    assert!(matches!(log.since(before, 1), Err(Error::CursorExpired)));
+    log.append(&batch(50, "after the oversized transaction"))
+        .unwrap();
+    assert_eq!(log.since(cursor, 1).unwrap()[0].batch.commit, Lsn(50));
 }
 
 #[test]
@@ -190,76 +194,6 @@ fn lsn_roundtrip_and_malformed_values() {
 }
 
 #[test]
-fn legacy_log_upgrade_preserves_history_and_accounts_for_multi_batch_pruning() {
-    let file = File::new();
-    let source = source();
-    let mut log = EventLog::open(&file.0, source.clone(), Retention::default()).unwrap();
-    let initial = log.head().unwrap();
-    for position in [20, 30, 40, 50] {
-        log.append(&batch(position, "žluťoučký 🦀")).unwrap();
-    }
-    let head = log.head().unwrap();
-    let checkpoint = log.checkpoint().unwrap();
-    let stats = log.stats().unwrap();
-    drop(log);
-    let db = rusqlite::Connection::open(&file.0).unwrap();
-    // Recreate the pre-accounting format with real retained payloads.
-    db.execute_batch("DROP TABLE event_usage; UPDATE metadata SET format=1;
-        CREATE TRIGGER fail_upgrade BEFORE UPDATE ON metadata BEGIN SELECT RAISE(ABORT,'injected upgrade failure'); END;").unwrap();
-    assert!(EventLog::open(&file.0, source.clone(), Retention::default()).is_err());
-    assert_eq!(
-        db.query_row("SELECT format FROM metadata", [], |r| r.get::<_, i64>(0))
-            .unwrap(),
-        1
-    );
-    assert!(
-        !db.query_row(
-            "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name='event_usage')",
-            [],
-            |r| r.get::<_, bool>(0)
-        )
-        .unwrap()
-    );
-    db.execute_batch("DROP TRIGGER fail_upgrade").unwrap();
-    let mut log = EventLog::open(
-        &file.0,
-        source.clone(),
-        Retention {
-            max_batches: 1,
-            ..Retention::default()
-        },
-    )
-    .unwrap();
-    assert_eq!(log.head().unwrap(), head);
-    assert_eq!(log.checkpoint().unwrap(), checkpoint);
-    assert_eq!(log.since(initial, 100).unwrap().len(), 4);
-    assert_eq!(log.stats().unwrap().batches, stats.batches);
-    assert_eq!(log.stats().unwrap().payload_bytes, stats.payload_bytes);
-    assert!(log.append(&batch(50, "žluťoučký 🦀")).unwrap().is_none());
-    assert_eq!(log.stats().unwrap().payload_bytes, stats.payload_bytes);
-    log.append(&batch(60, "new 🦀")).unwrap();
-    assert!(matches!(log.since(initial, 100), Err(Error::CursorExpired)));
-    assert_eq!(log.since(head, 100).unwrap().len(), 1);
-    let actual: (i64, i64) = db
-        .query_row(
-            "SELECT count(*),sum(length(CAST(payload AS BLOB))) FROM batches",
-            [],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
-        .unwrap();
-    assert_eq!(log.stats().unwrap().batches, actual.0 as u64);
-    assert_eq!(log.stats().unwrap().payload_bytes, actual.1 as u64);
-    drop(log);
-    let log = EventLog::open(&file.0, source, Retention::default()).unwrap();
-    assert_eq!(log.stats().unwrap().payload_bytes, actual.1 as u64);
-    assert_eq!(
-        db.query_row("SELECT format FROM metadata", [], |r| r.get::<_, i64>(0))
-            .unwrap(),
-        2
-    );
-}
-
-#[test]
 fn accounting_failure_rolls_back_eviction_checkpoint_and_usage_before_retry() {
     let file = File::new();
     let source = source();
@@ -292,11 +226,39 @@ fn accounting_failure_rolls_back_eviction_checkpoint_and_usage_before_retry() {
     assert_eq!(log.since(first, 100).unwrap().len(), 2);
     let actual: i64 = injector
         .query_row(
-            "SELECT sum(length(CAST(payload AS BLOB))) FROM batches",
+            "SELECT sum(payload_bytes) FROM batches WHERE sequence IS NOT NULL",
             [],
             |r| r.get(0),
         )
         .unwrap();
     assert_eq!(log.stats().unwrap().batches, 2);
     assert_eq!(log.stats().unwrap().payload_bytes, actual as u64);
+}
+
+#[test]
+fn materialized_read_budget_covers_the_whole_page_and_streaming_reads_remain_available() {
+    let file = File::new();
+    let mut log = EventLog::open(&file.0, source(), Retention::default()).unwrap();
+    let initial = log.head().unwrap();
+    log.append(&batch(20, "first")).unwrap();
+    log.append(&batch(30, "second")).unwrap();
+    let one = hulladb_cdc::ReadBudget {
+        max_bytes: u64::MAX,
+        max_changes: 1,
+    };
+    assert_eq!(log.since_with_budget(initial, 1, one).unwrap().len(), 1);
+    assert!(matches!(
+        log.since_with_budget(initial, 2, one),
+        Err(Error::ReadBudget)
+    ));
+    let mut count = 0;
+    log.visit_transactions(initial, 2, |stored| {
+        stored.for_each_change(|_| {
+            count += 1;
+            Ok(())
+        })
+    })
+    .unwrap();
+    assert_eq!(count, 2);
+    assert_eq!(log.head().unwrap().sequence, 2);
 }

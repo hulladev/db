@@ -4,7 +4,10 @@ use pgwire_replication::{ReplicationClient, ReplicationConfig, ReplicationEvent}
 use tokio::task::JoinHandle;
 use tokio_postgres::{Client, NoTls};
 
-use crate::{Cursor, Error, EventLog, Lsn, Source, pgoutput::Decoder};
+use crate::{
+    Cursor, Error, EventLog, Lsn, Source,
+    pgoutput::{DecodedEvent, Decoder},
+};
 
 /// Cooperative SQL ownership plus a persistent pgoutput v1 replication connection.
 pub struct Capture {
@@ -35,6 +38,27 @@ impl Drop for Capture {
 }
 
 impl Capture {
+    /// Establish a new dedicated tail without copying business rows on the server.
+    /// Clients bootstrap through authorized PostgreSQL queries after this boundary.
+    /// An interrupted export may leave an owned inactive slot; never reset it blindly.
+    pub async fn create(url: &str, slot: &str, publication: &str) -> Result<Self, Error> {
+        let mut capture = Self::bootstrap_connection(url, slot, publication).await?;
+        let mut exporter =
+            crate::bootstrap::ExportConnection::connect(&capture.config, &capture.source).await?;
+        let (start, _) = exporter.export(slot).await?;
+        drop(exporter);
+        capture.source.start = start;
+        capture.feedback = start;
+        capture.persisted = start;
+        capture.wait_inactive().await?;
+        capture.check_slot(start).await?;
+        Ok(capture)
+    }
+
+    pub fn source(&self) -> &Source {
+        &self.source
+    }
+
     /// Local development only. Does not create/drop slots or bootstrap existing rows.
     pub async fn connect(url: &str, source: &Source) -> Result<Self, Error> {
         let mut capture =
@@ -59,7 +83,7 @@ impl Capture {
         name(slot)?;
         name(publication)?;
         let source = Source {
-            generation: uuid::Uuid::now_v7(),
+            source_id: uuid::Uuid::now_v7(),
             system_id: String::new(),
             database_oid: 0,
             publication_oid: 0,
@@ -154,6 +178,10 @@ impl Capture {
         if log.checkpoint()? < self.persisted {
             return Err(Error::SlotAhead);
         }
+        if self.decoder.in_transaction() && !log.is_staging() {
+            self.stop_stream();
+            return Err(Error::SourceMismatch);
+        }
         let result = self.receive(log).await;
         if let Ok(progress) = &result {
             self.persisted = progress.checkpoint;
@@ -163,12 +191,14 @@ impl Capture {
             // failure. Stop immediately, discard partial state, and replay from
             // the upstream acknowledgement on the next call.
             self.stop_stream();
+            log.abort_staging()?;
         }
         result
     }
 
     async fn receive(&mut self, log: &mut EventLog) -> Result<Progress, Error> {
         if self.stream.is_none() {
+            log.abort_staging()?;
             if self.resetting {
                 self.wait_inactive().await?;
                 self.resetting = false;
@@ -270,21 +300,18 @@ impl Capture {
                 }
                 ReplicationEvent::StoppedAt { .. } => return Err(Error::SourceUnavailable),
             };
-            if let Some(batch) = batch {
-                if batch.changes.is_empty() {
-                    log.scanned_through(batch.end)?;
+            match batch {
+                Some(DecodedEvent::Begin { xid, commit }) => log.begin_transaction(xid, commit)?,
+                Some(DecodedEvent::Change(change)) => log.push_change(&change)?,
+                Some(DecodedEvent::Commit { commit, end }) => {
+                    let (cursor, replayed) = log.finish_transaction(commit, end)?;
                     return Ok(Progress {
-                        appended: Vec::new(),
-                        replayed: 0,
+                        appended: cursor.into_iter().collect(),
+                        replayed: usize::from(replayed),
                         checkpoint: log.checkpoint()?,
                     });
                 }
-                let cursor = log.append(&batch)?;
-                return Ok(Progress {
-                    appended: cursor.into_iter().collect(),
-                    replayed: usize::from(cursor.is_none()),
-                    checkpoint: log.checkpoint()?,
-                });
+                None => {}
             }
         }
     }

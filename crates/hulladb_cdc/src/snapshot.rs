@@ -83,7 +83,7 @@ impl SnapshotReader {
     }
 
     /// Bounded copy of explicit ordinary tables with default primary-key identity.
-    /// DDL/publication changes require a fresh generation, not implicit adaptation.
+    /// DDL/publication changes require a fresh source identity, not implicit adaptation.
     pub async fn read(self) -> Result<Snapshot, Error> {
         let db = &self.capture.db;
         let publication = db.query_one(

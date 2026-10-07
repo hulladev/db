@@ -1,25 +1,26 @@
-//! Internal PostgreSQL CDC capture implementation. This is not an authorized client feed.
+//! Diagnostic PostgreSQL logical capture and bounded durable raw history.
 //!
-//! Captures pgoutput v1 transactions through a persistent replication connection and
-//! persists them in a separate SQLite log before sending durable feedback.
-//! Bootstrap imports a new slot's exported snapshot; materialization applies every
-//! emitted transaction without an overlapping XID visibility filter.
-//! It does not implement a public network protocol or client authorization.
+//! This crate is not part of managed synchronization. It exercises pgoutput v1
+//! capture/recovery; the optional raw replica is an inspection probe. Production
+//! task delivery lives in `hulladb_sync` and has no dependency on this crate.
 
 mod bootstrap;
 mod capture;
 mod log;
 mod model;
 mod pgoutput;
+#[cfg(feature = "diagnostic-replica")]
 mod replica;
+#[cfg(feature = "diagnostic-replica")]
 mod snapshot;
 
 pub use capture::{Capture, Progress};
-pub use log::{EventLog, Retention, StorageStats};
+pub use log::{
+    EventLog, ReadBudget, Retention, StorageOptions, StorageStats, StoredTransaction,
+    TransactionHeader,
+};
 pub use model::{Batch, Change, Column, Cursor, Error, Event, Lsn, Relation, Source, Value};
+#[cfg(feature = "diagnostic-replica")]
 pub use replica::{Replica, ReplicaView};
+#[cfg(feature = "diagnostic-replica")]
 pub use snapshot::{MAX_SNAPSHOT_BYTES, MAX_SNAPSHOT_ROWS, Snapshot, SnapshotReader};
-
-/// Bounds both accumulated input and the persisted JSON for one transaction.
-pub const MAX_TRANSACTION_BYTES: usize = 4 * 1024 * 1024;
-pub const MAX_TRANSACTION_CHANGES: usize = 10_000;

@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use hulladb_cdc::{Lsn, SnapshotReader, Source};
+use hulladb_cdc::{Capture, Lsn, Source};
 use hulladb_postgres::{Session, Store, Uuid};
 use tokio::task::JoinHandle;
 use tokio_postgres::{Client, NoTls};
@@ -12,9 +12,8 @@ pub struct CommandFixture {
     pub db: Client,
     pub url: String,
     pub source: Source,
-    pub table: u32,
     pub log_path: PathBuf,
-    pub replica_path: PathBuf,
+    pub client_path: PathBuf,
     connection: JoinHandle<Result<(), tokio_postgres::Error>>,
 }
 
@@ -40,7 +39,7 @@ impl CommandFixture {
         let start = Lsn(0);
         let identity = db.query_one("SELECT (pg_control_system()).system_identifier::text, (SELECT oid FROM pg_database WHERE datname=current_database()), (SELECT oid FROM pg_publication WHERE pubname=$1), '_hulladb_task_probe.tasks'::regclass::oid", &[&publication]).await?;
         let source = Source {
-            generation: Uuid::now_v7(),
+            source_id: Uuid::now_v7(),
             system_id: identity.get(0),
             database_oid: identity.get(1),
             publication_oid: identity.get(2),
@@ -55,18 +54,17 @@ impl CommandFixture {
             db,
             url,
             source,
-            table: identity.get(3),
             log_path: base.with_extension("log.sqlite"),
-            replica_path: base.with_extension("replica.sqlite"),
+            client_path: base.with_extension("client.sqlite"),
             connection,
         })
     }
 
-    pub async fn bootstrap(&mut self) -> Result<SnapshotReader, hulladb_cdc::Error> {
-        let reader =
-            SnapshotReader::begin(&self.url, &self.source.slot, &self.source.publication).await?;
-        self.source = reader.source().clone();
-        Ok(reader)
+    pub async fn capture(&mut self) -> Result<Capture, hulladb_cdc::Error> {
+        let capture =
+            Capture::create(&self.url, &self.source.slot, &self.source.publication).await?;
+        self.source = capture.source().clone();
+        Ok(capture)
     }
 
     pub async fn cleanup(mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -86,7 +84,7 @@ impl CommandFixture {
 impl Drop for CommandFixture {
     fn drop(&mut self) {
         self.connection.abort();
-        for path in [&self.log_path, &self.replica_path] {
+        for path in [&self.log_path, &self.client_path] {
             for suffix in ["", "-wal", "-shm"] {
                 let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
             }

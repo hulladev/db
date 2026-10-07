@@ -2,13 +2,13 @@ use std::{path::Path, time::Duration};
 
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 
-use crate::{Change, Cursor, Error, Event, EventLog, Lsn, Relation, Snapshot, Source, Value};
+use crate::{Change, Cursor, Error, EventLog, Lsn, Relation, Snapshot, Source, Value};
 
 /// Separate durable internal materialization. Never expose it without authorization.
 /// Rows retain PostgreSQL text values; this is not a general SQL/type adapter.
 pub struct Replica {
-    db: Connection,
-    source: Source,
+    pub(crate) db: Connection,
+    pub(crate) source: Source,
 }
 
 #[derive(Debug)]
@@ -37,7 +37,7 @@ impl Replica {
     pub fn initialize(path: impl AsRef<Path>, snapshot: Snapshot) -> Result<Self, Error> {
         let mut db = storage(path)?;
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        tx.execute_batch("CREATE TABLE IF NOT EXISTS replica_metadata(singleton INTEGER PRIMARY KEY CHECK(singleton=1),format INTEGER NOT NULL,source TEXT NOT NULL,sequence INTEGER NOT NULL,end_lsn TEXT NOT NULL);
+        tx.execute_batch("CREATE TABLE IF NOT EXISTS replica_metadata(singleton INTEGER PRIMARY KEY CHECK(singleton=1),source TEXT NOT NULL,sequence INTEGER NOT NULL,end_lsn TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS replica_relations(oid INTEGER PRIMARY KEY,definition TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS replica_rows(relation_oid INTEGER NOT NULL,key TEXT NOT NULL,payload TEXT NOT NULL,PRIMARY KEY(relation_oid,key));")?;
         let exists: bool =
@@ -47,10 +47,10 @@ impl Replica {
         if exists {
             return Err(Error::Invalid("replica already initialized"));
         }
-        install_usage(&tx)?;
+        tx.execute_batch("CREATE TABLE replica_usage(singleton INTEGER PRIMARY KEY CHECK(singleton=1),rows INTEGER NOT NULL,bytes INTEGER NOT NULL); INSERT INTO replica_usage VALUES(1,0,0);")?;
         let source = snapshot.source;
         tx.execute(
-            "INSERT INTO replica_metadata VALUES(1,2,?1,0,?2)",
+            "INSERT INTO replica_metadata VALUES(1,?1,0,?2)",
             params![serde_json::to_string(&source)?, source.start.to_string(),],
         )?;
         let mut usage = Usage::read(&tx)?;
@@ -73,28 +73,14 @@ impl Replica {
 
     pub fn open(path: impl AsRef<Path>, source: &Source) -> Result<Self, Error> {
         let db = storage(path)?;
-        let (format, stored): (i64, String) = db.query_row(
-            "SELECT format,source FROM replica_metadata WHERE singleton=1",
+        let stored: String = db.query_row(
+            "SELECT source FROM replica_metadata WHERE singleton=1",
             [],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| r.get(0),
         )?;
-        match format {
-            1 => {
-                return Err(Error::Invalid(
-                    "legacy overlap replicas require a new exported bootstrap",
-                ));
-            }
-            2 => {}
-            _ => return Err(Error::Corrupt),
-        }
         if serde_json::from_str::<Source>(&stored)? != *source {
             return Err(Error::SourceMismatch);
         }
-        // Upgrade accounting in existing files before applying another event.
-        // The initial aggregate runs once; each transaction saves its size delta.
-        let tx = db.unchecked_transaction()?;
-        install_usage(&tx)?;
-        tx.commit()?;
         Ok(Self {
             db,
             source: source.clone(),
@@ -103,7 +89,7 @@ impl Replica {
 
     pub fn cursor(&self) -> Result<Cursor, Error> {
         Ok(Cursor {
-            generation: self.source.generation,
+            source_id: self.source.source_id,
             sequence: self.db.query_row(
                 "SELECT sequence FROM replica_metadata WHERE singleton=1",
                 [],
@@ -118,14 +104,37 @@ impl Replica {
         if log.source() != &self.source {
             return Err(Error::SourceMismatch);
         }
-        let events = log.since(self.cursor()?, limit)?;
-        for event in &events {
-            self.apply(event)?;
-        }
-        Ok(events.len())
+        let mut count = 0;
+        log.visit_transactions(self.cursor()?, limit, |stored| {
+            self.apply_changes(
+                stored.header.cursor,
+                stored.header.commit,
+                stored.header.end,
+                |visit| stored.for_each_change(|change| visit(&change)),
+            )?;
+            count += 1;
+            Ok(())
+        })?;
+        Ok(count)
     }
 
-    fn apply(&mut self, event: &Event) -> Result<(), Error> {
+    #[cfg(test)]
+    fn apply(&mut self, event: &crate::Event) -> Result<(), Error> {
+        self.apply_changes(event.cursor, event.batch.commit, event.batch.end, |visit| {
+            for change in &event.batch.changes {
+                visit(change)?;
+            }
+            Ok(())
+        })
+    }
+
+    fn apply_changes(
+        &mut self,
+        cursor: Cursor,
+        commit: Lsn,
+        end_lsn: Lsn,
+        read: impl FnOnce(&mut dyn FnMut(&Change) -> Result<(), Error>) -> Result<(), Error>,
+    ) -> Result<(), Error> {
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -134,19 +143,19 @@ impl Replica {
             [],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )?;
-        if event.cursor.generation != self.source.generation
-            || sequence.checked_add(1) != Some(event.cursor.sequence)
+        if cursor.source_id != self.source.source_id
+            || sequence.checked_add(1) != Some(cursor.sequence)
         {
             return Err(Error::InvalidCursor);
         }
-        if event.batch.commit < end.parse::<Lsn>()? || event.batch.commit >= event.batch.end {
+        if commit < end.parse::<Lsn>()? || commit >= end_lsn {
             return Err(Error::Corrupt);
         }
         let mut usage = Usage::read(&tx)?;
         // The slot's exported snapshot includes exactly the state before its
         // consistent point. Every emitted transaction must be applied, regardless
         // of the 32-bit pgoutput XID or PostgreSQL's current XID epoch.
-        for change in &event.batch.changes {
+        read(&mut |change| {
             match change {
                 Change::Insert { relation, row } => {
                     check_relation(&tx, relation)?;
@@ -209,11 +218,12 @@ impl Replica {
                     }
                 }
             }
-        }
+            Ok(())
+        })?;
         usage.persist(&tx)?;
         tx.execute(
             "UPDATE replica_metadata SET sequence=?1,end_lsn=?2 WHERE singleton=1",
-            params![event.cursor.sequence, event.batch.end.to_string()],
+            params![cursor.sequence, end_lsn.to_string()],
         )?;
         tx.commit()?;
         Ok(())
@@ -251,7 +261,7 @@ impl Replica {
         rows.truncate(limit as usize);
         Ok(ReplicaView {
             cursor: Cursor {
-                generation: self.source.generation,
+                source_id: self.source.source_id,
                 sequence,
             },
             rows,
@@ -272,16 +282,6 @@ fn validate_relation(relation: &Relation) -> Result<(), Error> {
             "replica requires default primary-key identity",
         ));
     }
-    Ok(())
-}
-
-fn install_usage(db: &Connection) -> Result<(), Error> {
-    db.execute_batch("CREATE TABLE IF NOT EXISTS replica_usage(singleton INTEGER PRIMARY KEY CHECK(singleton=1),rows INTEGER NOT NULL,bytes INTEGER NOT NULL);
-        INSERT INTO replica_usage SELECT 1,
-          (SELECT count(*) FROM replica_rows),
-          (SELECT coalesce(sum(length(CAST(payload AS BLOB))),0) FROM replica_rows) +
-          (SELECT coalesce(sum(length(CAST(definition AS BLOB))),0) FROM replica_relations)
-          WHERE NOT EXISTS(SELECT 1 FROM replica_usage);")?;
     Ok(())
 }
 
@@ -381,297 +381,5 @@ fn insert(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{Batch, Column, Retention};
-    use uuid::Uuid;
-
-    struct File(std::path::PathBuf);
-    impl File {
-        fn new() -> Self {
-            Self(std::env::temp_dir().join(format!("hulladb-replica-{}.sqlite", Uuid::now_v7())))
-        }
-    }
-    impl Drop for File {
-        fn drop(&mut self) {
-            for suffix in ["", "-wal", "-shm"] {
-                let _ = std::fs::remove_file(format!("{}{suffix}", self.0.display()));
-            }
-        }
-    }
-    fn source() -> Source {
-        Source {
-            generation: Uuid::now_v7(),
-            system_id: "fixture".into(),
-            database_oid: 1,
-            publication_oid: 2,
-            slot: "slot".into(),
-            publication: "pub".into(),
-            start: Lsn(10),
-        }
-    }
-    fn relation() -> Relation {
-        Relation {
-            oid: 3,
-            namespace: "public".into(),
-            name: "tasks".into(),
-            replica_identity: b'd',
-            columns: vec![
-                Column {
-                    name: "id".into(),
-                    type_oid: 20,
-                    type_modifier: -1,
-                    key: true,
-                },
-                Column {
-                    name: "title".into(),
-                    type_oid: 25,
-                    type_modifier: -1,
-                    key: false,
-                },
-            ],
-        }
-    }
-    fn row(id: &str, text: &str) -> Vec<Value> {
-        vec![Value::Text(id.into()), Value::Text(text.into())]
-    }
-    fn snapshot(source: &Source) -> Snapshot {
-        Snapshot {
-            source: source.clone(),
-            tables: vec![(relation(), vec![row("1", "copied")])],
-        }
-    }
-    fn event(source: &Source, sequence: i64, xid: u32, commit: u64, changes: Vec<Change>) -> Event {
-        Event {
-            cursor: Cursor {
-                generation: source.generation,
-                sequence,
-            },
-            batch: Batch {
-                xid,
-                commit: Lsn(commit),
-                end: Lsn(commit + 1),
-                changes,
-            },
-        }
-    }
-
-    #[test]
-    fn composite_keys_preserve_scope_and_unambiguous_components() {
-        let mut relation = relation();
-        relation.columns[1].key = true;
-        validate_relation(&relation).unwrap();
-        assert_ne!(
-            key(&relation, &row("a,b", "c")).unwrap(),
-            key(&relation, &row("a", "b,c")).unwrap()
-        );
-        assert_ne!(
-            key(&relation, &row("1", "scope a")).unwrap(),
-            key(&relation, &row("1", "scope b")).unwrap()
-        );
-        assert!(key(&relation, &[Value::Text("1".into()), Value::Null]).is_err());
-    }
-
-    #[test]
-    fn accounting_upgrade_and_failed_transaction_keep_exact_totals() {
-        let file = File::new();
-        let source = source();
-        let replica = Replica::initialize(&file.0, snapshot(&source)).unwrap();
-        replica
-            .db
-            .execute_batch("DROP TABLE replica_usage;")
-            .unwrap();
-        drop(replica);
-        let mut replica = Replica::open(&file.0, &source).unwrap();
-        let totals = |replica: &Replica| {
-            replica
-                .db
-                .query_row("SELECT rows,bytes FROM replica_usage", [], |r| {
-                    Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))
-                })
-                .unwrap()
-        };
-        let before = totals(&replica);
-        assert_eq!(before.0, 1);
-        let changes = vec![
-            Change::Insert {
-                relation: relation(),
-                row: row("2", "new"),
-            },
-            Change::Delete {
-                relation: relation(),
-                old: row("missing", ""),
-            },
-        ];
-        assert!(replica.apply(&event(&source, 1, 21, 100, changes)).is_err());
-        assert_eq!(totals(&replica), before);
-        replica
-            .apply(&event(
-                &source,
-                1,
-                21,
-                100,
-                vec![Change::Insert {
-                    relation: relation(),
-                    row: row("2", "new"),
-                }],
-            ))
-            .unwrap();
-        assert_eq!(totals(&replica).0, 2);
-        let actual: i64 = replica.db.query_row(
-            "SELECT (SELECT sum(length(CAST(payload AS BLOB))) FROM replica_rows) + (SELECT sum(length(CAST(definition AS BLOB))) FROM replica_relations)",[],|r|r.get(0)
-        ).unwrap();
-        assert_eq!(totals(&replica).1, actual);
-    }
-
-    #[test]
-    fn exported_snapshot_applies_every_transaction_across_xid_wrap_and_reopen() {
-        let file = File::new();
-        let source = source();
-        let mut replica = Replica::initialize(&file.0, snapshot(&source)).unwrap();
-        for (sequence, xid) in [(1, u32::MAX - 1), (2, u32::MAX), (3, 3), (4, 4)] {
-            replica
-                .apply(&event(
-                    &source,
-                    sequence,
-                    xid,
-                    20 + sequence as u64 * 10,
-                    vec![Change::Insert {
-                        relation: relation(),
-                        row: row(&(sequence + 1).to_string(), "new"),
-                    }],
-                ))
-                .unwrap();
-            drop(replica);
-            replica = Replica::open(&file.0, &source).unwrap();
-        }
-        assert_eq!(replica.view(3, 100).unwrap().rows.len(), 5);
-        assert_eq!(replica.cursor().unwrap().sequence, 4);
-        assert!(matches!(
-            replica.apply(&event(&source, 6, 5, 80, vec![])),
-            Err(Error::InvalidCursor)
-        ));
-        assert_eq!(replica.cursor().unwrap().sequence, 4);
-    }
-
-    #[test]
-    fn failed_bootstrap_never_publishes_partial_state_or_overwrites_a_replica() {
-        let file = File::new();
-        let source = source();
-        let mut invalid = snapshot(&source);
-        invalid.tables[0].1.push(row("1", "duplicate"));
-        assert!(Replica::initialize(&file.0, invalid).is_err());
-        assert!(Replica::open(&file.0, &source).is_err());
-        let replica = Replica::initialize(&file.0, snapshot(&source)).unwrap();
-        assert!(Replica::initialize(&file.0, snapshot(&source)).is_err());
-        assert_eq!(replica.view(3, 100).unwrap().rows, vec![row("1", "copied")]);
-        assert!(Replica::initialize(":memory:", snapshot(&source)).is_err());
-    }
-
-    #[test]
-    fn legacy_overlap_replica_is_rejected_without_rewriting_its_rows() {
-        let file = File::new();
-        let source = source();
-        let replica = Replica::initialize(&file.0, snapshot(&source)).unwrap();
-        replica
-            .db
-            .execute("UPDATE replica_metadata SET format=1", [])
-            .unwrap();
-        drop(replica);
-        assert!(matches!(
-            Replica::open(&file.0, &source),
-            Err(Error::Invalid(_))
-        ));
-        let db = Connection::open(&file.0).unwrap();
-        assert_eq!(
-            db.query_row("SELECT count(*) FROM replica_rows", [], |r| r
-                .get::<_, i64>(0))
-                .unwrap(),
-            1
-        );
-        assert_eq!(
-            db.query_row("SELECT format FROM replica_metadata", [], |r| r
-                .get::<_, i64>(0))
-                .unwrap(),
-            1
-        );
-    }
-
-    #[test]
-    fn malformed_batch_schema_and_materialization_limits_roll_back() {
-        let file = File::new();
-        let source = source();
-        let mut replica = Replica::initialize(&file.0, snapshot(&source)).unwrap();
-        let insert = Change::Insert {
-            relation: relation(),
-            row: row("2", "valid"),
-        };
-        let missing = Change::Delete {
-            relation: relation(),
-            old: row("missing", ""),
-        };
-        assert!(matches!(
-            replica.apply(&event(&source, 1, 21, 100, vec![insert.clone(), missing])),
-            Err(Error::Corrupt)
-        ));
-        assert_eq!(replica.view(3, 100).unwrap().rows, vec![row("1", "copied")]);
-        assert_eq!(replica.cursor().unwrap().sequence, 0);
-        let mut changed = relation();
-        changed.columns[1].type_modifier = 42;
-        assert!(matches!(
-            replica.apply(&event(
-                &source,
-                1,
-                21,
-                100,
-                vec![Change::Insert {
-                    relation: changed,
-                    row: row("2", "changed")
-                }]
-            )),
-            Err(Error::SourceMismatch)
-        ));
-        let large = Change::Insert {
-            relation: relation(),
-            row: row("3", &"x".repeat(crate::MAX_SNAPSHOT_BYTES)),
-        };
-        assert!(matches!(
-            replica.apply(&event(&source, 1, 21, 100, vec![insert, large])),
-            Err(Error::Limit)
-        ));
-        assert_eq!(replica.cursor().unwrap().sequence, 0);
-        assert_eq!(replica.view(3, 100).unwrap().rows.len(), 1);
-    }
-
-    #[test]
-    fn log_recovery_after_cursor_commit_failure_does_not_duplicate_rows() {
-        let file = File::new();
-        let log_file = File::new();
-        let source = source();
-        let mut replica = Replica::initialize(&file.0, snapshot(&source)).unwrap();
-        let mut log = EventLog::open(&log_file.0, source.clone(), Retention::default()).unwrap();
-        let event = event(
-            &source,
-            1,
-            21,
-            100,
-            vec![Change::Insert {
-                relation: relation(),
-                row: row("2", "new"),
-            }],
-        );
-        log.append(&event.batch).unwrap();
-        replica.db.execute_batch("CREATE TRIGGER fail_cursor BEFORE UPDATE ON replica_metadata BEGIN SELECT RAISE(ABORT,'injected'); END").unwrap();
-        assert!(replica.catch_up(&log, 100).is_err());
-        assert_eq!(replica.view(3, 100).unwrap().rows.len(), 1);
-        replica
-            .db
-            .execute_batch("DROP TRIGGER fail_cursor")
-            .unwrap();
-        drop(replica);
-        let mut replica = Replica::open(&file.0, &source).unwrap();
-        assert_eq!(replica.catch_up(&log, 100).unwrap(), 1);
-        assert_eq!(replica.view(3, 100).unwrap().rows.len(), 2);
-        assert_eq!(replica.catch_up(&log, 100).unwrap(), 0);
-    }
-}
+#[path = "../tests/unit/replica.rs"]
+mod tests;

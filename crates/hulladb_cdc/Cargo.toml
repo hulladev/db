@@ -5,27 +5,27 @@ edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
+[features]
+# Privileged full-publication mirror used only to exercise capture/bootstrap.
+diagnostic-replica = []
+
 [dependencies]
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 pgwire-replication = { version = "=0.4.1", default-features = false, features = ["scram"] }
 rusqlite = { version = "0.38", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread", "time"] }
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
 tokio-postgres = { version = "0.7", features = ["with-serde_json-1"] }
 uuid = { version = "1", features = ["v7", "serde"] }
-
-[lints]
-workspace = true
 
 [dev-dependencies]
 hulladb_postgres = { path = "../hulladb_postgres" }
 
+[lints]
+workspace = true
+
 [[bench]]
 name = "capture"
 harness = false
-
-
-[[bench]]
-name = "sync"
-harness = false
+required-features = ["diagnostic-replica"]

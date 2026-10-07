@@ -1,6 +1,8 @@
 use std::{path::PathBuf, time::Duration};
 
-use hulladb_cdc::{Error, Lsn, SnapshotReader, Source};
+#[cfg(feature = "diagnostic-replica")]
+use hulladb_cdc::SnapshotReader;
+use hulladb_cdc::{Error, Lsn, Source};
 use tokio::task::JoinHandle;
 use tokio_postgres::{Client, NoTls};
 use uuid::Uuid;
@@ -26,6 +28,7 @@ impl Fixture {
     }
 
     #[allow(dead_code)]
+    #[cfg(feature = "diagnostic-replica")]
     pub async fn bootstrap(&mut self) -> Result<SnapshotReader, Error> {
         let reader =
             SnapshotReader::begin(&self.url, &self.source.slot, &self.source.publication).await?;
@@ -70,7 +73,7 @@ impl Fixture {
         };
         let row = db.query_one("SELECT (pg_control_system()).system_identifier::text, (SELECT oid FROM pg_database WHERE datname=current_database()), (SELECT oid FROM pg_publication WHERE pubname=$1)", &[&publication]).await?;
         let source = Source {
-            generation: Uuid::now_v7(),
+            source_id: Uuid::now_v7(),
             system_id: row.get(0),
             database_oid: row.get(1),
             publication_oid: row.get(2),

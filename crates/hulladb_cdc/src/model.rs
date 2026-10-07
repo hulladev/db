@@ -24,10 +24,10 @@ impl FromStr for Lsn {
     }
 }
 
-/// Caller-owned source generation. Reset/recreate of a slot requires a new generation/log.
+/// Caller-owned source identity. Reset/recreate of a slot requires a new identity/log.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Source {
-    pub generation: Uuid,
+    pub source_id: Uuid,
     pub system_id: String,
     pub database_oid: u32,
     pub publication_oid: u32,
@@ -94,7 +94,7 @@ pub struct Batch {
 /// Scoped internal log cursor. It is not an authorization token.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Cursor {
-    pub generation: Uuid,
+    pub source_id: Uuid,
     pub sequence: i64,
 }
 
@@ -109,6 +109,8 @@ pub enum Error {
     Invalid(&'static str),
     Protocol(&'static str),
     Limit,
+    ReadBudget,
+    StagingBudget { used: u64, limit: u64 },
     SourceMismatch,
     SourceUnavailable,
     SlotAhead,
@@ -120,15 +122,22 @@ pub enum Error {
     Replication(pgwire_replication::error::PgWireError),
     Sqlite(rusqlite::Error),
     Json(serde_json::Error),
+    Io(std::io::Error),
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Invalid(s) | Self::Protocol(s) => f.write_str(s),
-            Self::Limit => f.write_str("CDC transaction or retention limit exceeded"),
+            Self::Limit => f.write_str("CDC protocol message or metadata limit exceeded"),
+            Self::ReadBudget => {
+                f.write_str("materialized log read exceeds its budget; use streaming reads")
+            }
+            Self::StagingBudget { used, limit } => {
+                write!(f, "encoded staging quota exceeded: {used} > {limit}")
+            }
             Self::SourceMismatch => {
-                f.write_str("CDC source identity differs; create a new generation")
+                f.write_str("CDC source identity differs; create a new source identity")
             }
             Self::SourceUnavailable => f.write_str(
                 "replication slot is missing, invalidated, or too far ahead; bootstrap required",
@@ -142,6 +151,7 @@ impl fmt::Display for Error {
             Self::Replication(e) => fmt::Display::fmt(e, f),
             Self::Sqlite(e) => fmt::Display::fmt(e, f),
             Self::Json(e) => fmt::Display::fmt(e, f),
+            Self::Io(e) => fmt::Display::fmt(e, f),
         }
     }
 }

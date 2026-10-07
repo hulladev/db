@@ -196,7 +196,7 @@ async fn durable_before_ack_replay_reopen_and_exclusive_owner() {
     assert_eq!(report.replayed, 1);
     assert_eq!(log.stats().unwrap().batches, 1);
     let mut other = f.source.clone();
-    other.generation = Uuid::now_v7();
+    other.source_id = Uuid::now_v7();
     let other_fixture = Fixture::create().await.unwrap();
     let mut wrong_log = EventLog::open(&other_fixture.path, other, Retention::default()).unwrap();
     assert!(matches!(
@@ -304,7 +304,7 @@ async fn retention_does_not_pin_ack_and_toast_remains_explicit() {
     assert!(matches!(
         log.since(
             Cursor {
-                generation: Uuid::now_v7(),
+                source_id: Uuid::now_v7(),
                 sequence: 0
             },
             1
@@ -418,9 +418,16 @@ async fn triggers_and_concurrent_external_transactions_capture_actual_results() 
 
 #[tokio::test]
 #[ignore = "requires local PostgreSQL with logical replication; make cdc-test"]
-async fn oversized_transaction_halts_without_partial_history_or_ack() {
+async fn large_transactions_stream_atomically_replay_and_allow_later_capture() {
     let f = Fixture::create().await.unwrap();
-    let mut log = EventLog::open(&f.path, f.source.clone(), Retention::default()).unwrap();
+    let options = hulladb_cdc::StorageOptions {
+        chunk_bytes: 8192,
+        ..Default::default()
+    };
+    let mut log =
+        EventLog::open_with_options(&f.path, f.source.clone(), Retention::default(), options)
+            .unwrap();
+    let initial = log.head().unwrap();
     let mut capture = Capture::connect(&f.url, &f.source).await.unwrap();
     f.db.batch_execute(&format!(
         "INSERT INTO {}.tasks SELECT i,repeat('x',2048),false FROM generate_series(1,2100) i",
@@ -428,24 +435,54 @@ async fn oversized_transaction_halts_without_partial_history_or_ack() {
     ))
     .await
     .unwrap();
-    assert!(matches!(
-        transaction(&mut capture, &mut log, true).await,
-        Err(Error::Limit)
-    ));
-    assert_eq!(log.head().unwrap().sequence, 0);
-    assert_eq!(log.checkpoint().unwrap(), f.source.start);
-    assert_eq!(log.stats().unwrap().batches, 0);
-    let confirmed =
-        f.db.query_one(
-            "SELECT confirmed_flush_lsn::text FROM pg_replication_slots WHERE slot_name=$1",
-            &[&f.source.slot],
-        )
-        .await
-        .unwrap()
-        .get::<_, String>(0)
-        .parse::<Lsn>()
-        .unwrap();
-    assert_eq!(confirmed, f.source.start);
+    let progress = transaction(&mut capture, &mut log, false).await.unwrap();
+    assert_eq!(progress.appended.len(), 1);
+    let first = log.head().unwrap();
+    assert!(matches!(log.since(initial, 1), Err(Error::ReadBudget)));
+    let mut count = 0;
+    log.visit_transactions(initial, 1, |stored| {
+        assert!(stored.header.payload_bytes > 4 * 1024 * 1024);
+        stored.for_each_change(|change| {
+            assert!(matches!(change, Change::Insert { row, .. } if row[1] == Value::Text("x".repeat(2048))));
+            count += 1;
+            Ok(())
+        })
+    }).unwrap();
+    assert_eq!(count, 2100);
+    // Terminate in the durable-before-feedback window, then replay with different
+    // chunk boundaries. No duplicate transaction may become visible.
+    drop(capture);
+    drop(log);
+    let mut log = EventLog::open_with_options(
+        &f.path,
+        f.source.clone(),
+        Retention::default(),
+        hulladb_cdc::StorageOptions {
+            chunk_bytes: 16384,
+            ..options
+        },
+    )
+    .unwrap();
+    let mut capture = Capture::connect(&f.url, &f.source).await.unwrap();
+    let replay = transaction(&mut capture, &mut log, true).await.unwrap();
+    assert_eq!(replay.replayed, 1);
+    assert_eq!(log.head().unwrap(), first);
+    acknowledged(&f, log.checkpoint().unwrap()).await;
+    f.db.batch_execute(&format!(
+        "INSERT INTO {}.tasks SELECT i,'after large batch',false FROM generate_series(2101,12101) i",
+        f.schema
+    )).await.unwrap();
+    drain(&mut capture, &mut log, 2).await;
+    let mut later = 0;
+    log.visit_transactions(first, 1, |stored| {
+        stored.for_each_change(|_| {
+            later += 1;
+            Ok(())
+        })
+    })
+    .unwrap();
+    assert_eq!(later, 10_001);
+    assert!(matches!(log.since(first, 1), Err(Error::ReadBudget)));
     capture.close().await.unwrap();
     drop(log);
     f.cleanup().await.unwrap();
@@ -563,7 +600,7 @@ async fn backpressure_keeps_connection_alive_without_acknowledging_unconsumed_ro
     assert_eq!(
         log.since(
             hulladb_cdc::Cursor {
-                generation: f.source.generation,
+                source_id: f.source.source_id,
                 sequence: 0
             },
             1
