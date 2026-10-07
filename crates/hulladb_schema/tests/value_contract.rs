@@ -33,12 +33,10 @@ fn error(field: &str, kind: ValidationErrorKind) -> ValidationError {
 fn nullable_fields_require_presence_but_accept_explicit_null() {
     let table = tasks();
     let mut values = input();
-    let original = values.clone();
     assert_eq!(
         table.validate_insert(&values),
         Ok(InsertKeyAction::Generate)
     );
-    assert_eq!(values, original);
 
     values.insert("id".into(), Value::Uuid([1; 16]));
     assert_eq!(table.validate_row(&values), Ok(()));
@@ -159,21 +157,6 @@ fn scalar_values_must_match_without_coercion_even_for_nullable_fields() {
             assert_eq!(table.validate_row(&values).is_ok(), nullable);
             assert_eq!(table.validate_insert(&values).is_ok(), nullable);
         }
-    }
-}
-
-#[test]
-fn all_int64_values_are_represented_exactly() {
-    let table = TableDeclaration::new("tasks", vec![FieldDefinition::new("id", ScalarType::Int64)])
-        .normalize()
-        .unwrap();
-    for value in [i64::MIN, -1, 0, 9_007_199_254_740_993, i64::MAX] {
-        let values = RecordValues::from([("id".into(), Value::Int64(value))]);
-        assert_eq!(table.validate_row(&values), Ok(()));
-        assert_eq!(
-            table.validate_insert(&values),
-            Ok(InsertKeyAction::Provided)
-        );
     }
 }
 

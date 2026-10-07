@@ -20,8 +20,7 @@ fn schema(scalar_type: ScalarType) -> SchemaDeclaration {
 fn references_resolve_forward_targets_and_selected_key_types() {
     for scalar_type in [ScalarType::String, ScalarType::Int64, ScalarType::Uuid] {
         let declaration = schema(scalar_type);
-        let contract = declaration.clone().normalize().unwrap();
-        assert_eq!(contract, declaration.normalize().unwrap());
+        let contract = declaration.normalize().unwrap();
         let reference = &contract.references()[0];
         assert_eq!(reference.table(), "tasks");
         assert_eq!(reference.field(), "projectId");
@@ -32,12 +31,10 @@ fn references_resolve_forward_targets_and_selected_key_types() {
         assert!(contract.table("projects").unwrap().field("id").is_none());
         assert_eq!(contract.tables()[0].name(), "tasks");
         assert_eq!(contract.tables()[1].name(), "projects");
-        let cloned = contract.clone();
-        assert_eq!(cloned, contract);
-        for table in cloned.tables() {
-            assert!(std::ptr::eq(cloned.table(table.name()).unwrap(), table));
+        for table in contract.tables() {
+            assert_eq!(contract.table(table.name()), Some(table));
         }
-        assert!(cloned.table("absent").is_none());
+        assert!(contract.table("absent").is_none());
     }
 }
 

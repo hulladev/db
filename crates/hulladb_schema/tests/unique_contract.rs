@@ -29,9 +29,7 @@ fn business_uniqueness_preserves_row_identity_and_authored_order() {
     declaration
         .unique_constraints
         .push(unique("one_project", &["projectId"]));
-    let contract = declaration.clone().normalize().unwrap();
-    assert_eq!(contract, declaration.normalize().unwrap());
-    assert_eq!(contract.clone(), contract);
+    let contract = declaration.normalize().unwrap();
     assert_eq!(contract.primary_key().name, "id");
     assert_eq!(contract.key_generation(), &KeyGeneration::UuidV7);
     assert_eq!(contract.unique_constraints()[0].name(), "project_user");

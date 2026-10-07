@@ -45,9 +45,7 @@ fn omission_preserves_values_and_does_not_apply_defaults_or_generate_keys() {
     let table = tasks();
     let mut values = row();
     let changes = RecordValues::from([("title".into(), Value::String("New title".into()))]);
-    let original_changes = changes.clone();
     assert_eq!(table.validate_update(&changes), Ok(()));
-    assert_eq!(changes, original_changes);
     assert_eq!(table.apply_update(&mut values, changes), Ok(()));
     assert_eq!(
         values.get("title"),

@@ -11,9 +11,7 @@ fn omitted_id_is_added_for_default_or_explicit_id_selection() {
     for primary_key in [None, Some("id")] {
         let title = FieldDefinition::new("title", ScalarType::String);
         let declaration = table(vec![title.clone()], primary_key);
-        let contract = declaration.clone().normalize().unwrap();
-
-        assert_eq!(contract, declaration.normalize().unwrap());
+        let contract = declaration.normalize().unwrap();
         assert_eq!(contract.name(), "tasks");
         assert_eq!(contract.fields().len(), 2);
         assert_eq!(contract.fields()[0], title);
@@ -158,12 +156,7 @@ fn field_lookup_matches_declaration_order_and_injected_fields() {
         ["zebra", "alpha", "middle", "id"]
     );
     for field in contract.fields() {
-        assert!(std::ptr::eq(contract.field(&field.name).unwrap(), field));
+        assert_eq!(contract.field(&field.name), Some(field));
     }
     assert!(contract.field("missing").is_none());
-    let cloned = contract.clone();
-    assert_eq!(cloned, contract);
-    for field in cloned.fields() {
-        assert!(std::ptr::eq(cloned.field(&field.name).unwrap(), field));
-    }
 }

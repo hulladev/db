@@ -151,12 +151,10 @@ fn preparation_fills_only_omitted_fields_and_preserves_supplied_values() {
         if let Some(value) = &supplied {
             values.insert("notes".into(), value.clone());
         }
-        let original = values.clone();
         assert_eq!(
             contract.validate_insert(&values),
             Ok(InsertKeyAction::Provided)
         );
-        assert_eq!(values, original); // Validation remains read-only.
         let prepared = contract.prepare_insert(values).unwrap();
         assert_eq!(prepared.key_action(), InsertKeyAction::Provided);
         assert_eq!(prepared.values().get("done"), Some(&Value::Boolean(true)));

@@ -35,8 +35,7 @@ fn schema_default_applies_to_implicit_declared_and_custom_named_uuid_keys() {
         for table in &mut declaration.tables {
             table.insert_key_policy = InsertKeyPolicy::GeneratedOnly;
         }
-        let contract = declaration.clone().normalize().unwrap();
-        assert_eq!(contract, declaration.normalize().unwrap());
+        let contract = declaration.normalize().unwrap();
         assert_eq!(contract.default_uuid_generation(), generation);
         for table in contract.tables() {
             assert_eq!(table.key_generation(), &expected);

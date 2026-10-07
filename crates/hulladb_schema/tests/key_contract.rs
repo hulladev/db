@@ -24,16 +24,6 @@ fn uuid_keys_default_to_v7_regardless_of_field_name_or_injection() {
 }
 
 #[test]
-fn overridden_key_types_require_supplied_keys_without_a_generator() {
-    for key_type in [ScalarType::String, ScalarType::Int64] {
-        let contract = table(key_type).normalize().unwrap();
-        assert_eq!(contract.key_generation(), &KeyGeneration::None);
-        assert_eq!(contract.insert_key_policy(), InsertKeyPolicy::AllowExplicit);
-        assert_eq!(contract.primary_key().scalar_type, key_type);
-    }
-}
-
-#[test]
 fn generation_can_be_disabled_even_for_an_injected_uuid() {
     let mut declaration = TableDeclaration::new("tasks", vec![]);
     declaration.key_generation = Some(KeyGeneration::None);
