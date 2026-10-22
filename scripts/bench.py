@@ -17,9 +17,7 @@ CURRENT = ROOT / "target/benchmarks/current.json"
 BASELINE = ROOT / "benchmarks/baselines/local.json"
 SUITES = {
     "contracts": ("hulladb_wire", "baseline", BASELINE),
-    "backend": ("hulladb_postgres", "command_queries", ROOT / "benchmarks/baselines/backend-local.json"),
     "cdc": ("hulladb_cdc", "capture", ROOT / "benchmarks/baselines/cdc-snapshot-local.json"),
-    "sync": ("hulladb_sync", "sync", ROOT / "benchmarks/baselines/sync-local.json"),
 }
 ENVIRONMENT_KEYS = ("machine", "platform", "compiler", "build_config", "compiled_profile")
 

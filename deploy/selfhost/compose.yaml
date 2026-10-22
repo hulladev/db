@@ -1,0 +1,116 @@
+name: hulladb-selfhost
+x-app: &app
+  image: hulladb-selfhost:local
+  build:
+    context: ../..
+    dockerfile: deploy/selfhost/Dockerfile
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  tmpfs: [/tmp:size=16m,mode=1777]
+  networks: [database]
+  mem_limit: 256m
+  cpus: 1.0
+  environment: &app-environment
+    HULLADB_NAMESPACE: hulladb_app
+    HULLADB_CREDENTIALS_FILE: /run/secrets/credentials
+    HULLADB_CORS_ORIGINS: ${HULLADB_CORS_ORIGINS:-}
+    HULLADB_MAX_ROWS: ${HULLADB_MAX_ROWS:-100000}
+    HULLADB_MAX_DATA_BYTES: ${HULLADB_MAX_DATA_BYTES:-134217728}
+    HULLADB_MAX_RECEIPT_BYTES: ${HULLADB_MAX_RECEIPT_BYTES:-134217728}
+    HULLADB_MAX_RESULT_BYTES: ${HULLADB_MAX_RESULT_BYTES:-32768}
+services:
+  postgres:
+    image: postgres:18.6-bookworm
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: hulladb
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    secrets: [postgres_password, runtime_password, backup_password]
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - ./init-postgres.sh:/docker-entrypoint-initdb.d/20-hulladb.sh:ro
+    networks: [database]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready --username=$$POSTGRES_USER --dbname=$$POSTGRES_DB']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    mem_limit: 1g
+    cpus: 2.0
+  initialize:
+    <<: *app
+    command: [init]
+    environment:
+      <<: *app-environment
+      HULLADB_ADMIN_DATABASE_URL_FILE: /run/secrets/admin_url
+    secrets: [admin_url, credentials]
+    depends_on:
+      postgres: {condition: service_healthy}
+    healthcheck: {disable: true}
+    restart: 'no'
+  app:
+    <<: *app
+    command: [serve]
+    environment:
+      <<: *app-environment
+      HULLADB_DATABASE_URL_FILE: /run/secrets/runtime_url
+      HULLADB_STATS_INTERVAL_SECONDS: ${HULLADB_STATS_INTERVAL_SECONDS:-30}
+    secrets: [runtime_url, credentials]
+    ports:
+      - '127.0.0.1:${HULLADB_PORT:-8080}:8080'
+    depends_on:
+      initialize: {condition: service_completed_successfully}
+    restart: unless-stopped
+    stop_grace_period: 20s
+  backup:
+    image: hulladb-operations:local
+    build:
+      context: ../..
+      dockerfile: deploy/selfhost/Operations.Dockerfile
+    profiles: [operations]
+    entrypoint: [python3, /usr/local/bin/hulladb-backup.py]
+    user: '${HULLADB_OPERATOR_UID:-1000}:${HULLADB_OPERATOR_GID:-1000}'
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp:size=256m,mode=1777]
+    networks: [database]
+    volumes: ['${HULLADB_BACKUP_DIR:-./backups}:/backups']
+    secrets: [backup_password]
+    environment:
+      PGHOST: postgres
+      PGDATABASE: hulladb
+      PGUSER: hulladb_backup
+      HULLADB_PG_PASSWORD_FILE: /run/secrets/backup_password
+  restore:
+    image: hulladb-operations:local
+    profiles: [operations]
+    entrypoint: [python3, /usr/local/bin/hulladb-backup.py]
+    user: '${HULLADB_OPERATOR_UID:-1000}:${HULLADB_OPERATOR_GID:-1000}'
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp:size=256m,mode=1777]
+    networks: [database]
+    volumes: ['${HULLADB_BACKUP_DIR:-./backups}:/backups']
+    secrets: [postgres_password]
+    environment:
+      PGHOST: postgres
+      PGDATABASE: hulladb
+      PGUSER: postgres
+      HULLADB_PG_PASSWORD_FILE: /run/secrets/postgres_password
+volumes:
+  postgres-data:
+networks:
+  database:
+    internal: true
+secrets:
+  postgres_password: {file: '${HULLADB_SECRETS_DIR:-./secrets}/postgres_password'}
+  runtime_password: {file: '${HULLADB_SECRETS_DIR:-./secrets}/runtime_password'}
+  backup_password: {file: '${HULLADB_SECRETS_DIR:-./secrets}/backup_password'}
+  admin_url: {file: '${HULLADB_SECRETS_DIR:-./secrets}/admin_url'}
+  runtime_url: {file: '${HULLADB_SECRETS_DIR:-./secrets}/runtime_url'}
+  credentials: {file: '${HULLADB_SECRETS_DIR:-./secrets}/credentials.json'}

@@ -1,0 +1,52 @@
+{
+  "checkedAt": "2026-10-22T09:16:14.367Z",
+  "app": "https://hulladb-release-proof-20261022.vercel.app",
+  "service": "https://hulladb-release-proof-20261022.onrender.com",
+  "checks": [
+    "anonymous rejection",
+    "hosted route write and SSR",
+    "live subscription through Vercel to Render",
+    "hosted server-action write reaches live query",
+    "hosted route write reaches live query",
+    "hosted grouped rollback",
+    "live client reconnects after Render restart",
+    "live updates continue after restart",
+    "browser assets exclude private credentials"
+  ],
+  "subscriptions": 2,
+  "packageSha256": "4fdf6830e692bd3079aac67289788d623ab6c3dc5379fdc43e7406588bb53ba9",
+  "environment": {
+    "app": "Vercel Node 22, Frankfurt",
+    "service": "Render free Linux x64, Node 22.18.0, Frankfurt",
+    "database": "Neon PostgreSQL 17, direct verified TLS with required channel binding",
+    "next": "16.4.2",
+    "react": "19.2.5"
+  },
+  "restart": {
+    "before": "srv-dbct7fmq1p3s73d85mj0-kgrfh",
+    "after": "srv-dbct7fmq1p3s73d85mj0-kjch6",
+    "pageReloaded": false
+  },
+  "additionalChecks": [
+    "installed-package local Chromium proof against Neon, including active-session revocation",
+    "exact Linux service image against Neon",
+    "195 SDK tests and Node/Bun service integrations"
+  ],
+  "notTested": [
+    "sustained load",
+    "transaction pooler compatibility",
+    "automatic provider suspension/wake"
+  ],
+  "hostingPlans": {
+    "vercel": "hobby",
+    "render": "free",
+    "neonOrganization": "free"
+  },
+  "cleanup": {
+    "testVercelProject": "deleted",
+    "testRenderService": "deleted",
+    "testNeonProject": "deleted",
+    "existingProjects": "unchanged",
+    "proofEvidence": "retained"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "hulla-cloud-compatibility-fixture",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "generate": "bun --bun node_modules/@hulla/db/dist/cli.js generate",
+    "build": "next build --webpack",
+    "start": "node .next/standalone/server.js"
+  },
+  "dependencies": {
+    "@hulla/db": "file:./hulla-db.tgz",
+    "next": "16.4.2",
+    "react": "19.2.5",
+    "react-dom": "19.2.5"
+  },
+  "devDependencies": {
+    "@types/node": "22.18.0",
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "playwright-core": "1.62.1",
+    "typescript": "7.0.2"
+  }
+}

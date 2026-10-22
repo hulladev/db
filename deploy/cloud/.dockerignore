@@ -1,0 +1,7 @@
+**/node_modules
+**/.next
+**/_generated
+**/.env*
+**/next-env.d.ts
+**/*.tsbuildinfo
+next-app/hulla-db.tgz

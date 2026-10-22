@@ -1,0 +1,7 @@
+{
+  "name": "hulla-portable-service-fixture",
+  "private": true,
+  "type": "module",
+  "dependencies": { "@hulla/db": "file:./hulla-db.tgz" },
+  "devDependencies": { "typescript": "7.0.2" }
+}

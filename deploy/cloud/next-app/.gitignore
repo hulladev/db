@@ -1,0 +1,8 @@
+node_modules/
+.next/
+db/_generated/
+hulla-db.tgz
+.env*
+!.env.example
+next-env.d.ts
+*.tsbuildinfo
