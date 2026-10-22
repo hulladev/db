@@ -1,5 +1,9 @@
 # @hulla/db-better-auth
 
+```sh
+npm install @hulla/db@0.1.0 @hulla/db-better-auth@0.1.0 better-auth
+```
+
 Better Auth storage and schema support for `@hulla/db`, tested with Better Auth
 1.7.12 on PostgreSQL under Node and Bun. Both packages are peers; no UI framework
 is installed by this adapter.

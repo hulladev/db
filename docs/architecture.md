@@ -538,8 +538,8 @@ These are module boundaries, not a requirement to deploy each box as a service. 
 
 ## 5. Type safety from tables to SDKs
 
-The incremental [schema contract discussion](schema-contract.md) records accepted
-decisions, implemented contracts, and remaining questions. The separate
+The [schema authoring guide](schema-authoring.md) describes the implemented
+field, constraint and validation contracts. The separate
 [wire format](wire-format.md) describes the implemented lossless JSON record codec.
 
 ### Recommended source of truth
@@ -1142,18 +1142,22 @@ responses, and prevent conflicting writes; they are not release compatibility ta
 
 ### Publication boundary
 
-Before the first Cargo/npm release, define protocol compatibility and supported
-upgrade paths for persisted server/client data. That work must specify inspectable
-migration plans, rollback/recovery guarantees, ownership privileges, and deliberate
-execution of destructive changes. Introduce version negotiation, migration journals,
-and cross-version deployment handling at that boundary, when they protect actual
-users and persisted application data. They are not current implementation goals.
+Version `0.1.0` establishes the first public baseline. Deploy the service, SDKs
+and generated artifacts from that same release. Mixed-release operation and
+automatic upgrades from development fixtures are unsupported. Initialization
+refuses incompatible storage and never silently rebuilds it.
+
+Before publishing a later storage/protocol change, specify inspectable migration
+plans, ownership privileges, deliberate destructive steps and rollback/recovery
+guarantees. Add version negotiation, migration journals and cross-version handling
+when implementing those supported upgrade paths. See the
+[release compatibility policy](releasing.md#compatibility-policy-for-010).
 
 ## 14. Self-hosting and managed cloud
 
 Self-hosting should include the same core database, synchronization, SDK, authorization, and optimistic behavior. It must run without an account on the managed service. Initially package a Rust service, Postgres, and an optional JS runtime using containers.
 
-Licensing remains open: the product requirement is free self-hosting, while the exact license and permissions for competing hosting require a separate choice.
+The packages use the MIT license, including self-hosting and commercial use.
 
 Managed hosting can charge for operations: provisioning, backups, recovery, upgrades, scaling, monitoring, and support. Keep its control plane separate from the data plane so self-hosted deployments remain independent.
 

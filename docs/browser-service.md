@@ -5,7 +5,7 @@ browser callables. The service owns function routes, credential verification,
 transactions, subscriptions and mutation confirmation. You do not write a route for
 each function or maintain an export registry.
 
-This is the unpublished development setup. Handlers execute in a fresh restricted
+Handlers execute in a fresh restricted
 JavaScript process with database access and computation capabilities. External
 services belong in your application server. See [handler execution](typescript-functions.md)
 for supported dependencies and runtime limits.
@@ -45,8 +45,7 @@ access, terminate HTTPS at your deployment's reverse proxy.
 Generate the constructors before authoring functions:
 
 ```sh
-cargo build -p hulladb_server -p hulladb_js --features hulladb_server/typescript --bins --locked
-bun --conditions=hulladb-source packages/db/src/cli.ts generate /absolute/path/to/app/db.config.ts
+bun --bun hulla-db generate db.config.ts
 ```
 
 Then declare functions beside the schema:
@@ -73,8 +72,8 @@ ordinary exported helpers do not become endpoints.
 Initialize storage explicitly, then start development:
 
 ```sh
-bun --conditions=hulladb-source packages/db/src/cli.ts init /absolute/path/to/app/db.config.ts
-bun --conditions=hulladb-source packages/db/src/cli.ts dev /absolute/path/to/app/db.config.ts
+bun --bun hulla-db init db.config.ts
+bun --bun hulla-db dev db.config.ts
 ```
 
 `dev` uses Bun to generate bindings and the private handler bundle, start the service,
@@ -92,11 +91,11 @@ For startup from prepared artifacts, generate during your build step, then use
 
 ```sh
 # Build step: Bun is required.
-bun --conditions=hulladb-source packages/db/src/cli.ts generate /absolute/path/to/app/db.config.ts
+bun --bun hulla-db generate db.config.ts
 
 # Runtime step: choose Node or Bun.
-node --conditions=hulladb-source packages/db/src/cli.ts serve /absolute/path/to/app/db.config.ts
-# bun --conditions=hulladb-source packages/db/src/cli.ts serve /absolute/path/to/app/db.config.ts
+node node_modules/@hulla/db/dist/cli.js serve db.config.ts
+# bun node_modules/@hulla/db/dist/cli.js serve db.config.ts
 ```
 
 `serve` loads existing artifacts and verifies existing storage. It does not run
@@ -106,24 +105,20 @@ in the deployment. Missing artifacts produce an error with a generation instruct
 The auth verifier executes in the chosen Node or Bun process; handler declarations
 execute in the same restricted native engine in either case.
 
-These source-checkout commands use Node 22.18 or newer for TypeScript loading; the
-current integration is tested on Node 22.18 and Bun 1.4. Local package builds contain
-compiled JavaScript and native binaries; the package remains unpublished. Generation
-and `dev` require Bun; application database calls and `serve` contain no Bun runtime
-dependency. A Node application can generate in a
-separate Bun build environment.
+The npm package contains compiled JavaScript and native binaries for macOS arm64
+and Linux x64/glibc. Node services require Node 22.18+; generation and `dev` require
+Bun and the TypeScript 7.0.2 development dependency. Application database calls and
+`serve` contain no Bun runtime dependency, so a Node application can generate in
+a separate Bun build environment.
 
-The packaged `hulla-db` executable uses Node. Run generation and development with
-`bun --bun hulla-db generate` and `bun --bun hulla-db dev`. All
-commands default to `db.config.ts` in the current directory. Use the explicit Node
-command above for a Node service in this unpublished checkout.
+The packaged `hulla-db` executable uses Node. Use `bun --bun hulla-db generate`
+and `bun --bun hulla-db dev` for build and development commands. Commands default
+to `db.config.ts` in the current directory.
 
-The development launcher finds the repository's native binaries by default.
-`HULLADB_SERVICE`, `HULLADB_ENGINE` and `HULLADB_JS` can point to separately built
-service, direct-database and restricted-handler executables.
-Local artifacts bundle native executables for the platforms staged during packaging;
-see [the build instructions](deployment.md#build-an-installable-package). Ctrl-C or
-SIGTERM shuts down the service and closes its subscriptions.
+`HULLADB_SERVICE`, `HULLADB_ENGINE` and `HULLADB_JS` optionally select separately
+installed compatible executables. Ordinary installations use the binaries bundled
+in `@hulla/db`; see [supported platforms](deployment.md#install-the-packages).
+Ctrl-C or SIGTERM shuts down the service and closes its subscriptions.
 
 ## Connect the browser
 

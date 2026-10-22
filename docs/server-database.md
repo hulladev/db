@@ -5,7 +5,7 @@ Your application server owns authentication, authorization and external services
 Direct operations do not invoke query/mutation declarations or create recovery
 receipts. They use the same PostgreSQL storage and revision counter as live queries.
 
-This is an unpublished development setup. It supports scalar and JSON fields,
+The SDK supports scalar and JSON fields,
 nested predicates, scalar ordering, pagination, limits, uniqueness checks and
 inserts/updates/deletes, aggregates and grouping. See [browser service setup](browser-service.md) to serve
 discovered queries/mutations alongside direct database access.
@@ -45,25 +45,21 @@ it defaults to `hulla`. Application tables currently share one internal storage 
 
 ## Generate and initialize
 
-For repository development, build the native engine once and run the setup commands
-with Bun from the repository root (generation is a build-time tool):
+Install the SDK in your application and generate from the directory containing
+`db.config.ts` (generation is a build-time tool):
 
 ```sh
-cargo build -p hulladb_server --features typescript --bin hulladb-bridge --locked
-bun --conditions=hulladb-source packages/db/src/cli.ts generate /absolute/path/to/app/db.config.ts
-bun --conditions=hulladb-source packages/db/src/cli.ts init /absolute/path/to/app/db.config.ts
+npm install @hulla/db@0.1.0
+npm install --save-dev typescript@7.0.2
+bun --bun hulla-db generate db.config.ts
+bun --bun hulla-db init db.config.ts
 ```
 
-When using a locally linked package, the same commands are available as
-`bun --bun hulla-db generate` and `hulla-db init`. They default to `db.config.ts`
-in the current directory. This is not an npm installation recipe: the package remains unpublished.
-The development runtime finds the repository's debug engine by default;
-`HULLADB_ENGINE` can point to another built engine executable. Local package builds
-include compiled JavaScript, declarations and native executables; see
-[deployment and packaging](deployment.md) for building an installable artifact.
-The generated database uses Node-compatible APIs and runs in Node or Bun; using
-Bun for generation does not select the application runtime. Source-checkout
-execution under Node requires Node 22.18 or newer for TypeScript loading.
+The npm package includes compiled JavaScript, declarations and native executables
+for macOS arm64 and Linux x64/glibc. It does not compile Rust or download executables
+during installation. See [deployment](deployment.md) for supported hosts.
+The generated database runs in Node 22.18+ or Bun; using Bun for generation does
+not select the application runtime.
 
 Generation produces `_generated/server`, `functions`, `types`, `tables` and `client` beside
 the schema. No listener or database connection starts during generation or import.

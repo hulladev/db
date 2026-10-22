@@ -5,8 +5,8 @@ the generated database directly; browser queries and mutations connect to a
 persistent `@hulla/db` service. Both use the same PostgreSQL database and namespace.
 There is no hosting-provider selector or framework requirement in the SDK.
 
-The package is unpublished. The instructions below build a local installable
-artifact; they do not imply that an npm release or hosted deployment has been verified.
+Install the SDK from npm in both the application and service. The same release
+includes the native executables needed by supported server platforms.
 
 ## Choose hosts by their capabilities
 
@@ -35,39 +35,25 @@ the actual endpoint. A PostgreSQL-compatible label does not establish compatibil
 with transaction poolers: session settings and connection lifetime matter. Direct
 endpoints and pooled endpoints need separate validation.
 
-## Build an installable package
+## Install the packages
 
-For registry-ready archives of all six npm packages and production Rust crates,
-use the [release preparation workflow](releasing.md). The following commands make
-a local development archive of the core SDK.
-
-From `packages/db`, build the host's native executables and pack the SDK:
+Install the core SDK and any framework/auth integrations from npm:
 
 ```sh
-bun install --frozen-lockfile
-bun run build:native
-npm pack
+npm install @hulla/db@0.1.0
+npm install --save-dev typescript@7.0.2
 ```
 
-The tarball contains `dist/*.js`, TypeScript declarations and native executables
-under `native/<os>-<arch>`. `prepack` compiles the SDK and verifies staged binaries.
-There are no installation-time native downloads or runtime Cargo builds. Install
-this tarball into the application before generation and the framework build.
+The package includes JavaScript, TypeScript declarations and native executables
+for macOS arm64 and Linux x64/glibc. There are no installation-time native downloads
+or runtime Cargo builds. Linux musl/Alpine, Linux arm64 and macOS x64 need separate
+artifacts and execution validation. Missing native targets produce an explicit error.
 
-To produce Linux x64 assets, run from the repository root with Docker available:
-
-```sh
-docker build --platform linux/amd64 -f packages/db/Dockerfile.native \
-  --output type=local,dest=/tmp/hulladb-native .
-cd packages/db
-bun run build:native --from /tmp/hulladb-native/native --platform linux-x64
-npm pack
-```
-
-The Linux recipe uses Debian Bookworm/glibc. It is not an Alpine/musl artifact.
-Build on the target architecture or stage genuinely cross-built assets; renaming
-host executables does not make them portable. An artifact includes only the targets
-actually staged during packaging. Missing targets fail with an explicit error.
+Add `@hulla/db-react`, `@hulla/db-vue`, `@hulla/db-svelte` or `@hulla/db-solid`
+for the application's framework, and `@hulla/db-better-auth` for Better Auth storage.
+Use the same release across the application, generated artifacts and persistent
+service. Package maintainers can build and validate archives using the
+[release workflow](releasing.md).
 
 ## Generate at build time, serve at runtime
 
@@ -118,9 +104,9 @@ never replay it automatically. Platform termination also cannot guarantee that a
 application receives the response; use the documented mutation confirmation flow
 when invoking browser mutations. See [transaction behavior](server-database.md#group-changes-in-a-transaction).
 
-## What still needs deployment verification
+## Verified environments and remaining limits
 
-Local validation currently covers:
+Validation currently covers:
 
 | Environment | Verified behavior |
 | --- | --- |
@@ -128,16 +114,16 @@ Local validation currently covers:
 | Linux x64, Node 22.18, Debian Bookworm container | Installed package, native startup, CRUD, rollback and service query through the restricted handler engine |
 | Node/Bun process and PostgreSQL lifecycle tests | Idle drain, concurrent use, stale-session replacement and suspended-transaction rollback |
 | Next 16.4.2 standalone and Chromium | Traced native binary, SSR, route/server-action writes, live query updates, rollback and revoked-session data clearing |
+| Vercel Hobby, Render Free Linux x64 and Neon PostgreSQL 17 | Hosted SSR and writes, live subscriptions, grouped rollback, anonymous rejection, verified TLS/channel binding and reconnect after a real service restart |
 
-The Linux check uses real Linux executables in a container and a disposable local
-PostgreSQL database. It does not verify a remote database provider. Linux arm64,
-macOS x64 and other runtime versions need their own execution evidence even though
-the artifact layout can represent them.
+The executable [cloud fixture](../deploy/cloud/) was deployed to Vercel and Render
+against Neon. [Recorded evidence](../deploy/cloud/proofs/2026-10-22.json) includes a
+service restart followed by browser reconnection and another live update without a
+page reload. All disposable test resources were deleted after validation.
 
-The executable [cloud fixture](../deploy/cloud/) exercises an installed package,
-an independently running service and a standalone Next application. It is a local
-compatibility test, not a deployment to a provider. No hosted environment or managed
-PostgreSQL endpoint has been supplied for this task.
+These checks do not establish sustained-load behavior, transaction-pooler
+compatibility or automatic provider suspension/wake behavior. Other architectures
+and runtime versions require their own execution evidence.
 
 Before claiming support for a particular host, verify the deployed native assets,
 cold and reused instances, concurrent requests, connection interruptions, platform

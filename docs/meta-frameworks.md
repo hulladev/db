@@ -12,9 +12,8 @@ Your framework owns routing, server functions, authentication and serialization;
 | SolidStart 2 | `@hulla/db-solid` | [Server functions and Solid resources](frameworks/solidstart.md) |
 | Astro with React | `@hulla/db-react` | [Request-time pages and live islands](frameworks/astro.md) |
 
-Use the normal framework scaffold and install/link the core plus only your UI
-package. These packages are currently unpublished; use local workspace/build
-artifacts. No separate Next, Nuxt, SvelteKit, SolidStart or Astro database package
+Use the normal framework scaffold and install `@hulla/db@0.1.0` plus the matching
+UI package from npm. No separate Next, Nuxt, SvelteKit, SolidStart or Astro database package
 is required. For Astro, install its normal integration for the chosen UI framework.
 
 ## Set up the shared database example

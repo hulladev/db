@@ -3,7 +3,7 @@
 A Rust database platform with PostgreSQL as its authoritative backend and initial
 Rust and TypeScript SDKs (`hulladb` and `@hulla/db`). Runtime responsiveness,
 interactive queries/writes and client/server latency take priority over short
-builds. See [architecture](docs/architecture.md) and [schema contracts](docs/schema-contract.md).
+builds. See [architecture](docs/architecture.md) and [schema authoring](docs/schema-authoring.md).
 
 PostgreSQL remains authoritative. Managed commands authorize, validate and commit
 business rows, synchronization revisions and recovery receipts in one transaction.
@@ -59,6 +59,30 @@ optional full-publication mirror behind `diagnostic-replica`. Its dependencies a
 limits are separate from managed function serving. See [managed functions](docs/managed-functions.md)
 for transactions and recovery, [deployed adapters](docs/sdk-adapters.md) for serving,
 and [Rust remote clients](docs/rust-remote-client.md) for durable result caching.
+
+## Install
+
+Install the core SDK and the binding for your application:
+
+```sh
+npm install @hulla/db@0.1.0 @hulla/db-react@0.1.0 zod
+npm install --save-dev typescript@7.0.2
+```
+
+Use `@hulla/db-vue`, `@hulla/db-svelte` or `@hulla/db-solid` for other UI
+frameworks. Add `@hulla/db-better-auth` when Better Auth stores its records in this
+database. The [installation guide](https://hulla.dev/docs/db/installation) covers
+runtime requirements and framework choices.
+
+For native Rust applications:
+
+```sh
+cargo add hulladb@0.1.0
+```
+
+The npm SDK includes macOS arm64 and Linux x64/glibc native executables. Server
+access requires Node 22.18+ or Bun; generation and the development watcher require
+Bun and TypeScript. Browser bindings do not launch native executables.
 
 ## Development
 

@@ -1,7 +1,10 @@
-# Release preparation
+# Release workflow
 
 The first release is `0.1.0`, under MIT, from
-[the hulladev/db repository](https://github.com/hulladev/db). Preparation creates
+[the hulladev/db repository](https://github.com/hulladev/db). Applications install
+`@hulla/db@0.1.0` and the matching framework/auth packages from npm, or
+`hulladb = "0.1.0"` from crates.io. The steps below are for maintainers.
+Preparation creates
 local artifacts; it never calls `npm publish`, `cargo publish`, pushes Git commits,
 creates hosted services or enables paid features.
 
@@ -17,9 +20,18 @@ bun run release:check
 
 Stage genuine native binaries first when they are missing or runtime source has
 changed. Build the macOS arm64 executables on that host with
-`bun run --cwd packages/db build:native`. For Linux x64, use the Docker build and
-staging command in [deployment](deployment.md#build-an-installable-package).
-The first release requires both `darwin-arm64` and `linux-x64`; Linux uses glibc.
+`bun run --cwd packages/db build:native`. For Linux x64, build and stage the
+genuine cross-platform assets:
+
+```sh
+docker build --platform linux/amd64 -f packages/db/Dockerfile.native \
+  --output type=local,dest=/tmp/hulladb-native .
+cd packages/db
+bun run build:native --from /tmp/hulladb-native/native --platform linux-x64
+cd ../..
+```
+
+The release requires both `darwin-arm64` and `linux-x64`; Linux uses glibc.
 Other native targets need their own build and execution evidence before inclusion.
 Browser bindings do not execute native binaries.
 
@@ -30,8 +42,8 @@ dirty candidate as review material: commit the reviewed source, rerun preparatio
 and checks, and tag the exact release commit before registry publication.
 
 The npm builder stages production manifests without workspace-only source export
-conditions, dev dependencies or build scripts. Source workspace manifests stay
-private to prevent accidental directory publication. Publish the prepared tarballs,
+conditions, dev dependencies or build scripts. Package workspace manifests declare
+public npm access. Publish the prepared tarballs,
 not the `packages/*` source directories. Every tarball contains MIT license text;
 the core archive additionally preserves native dependency license/copyright
 notices. If a registry dependency omitted its shared license, the builder recovers
@@ -94,7 +106,18 @@ repackages source at publication, so retain and compare the candidate checksums
 and source commit. `cargo package --workspace --exclude hulladb_cdc --all-features`
 validates the unpublished dependency set without uploading it.
 
-The repository was created privately during preparation. Make its reviewed source
-public before an open-source launch, then verify that repository/readme links are
-accessible. Package-name availability checks do not reserve registry names, and
-preparation does not prove publishing credentials or ownership of an npm scope.
+Verify that the source commit is pushed to the public repository and every registry
+version is accessible without authentication. Install the published package names in
+a fresh consumer; local archive checks alone do not establish registry publication.
+
+## Compatibility policy for 0.1.0
+
+This is the first public storage and protocol baseline. Deploy the service, SDKs
+and generated artifacts from the same exact release; mixed-release deployments
+are unsupported. There is no supported upgrade path from development fixtures.
+
+Initialization verifies an existing schema and refuses incompatible storage; it
+does not reset data or run migrations. Back up existing data before deployment.
+A future release that changes persisted server/client data or the protocol must
+provide an explicit upgrade/recovery plan before publication, including required
+privileges, destructive steps, rollback guarantees and mixed-version handling.

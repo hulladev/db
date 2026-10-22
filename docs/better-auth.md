@@ -5,8 +5,9 @@ and verification records in the same PostgreSQL database as your application.
 Better Auth owns passwords, cookies, session expiry and authentication endpoints.
 The adapter supplies storage; it does not add a second authentication system.
 
-The package is a separate, unpublished workspace package, tested with Better Auth
-1.7.12. It requires `@hulla/db` and `better-auth` as peers. Using another provider
+Install it with `npm install @hulla/db@0.1.0 @hulla/db-better-auth@0.1.0 better-auth`.
+The adapter is tested with Better Auth 1.7.12 and requires `@hulla/db` and
+`better-auth` as peers. Using another provider
 does not require this package; keep the existing [credential verifier](browser-service.md#bring-your-existing-authentication).
 
 ## Define the tables before generating your database

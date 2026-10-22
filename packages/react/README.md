@@ -1,5 +1,9 @@
 # @hulla/db-react
 
+```sh
+npm install @hulla/db@0.1.0 @hulla/db-react@0.1.0 react
+```
+
 React 19 hooks for generated `@hulla/db` query and mutation functions. Configure
 the generated application's browser runtime before mounting components.
 

@@ -1,5 +1,9 @@
 # @hulla/db-solid
 
+```sh
+npm install @hulla/db@0.1.0 @hulla/db-solid@0.1.0 solid-js
+```
+
 Solid bindings for generated Hulla functions. Install alongside `@hulla/db` and
 `solid-js`, then set `database.client` before generation.
 

@@ -1,5 +1,9 @@
 # @hulla/db-vue
 
+```sh
+npm install @hulla/db@0.1.0 @hulla/db-vue@0.1.0 vue
+```
+
 Vue 3 bindings for generated Hulla functions. Install alongside `@hulla/db` and
 `vue`, then set `database.client` before generating your app.
 The bindings use the core runtime's cache, authorization and subscriptions.

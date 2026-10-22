@@ -22,13 +22,25 @@ Optional `@hulla/db-better-auth` stores provider data in PostgreSQL; see the
 
 Generation and the development watcher use Bun. Production `serve` loads prepared
 artifacts without generation and can run under Node or Bun; see the setup guide for
-source-checkout commands. Local installable artifacts contain compiled JavaScript,
+installed-package commands. The npm package contains compiled JavaScript,
 declarations and native binaries; see [deployment and packaging](../../docs/deployment.md).
 There are no required npm runtime dependencies.
 Generation and `dev` use the optional TypeScript 7.0.2 peer; applications using
 those tools install it as a dev dependency (`bun add --dev typescript@7.0.2`).
 Production `serve`, direct database access and browser bindings do not load it.
 See [dependency boundaries](../../docs/dependencies.md) for the native components.
+
+## Install
+
+```sh
+npm install @hulla/db@0.1.0
+npm install --save-dev typescript@7.0.2
+bun --bun hulla-db generate db.config.ts
+```
+
+The package includes native executables for macOS arm64 and Linux x64/glibc.
+Add the matching `@hulla/db-react`, `@hulla/db-vue`, `@hulla/db-svelte` or
+`@hulla/db-solid` package for framework bindings.
 
 ## Declaring functions
 
@@ -234,9 +246,9 @@ budgets in `defineConfig({ limits })` and override them on final declarations;
 see [execution limits](../../docs/execution-limits.md) for defaults and browser
 timeout configuration.
 
-## Release artifacts
+## Native runtime
 
-Prepared release archives include macOS arm64 and Linux x64/glibc native
+The npm package includes macOS arm64 and Linux x64/glibc native
 executables. Browser-only use does not launch them. See the
 [release workflow](../../docs/releasing.md) for all six npm packages, Rust crates,
 license notices and archive checks.

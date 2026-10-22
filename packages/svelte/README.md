@@ -1,5 +1,9 @@
 # @hulla/db-svelte
 
+```sh
+npm install @hulla/db@0.1.0 @hulla/db-svelte@0.1.0 svelte
+```
+
 Svelte 5 bindings for generated Hulla functions. Install alongside `@hulla/db`
 and `svelte`, then set `database.client` before generation.
 The package ships ordinary JavaScript and declarations; consumers do not compile

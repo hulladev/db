@@ -3,7 +3,8 @@
 Install the core and the binding for your UI framework. These are separate
 packages; the core has no React, Vue, Svelte or Solid dependency. Each binding
 uses the application's existing framework and the same core runtime/cache.
-The packages remain unpublished; use workspace or locally built artifacts.
+Install the core and the matching binding from npm, for example
+`npm install @hulla/db@0.1.0 @hulla/db-react@0.1.0`.
 
 | Package | Query result | Mutation state |
 | --- | --- | --- |
