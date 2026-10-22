@@ -1,14 +1,13 @@
 # Initial JSON value format
 
 **Status:** Rust record codec implemented in `hulladb_wire`. The separate
-`hulladb_protocol` and [task host](task-host.md) implement fixed task HTTP/SSE
-contracts. General SDK conversion and network contracts remain future work; release
-protocol compatibility is deferred until publication.
+`hulladb_protocol` and [function host](sdk-adapters.md) implement named-function
+HTTP/SSE contracts. Release protocol compatibility is deferred until publication.
 
 This format carries the current logical scalar values without depending on a
 table schema. It is an initial internal contract, not a complete network protocol
-or a stabilized public SDK API. `hulladb_schema` remains independent of Serde and
-JSON; the separate wire crate depends on its logical values.
+or a stabilized public SDK API. `hulladb_schema` defines logical values and JSON
+shapes; the separate wire crate encodes them.
 
 ## Record and scalar representation
 
@@ -19,6 +18,8 @@ schema validator. Omission remains absence of a member, never a special value.
 | Logical value | JSON representation | Decoded Rust value |
 | --- | --- | --- |
 | String | `"hello"` | `Value::String` |
+| Finite double precision number | `1.25` | `Value::Float64` |
+| JSON value | `{"$json":{"tags":["editor"]}}` | `Value::Json` |
 | Boolean | `true` or `false` | `Value::Boolean` |
 | Null | `null` | `Value::Null` |
 | Signed 64-bit integer | `{"$int64":"9223372036854775807"}` | `Value::Int64` |
@@ -36,16 +37,17 @@ Example:
 }
 ```
 
-JSON numbers are rejected, including small exact integers. One integer format
-applies to the entire signed range. JSON permits numbers beyond the range that
-common binary64 implementations preserve exactly; tagged decimal strings avoid
-that interoperability problem. See [RFC 8259, numbers](https://www.rfc-editor.org/rfc/rfc8259.html#section-6).
+Bare JSON numbers represent finite double precision values. Exact signed 64-bit
+integers retain tagged decimal strings and never pass through floating point.
+Use bigint/int64 when integer precision exceeds JavaScript's safe range.
 
 Plain strings remain strings. `"123"` does not become an integer, and a UUID-looking
 string does not become a UUID. Tags only have special meaning in a field's object
 value. A field literally named `$int64` is allowed by the codec and has no special
-record-level meaning. Ordinary nested objects and arrays are outside the current
-logical scalar contract and are rejected.
+record-level meaning. Nested objects and arrays use the `$json` wrapper. Tag-looking objects inside
+that payload remain ordinary JSON data, so application keys cannot be decoded
+as integers or UUIDs by accident. Root null uses `Value::Null`; a tagged JSON
+null cannot bypass a non-nullable column.
 
 ## Integer and UUID rules
 
@@ -66,9 +68,9 @@ The codec preserves all 128 UUID bits and imposes no version/variant restriction
 UUID generation policy remains separate from the representation of supplied keys.
 Nil, maximal, and other bit patterns round trip through the current logical type.
 
-Each tagged scalar object must contain exactly one member: `$int64` or `$uuid`,
-with a string payload. Unknown tags, extra members, repeated tags, mixed tags,
-and numeric/null/boolean/object/array payloads are rejected.
+Each tagged object must contain exactly one member. `$int64` and `$uuid` require
+string payloads; `$json` accepts compatible JSON. Unknown tags, extra members,
+repeated tags and mixed tags are rejected.
 
 ## Duplicate names and malformed input
 

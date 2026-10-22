@@ -9,11 +9,11 @@ sequence lock on writers.
 
 This is a **tail-only capture boundary**. `Capture::create` starts a dedicated
 slot at its consistent point without copying existing rows. The production
-[managed feed](managed-sync.md) does not use this tail, a publication, or a slot.
+[function host](sdk-adapters.md) does not use this tail, a publication, or a slot.
 The raw [snapshot and replica](cdc-snapshot.md) is an optional diagnostic feature.
 Cursor zero in the event log means the start of this tail, not a complete snapshot
 of the database. Never expose this raw log to clients: it contains unauthorised
-source rows, while the task feed returns scoped projections.
+source rows, while the function host returns authorized query results.
 
 ## Run
 
@@ -181,8 +181,8 @@ fixture version four requires an explicit new baseline. Startup, fixture setup a
 are excluded after warmup. Capture measures persistent streaming reception and
 durable local append, without waiting for asynchronous PostgreSQL feedback.
 Assertions verify complete transactions rather than timing empty polls. See [methodology](benchmarks.md)
-and an actual-command capture diagnostic. Managed visibility is tested separately
-in `hulladb_sync`, without WAL capture.
+for retained workloads. Managed function visibility is tested separately in
+`hulladb_server` and the SDKs, without WAL capture.
 
 An earlier storage growth fixture sampled 64, 128, 256, and 512 one-row
 commits. At 256 and 512,
@@ -195,13 +195,11 @@ storage-amplification ratio. Current chunked workloads require fresh baselines.
 
 ## Next boundary
 
-Native authorized query bootstrap and durable local application are implemented
-in the [managed task feed](managed-sync.md) and [client replica](client-replica.md).
-Production work still includes authenticated network delivery, browser storage,
-typed/schema evolution handling and mutation visibility correlation. Raw MVCC
-copying remains [diagnostic](cdc-snapshot.md), with no application XID epoch
+Managed function serving, authenticated delivery and durable native result caching
+are described in [deployed adapters](sdk-adapters.md) and the [Rust client](rust-remote-client.md).
+Raw MVCC copying remains [diagnostic](cdc-snapshot.md), with no application XID epoch
 restriction.
-Configurable backend concurrency policies remain separate work. Diagnostic CDC
+Managed concurrency is described in [concurrency policies](concurrency-and-optimism.md). Diagnostic CDC
 observes commits without enforcing application conflict rules. This crate is not
 a supported external-writer connector or a production serving dependency.
 

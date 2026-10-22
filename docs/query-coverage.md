@@ -1,9 +1,7 @@
-# Explicit projections and bounded query coverage
+# Projections and function-result coverage
 
-This chunk adds entity projection contracts to `hulladb_schema` and one bounded
-task-summary query/cache to the authoritative PostgreSQL backend. APIs remain internal and
-provisional. The fixed managed task-serving adapter now pushes internal bounded
-replacements; there is no public service or subscription transport yet.
+Entity projections are schema contracts. Runtime query completeness belongs to an
+exact function invocation, not an inferred local table replica.
 
 ## Projection contracts
 
@@ -23,93 +21,16 @@ These are entity projections. Aggregate rows, computed fields, joined/nested
 results, generated frontend types, and stable schema identities remain future
 contracts.
 
-## Fixed task-summary query
+## Runtime query results
 
-`Store::query_snapshot(session, TaskQuery)` executes the fixed named task-summary
-query. Arguments are an optional completion filter, optional exclusive UUID
-keyset bound, and a limit of 1–100. Ordering is ascending task ID. The projection
-is always `id`, `title`, and `completed`; the distinct `TaskSummary` type has no
-version field and rejects extra fields when deserialized. SQL fetches only the
-declared columns. Version-guarded commands can obtain versions through the
-existing full-task reads.
+The managed runtime evaluates registered queries in an authorized snapshot and
+pairs their result with a source identity and scoped revision. Cache and
+subscription identity includes the function, arguments and authorization context.
+A complete result for one invocation does not establish coverage for a different
+filter, page, function or identity. Refresh reevaluates the query so newly matching
+rows can enter a bounded result.
 
-Authorization, workspace sequence, and rows are read in one repeatable-read
-transaction. The result is complete for the exact bounded query at that revision,
-even if the workspace has far more rows. Fifty returned tasks establish coverage
-for that top-50 query, not for all tasks or a different page. The retired task-feed replica is no longer part of this backend.
-
-The `QueryRevision` covers managed task and permission changes. Source identity,
-permission, revision and rows share one database snapshot. It is not a delivery
-cursor or proof of arbitrary external-write visibility. Supported mutations must
-advance the relevant revision atomically; out-of-band changes require reset.
-
-## Cache identity and state
-
-Each `QueryCache` owns one query and one trusted principal/workspace session.
-Projection identity is fixed by the task-summary result type; revisions identify
-the workspace and sequence, and snapshots carry a deployment UUID. A changed source
-cannot replace an existing cache silently. Reads require the matching session and exact query
-arguments. Different principals/workspaces fail authorization, and different
-filters, keyset bounds, or limits fail with `QueryNotCovered`. No query containment
-or arbitrary local evaluation is inferred from a page.
-
-`QueryView` exposes borrowed results, optional `complete_at`, the latest observed
-revision, and a status. These separate data availability and historical completeness
-from loading, known staleness, disconnection, or failure. A loading empty cache
-has no completeness revision. An authoritative empty result has one. `Ready` means
-the installed snapshot reaches the latest observed revision; it does not prove
-that there have been no unobserved server changes.
-
-Installing a snapshot validates scope, query identity, source identity, row count,
-projection values, predicate, keyset bound, and strict ordering before changing
-visible state. Older responses cannot regress a newer result. A response behind
-an already observed revision remains stale. Contradictory results at the same
-revision are rejected. Incoming snapshots are trusted server responses; these
-structural checks do not authenticate or cryptographically prove completeness.
-
-## Refresh and revocation
-
-The caller reports a workspace commit through `observe(revision)`, then requests a
-new bounded snapshot. Every newer workspace commit conservatively invalidates
-this cache, including unrelated changes. This is an explicit correctness-first
-baseline; dependency-based invalidation and sharing execution across subscribers
-are the next scaling work. There is no automatic polling/refresh scheduler here.
-
-Refresh re-executes the indexed bounded server query. When a top-N task is deleted
-or leaves its filter, the server can return a replacement outside the previously
-delivered result. Applying only deltas for delivered rows would miss that task.
-Historical rows can remain visible during refresh, with their previous revision
-and an explicit status.
-
-Disconnection and ordinary failures preserve historical results. On an
-authoritative permission failure, `fail(Error::Forbidden)` erases retained data
-and closes that cache. Late responses cannot repopulate it. A newly authenticated
-lifecycle creates a new cache. Callers must deliver permission failures to the
-cache; the managed serving layer polls policy revisions and rechecks permission before
-delivery. Account lifecycle integration and authenticated service/SDK transport
-remain future work.
-
-## Verification and next boundary
-
-Projection scenarios cover missing/extra fields, nullability, types, defaults,
-custom primary keys, and malformed selections. Cache scenarios cover exact
-coverage, loading versus complete-empty, stale/delayed responses, scope isolation,
-malformed snapshots, errors, disconnection, and revocation. PostgreSQL tests check
-a two-row summary in a 1,000-task workspace, correct top-N replacement, revoked
-reads, and atomic receipt failure rollback.
-
-The PostgreSQL harness adds 50-row summary snapshots at 1,000 and 100,000 rows
-and a batched cached-result access case. Cached-result access does not allocate
-or evaluate a new query, and is not a browser interaction benchmark. Current backend timings are recorded in `benchmarks/baselines/backend-local.json`.
-
-The [managed task-serving slice](managed-sync.md) reads authorized PostgreSQL
-summaries, coalesces replacements and checks current membership at delivery.
-Durable revisions recover missed wake-ups and server restart. Its portable cursor
-orders query replacements and differs from managed-query revisions and `QueryCache`.
-[Native client SQLite](client-replica.md) persists those scoped results atomically.
-
-Receipt-to-query visibility now compares persisted source/revision progress with
-the original commit fence, including unchanged filtered/top-N pages. The
-[authenticated host](task-host.md) adds HTTP/SSE and periodic recovery. Next, integrate
-SDK reconnect/account lifecycle handling and visibility waiting, then measure commit-to-other-client latency under fan-out. Browser local queries
-and optimistic feedback need their own workloads when their implementations exist.
+See [managed functions](managed-functions.md) for snapshot and transaction guarantees,
+[deployed adapters](sdk-adapters.md) for live result delivery and browser caching,
+and [Rust remote clients](rust-remote-client.md) for durable function-result storage.
+General local table replication and arbitrary local query coverage remain deferred.

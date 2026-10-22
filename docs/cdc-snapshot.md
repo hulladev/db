@@ -4,8 +4,8 @@ The `diagnostic-replica` feature retains the original full-publication snapshot
 and raw SQLite mirror solely to test PostgreSQL exported-snapshot handoff and
 transaction application. It is excluded from the default serving path. Its raw
 physical values and size restrictions are not a client model or production quota.
-Authorized bootstrap queries read PostgreSQL directly; [native client SQLite](client-replica.md)
-stores logical projected results with bounded chunks and no total dataset ceiling.
+Authorized function queries read PostgreSQL directly; the [Rust remote client](rust-remote-client.md)
+stores function results separately from this diagnostic mirror.
 
 ## Snapshot handoff
 
@@ -136,14 +136,8 @@ CDC capture are excluded from the application case. Each has five warmups and 31
 measured samples. See the current baseline and [benchmark methodology](benchmarks.md).
 These measure internal durable operations, not authorized subscriptions or UI latency.
 
-`make sync-bench` measures command acknowledgement, managed revision-triggered authorized query
-delivery, native client SQLite installation and local covered reads. It does not
-use this diagnostic raw mirror. The client fixture has its own version/baseline.
+## Serving boundary
 
-## Next boundary
-
-The [managed task-serving slice](managed-sync.md) reads PostgreSQL for bounded, authorized summary
-results, refills rows entering/leaving top-N pages, checks current membership and
-shares identical scoped queries. Mutation correlation, authenticated transport,
-SDKs, configurable mutation concurrency policies, and schema evolution remain
-separate work.
+The [managed function host](sdk-adapters.md) reads authorized PostgreSQL results
+and shares identical scoped query evaluations. Neither serving nor SDK result
+storage depends on this diagnostic raw mirror.
