@@ -4,15 +4,35 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+description = "Generic HTTP and SSE transport for hulladb function clients"
+keywords = ["database", "postgresql", "reactive"]
+categories = ["database"]
+
+[features]
+http = ["dep:hulladb_protocol", "dep:serde_json", "dep:uuid", "dep:http-body-util", "dep:hyper", "dep:hyper-util", "dep:tokio", "dep:tokio-rustls", "dep:webpki-roots"]
 
 [dependencies]
-hulladb_protocol = { path = "../hulladb_protocol" }
-rusqlite = { version = "0.38", features = ["bundled"] }
-serde_json = "1"
-uuid = { version = "1", features = ["serde"] }
+hulladb_protocol = { version = "0.1.0", path = "../hulladb_protocol", optional = true }
+serde_json = { version = "1", optional = true }
+uuid = { version = "1", optional = true }
+http-body-util = { version = "0.1", optional = true }
+hyper = { version = "1", features = ["client", "http1"], optional = true }
+hyper-util = { version = "0.1", features = ["tokio"], optional = true }
+tokio = { version = "1", features = ["rt", "time", "net"], optional = true }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"], optional = true }
+webpki-roots = { version = "1", optional = true }
 
 [dev-dependencies]
 uuid = { version = "1", features = ["v7"] }
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring"] }
+hyper-util = { version = "0.1", features = ["service"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-util"] }
 
 [lints]
 workspace = true

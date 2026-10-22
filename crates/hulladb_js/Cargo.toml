@@ -1,0 +1,27 @@
+[package]
+name = "hulladb_js"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+description = "Restricted JavaScript handler process for hulladb"
+keywords = ["database", "postgresql", "reactive"]
+categories = ["database"]
+
+[[bin]]
+name = "hulladb-js"
+path = "src/main.rs"
+
+[dependencies]
+rquickjs = { version = "=0.14.0", default-features = false, features = ["std"] }
+serde_json = "1.0"
+
+# Narrow unsafe helpers load bytecode generated in-process by this exact engine
+# and drive its job queue under the context lock. Deny unsafe everywhere else.
+[lints.rust]
+unsafe_code = "deny"

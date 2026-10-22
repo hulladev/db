@@ -1,0 +1,57 @@
+{
+  "name": "@hulla/db-svelte",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "hulladb-source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "check": "bun run typecheck && bun run test",
+    "typecheck": "tsc --noEmit",
+    "test": "bun --conditions=hulladb-source --conditions=browser test tests/client.test.ts && bun --conditions=hulladb-source test tests/server.test.ts",
+    "build": "bun ../db/scripts/build-binding.ts"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "peerDependencies": {
+    "@hulla/db": "^0.1.0",
+    "svelte": "^5.7.0"
+  },
+  "devDependencies": {
+    "@hulla/db": "workspace:*",
+    "@types/bun": "1.4.2",
+    "svelte": "^5.7.0",
+    "typescript": "7.0.2",
+    "happy-dom": "^20.0.0"
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "description": "Svelte bindings for @hulla/db reactive queries and mutations",
+  "license": "MIT",
+  "author": {
+    "name": "Samuel Hulla",
+    "url": "https://hulla.dev"
+  },
+  "homepage": "https://github.com/hulladev/db#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hulladev/db.git",
+    "directory": "packages/svelte"
+  },
+  "bugs": {
+    "url": "https://github.com/hulladev/db/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}

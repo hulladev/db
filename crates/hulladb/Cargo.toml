@@ -1,0 +1,54 @@
+[package]
+name = "hulladb"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+description = "Typed PostgreSQL database authoring and durable remote function clients"
+keywords = ["database", "postgresql", "reactive"]
+categories = ["database"]
+
+[features]
+default = ["server"]
+server = ["dep:hulladb_postgres", "hulladb_macros/server"]
+remote = ["dep:hulladb_client", "dep:rusqlite", "dep:serde"]
+
+[dependencies]
+hulladb_macros = { version = "0.1.0", path = "../hulladb_macros" }
+hulladb_schema = { version = "0.1.0", path = "../hulladb_schema" }
+hulladb_postgres = { version = "0.1.0", path = "../hulladb_postgres", optional = true }
+hulladb_protocol = { version = "0.1.0", path = "../hulladb_protocol" }
+hulladb_client = { version = "0.1.0", path = "../hulladb_client", features = ["http"], optional = true }
+rusqlite = { version = "0.39", features = ["bundled"], optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
+uuid = { version = "1", features = ["v7"] }
+
+[dev-dependencies]
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+tokio-postgres = "0.7"
+hulladb_server = { version = "0.1.0", path = "../hulladb_server" }
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "signal", "fs", "io-util"] }
+
+[lints]
+workspace = true
+
+[[example]]
+name = "tasks"
+required-features = ["server"]
+
+[[example]]
+name = "selfhost"
+required-features = ["server"]
+
+[[example]]
+name = "remote"
+required-features = ["remote"]

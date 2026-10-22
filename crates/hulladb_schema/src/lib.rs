@@ -210,22 +210,30 @@
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
+mod constraints;
 mod error;
+mod json;
 mod key;
 mod projection;
 mod schema;
 mod table;
+pub mod temporal;
 mod types;
 mod unique;
 mod validation;
 mod value;
 
 pub use error::SchemaError;
+pub use json::{JsonProperty, JsonShape};
 pub use key::{InsertKeyPolicy, KeyGeneration, UuidGeneration};
 pub use projection::{ProjectionContract, ProjectionError, ProjectionErrorKind};
-pub use schema::{ReferenceContract, ReferenceDeclaration, SchemaContract, SchemaDeclaration};
+pub use schema::{
+    ReferenceContract, ReferenceDeclaration, ReferenceOnDelete, SchemaContract, SchemaDeclaration,
+};
 pub use table::{TableContract, TableDeclaration};
 pub use types::{FieldDefinition, ScalarType};
 pub use unique::{UniqueConstraintContract, UniqueConstraintDeclaration, UniqueNullPolicy};
 pub use validation::{InsertKeyAction, PreparedInsert, ValidationError, ValidationErrorKind};
 pub use value::{RecordValues, Value};
+
+pub use constraints::{CheckDefinition, CheckOperand, FieldConstraints, IndexDeclaration};

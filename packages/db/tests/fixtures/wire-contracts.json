@@ -1,0 +1,323 @@
+[
+  {
+    "name": "bigint",
+    "shape": {
+      "kind": "bigint"
+    },
+    "valid": [
+      "0",
+      "-9223372036854775808",
+      "9223372036854775807",
+      "18446744073709551614"
+    ],
+    "invalid": [
+      0,
+      "01",
+      "-0",
+      "+1",
+      "",
+      "-",
+      "1.5",
+      null
+    ]
+  },
+  {
+    "name": "number",
+    "shape": {
+      "kind": "number"
+    },
+    "valid": [
+      0,
+      1.25,
+      -9007199254740991,
+      9007199254740992,
+      100000000000000000000
+    ],
+    "invalid": [
+      "1",
+      null,
+      true
+    ]
+  },
+  {
+    "name": "ambiguous string or bigint",
+    "shape": {
+      "kind": "union",
+      "choices": [
+        {
+          "kind": "string"
+        },
+        {
+          "kind": "bigint"
+        }
+      ]
+    },
+    "valid": [
+      "text",
+      "01"
+    ],
+    "invalid": [
+      "1",
+      "0",
+      "-1",
+      1,
+      null
+    ]
+  },
+  {
+    "name": "ambiguous null or undefined",
+    "shape": {
+      "kind": "union",
+      "choices": [
+        {
+          "kind": "null"
+        },
+        {
+          "kind": "undefined"
+        }
+      ]
+    },
+    "valid": [],
+    "invalid": [
+      null,
+      0,
+      "null"
+    ]
+  },
+  {
+    "name": "overlapping number union",
+    "shape": {
+      "kind": "union",
+      "choices": [
+        {
+          "kind": "number"
+        },
+        {
+          "kind": "literal",
+          "value": 1
+        }
+      ]
+    },
+    "valid": [
+      1,
+      1,
+      2
+    ],
+    "invalid": [
+      "1",
+      null
+    ]
+  },
+  {
+    "name": "optional and nullable fields",
+    "shape": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "shape": {
+            "kind": "string"
+          },
+          "optional": false
+        },
+        "ordinal": {
+          "shape": {
+            "kind": "bigint"
+          },
+          "optional": true
+        },
+        "note": {
+          "shape": {
+            "kind": "union",
+            "choices": [
+              {
+                "kind": "string"
+              },
+              {
+                "kind": "null"
+              }
+            ]
+          },
+          "optional": false
+        }
+      }
+    },
+    "valid": [
+      {
+        "id": "a",
+        "note": null
+      },
+      {
+        "id": "b",
+        "note": "x",
+        "ordinal": "1"
+      }
+    ],
+    "invalid": [
+      {
+        "id": "a"
+      },
+      {
+        "id": "a",
+        "note": null,
+        "extra": true
+      },
+      {
+        "id": "a",
+        "note": null,
+        "ordinal": 1
+      }
+    ]
+  },
+  {
+    "name": "nested tuples and arrays",
+    "shape": {
+      "kind": "array",
+      "item": {
+        "kind": "tuple",
+        "items": [
+          {
+            "kind": "boolean"
+          },
+          {
+            "kind": "bigint"
+          }
+        ]
+      }
+    },
+    "valid": [
+      [],
+      [
+        [
+          true,
+          "1"
+        ],
+        [
+          false,
+          "-2"
+        ]
+      ]
+    ],
+    "invalid": [
+      [
+        true
+      ],
+      [
+        [
+          true,
+          1
+        ]
+      ],
+      [
+        [
+          true,
+          "1",
+          false
+        ]
+      ],
+      {}
+    ]
+  },
+  {
+    "name": "undefined result",
+    "shape": {
+      "kind": "undefined"
+    },
+    "valid": [
+      null
+    ],
+    "invalid": [
+      false,
+      {},
+      "undefined"
+    ]
+  },
+  {
+    "name": "date",
+    "shape": {
+      "kind": "date"
+    },
+    "valid": [
+      {
+        "$date": 0
+      },
+      {
+        "$date": 8640000000000000
+      },
+      {
+        "$date": -8640000000000000
+      }
+    ],
+    "invalid": [
+      "2026-10-20T00:00:00.000Z",
+      0,
+      null,
+      {
+        "$date": 0,
+        "extra": true
+      },
+      {
+        "$date": "0"
+      },
+      {
+        "$date": 0.5
+      },
+      {
+        "$date": 8640000000000001
+      }
+    ]
+  },
+  {
+    "name": "date or string",
+    "shape": {
+      "kind": "union",
+      "choices": [
+        {
+          "kind": "date"
+        },
+        {
+          "kind": "string"
+        }
+      ]
+    },
+    "valid": [
+      "2026-10-20",
+      {
+        "$date": 0
+      }
+    ],
+    "invalid": [
+      0,
+      {
+        "$date": "0"
+      }
+    ]
+  },
+  {
+    "name": "date marker object ambiguity",
+    "shape": {
+      "kind": "union",
+      "choices": [
+        {
+          "kind": "date"
+        },
+        {
+          "kind": "object",
+          "fields": {
+            "$date": {
+              "shape": {
+                "kind": "number"
+              },
+              "optional": false
+            }
+          }
+        }
+      ]
+    },
+    "valid": [],
+    "invalid": [
+      {
+        "$date": 0
+      }
+    ]
+  }
+]

@@ -5,6 +5,18 @@ use crate::{ScalarType, ValidationErrorKind};
 /// Structural, default-value, key, uniqueness, and reference normalization errors.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SchemaError {
+    InvalidConstraint {
+        table: String,
+        name: String,
+    },
+    InvalidTemporalPrecision {
+        table: String,
+        field: String,
+    },
+    InvalidFieldShape {
+        table: String,
+        field: String,
+    },
     EmptyUniqueConstraintName {
         table: String,
     },
@@ -113,6 +125,18 @@ pub enum SchemaError {
 impl fmt::Display for SchemaError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::InvalidConstraint { table, name } => write!(
+                f,
+                "table {table:?} has invalid constraint or index {name:?}"
+            ),
+            Self::InvalidTemporalPrecision { table, field } => write!(
+                f,
+                "table {table:?}, field {field:?}: timestamps require precision 0..6; other fields do not accept precision"
+            ),
+            Self::InvalidFieldShape { table, field } => write!(
+                f,
+                "table {table:?}, field {field:?}: invalid JSON shape or ambiguous field name"
+            ),
             Self::EmptyUniqueConstraintName { table } => write!(
                 f,
                 "table {table:?} declares a unique constraint with an empty name"

@@ -4,21 +4,38 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+description = "Transactional PostgreSQL function runtime, authorization and recovery for hulladb"
+keywords = ["database", "postgresql", "reactive"]
+categories = ["database"]
+
+exclude = ["/tests/typescript_contracts.rs", "/tests/typescript_functions.rs"]
+
+[features]
+typescript = ["tokio/process"]
 
 [dependencies]
-hulladb_protocol = { path = "../hulladb_protocol" }
+futures-core = "0.3"
+hulladb_schema = { version = "0.1.0", path = "../hulladb_schema" }
+hulladb_protocol = { version = "0.1.0", path = "../hulladb_protocol" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
-tokio-postgres = { version = "0.7", features = ["with-uuid-1", "with-serde_json-1"] }
-uuid = { version = "1", features = ["v7", "serde"] }
+ring = "0.17"
+tokio = { version = "1", features = ["macros", "rt", "sync", "time", "io-util"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+webpki-roots = "1"
+tokio-postgres = { version = "0.7", features = ["with-uuid-1", "with-serde_json-1", "with-time-0_3"] }
+tokio-postgres-rustls = { version = "0.14", default-features = false, features = ["ring"] }
+time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
 
 [dev-dependencies]
-hulladb_wire = { path = "../hulladb_wire" }
+tokio = { version = "1", features = ["rt-multi-thread"] }
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring"] }
 
 [lints]
 workspace = true
-
-[[bench]]
-name = "command_queries"
-harness = false

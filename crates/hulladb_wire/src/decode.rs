@@ -75,14 +75,34 @@ fn decode_scalar(raw: &str) -> Result<Value, WireErrorKind> {
                 return Err(WireErrorKind::InvalidScalarTag);
             }
             let (tag, payload) = object.0.pop().ok_or(WireErrorKind::InvalidScalarTag)?;
+            if tag == "$json" {
+                let value = serde_json::from_str(payload.get())
+                    .map_err(|_| WireErrorKind::UnsupportedValue)?;
+                hulladb_schema::JsonShape::Any
+                    .validate(&value)
+                    .map_err(|_| WireErrorKind::UnsupportedValue)?;
+                return Ok(Value::Json(value));
+            }
             let text: String =
                 serde_json::from_str(payload.get()).map_err(|_| WireErrorKind::InvalidScalarTag)?;
             match tag.as_str() {
+                "$date" if hulladb_schema::temporal::date(&text).is_some() => Ok(Value::Date(text)),
+                "$timestamp" if hulladb_schema::temporal::timestamp(&text, 6, true).is_some() => {
+                    Ok(Value::Timestamp(text))
+                }
+                "$localTimestamp"
+                    if hulladb_schema::temporal::timestamp(&text, 6, false).is_some() =>
+                {
+                    Ok(Value::LocalTimestamp(text))
+                }
                 "$int64" => decode_int64(&text).map(Value::Int64),
                 "$uuid" => decode_uuid(&text).map(Value::Uuid),
                 _ => Err(WireErrorKind::InvalidScalarTag),
             }
         }
+        Some(b'-' | b'0'..=b'9') => serde_json::from_str(raw)
+            .map(Value::Float64)
+            .map_err(|_| WireErrorKind::UnsupportedValue),
         _ => Err(WireErrorKind::UnsupportedValue),
     }
 }

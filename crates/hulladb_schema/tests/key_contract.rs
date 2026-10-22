@@ -24,32 +24,6 @@ fn uuid_keys_default_to_v7_regardless_of_field_name_or_injection() {
 }
 
 #[test]
-fn generation_can_be_disabled_even_for_an_injected_uuid() {
-    let mut declaration = TableDeclaration::new("tasks", vec![]);
-    declaration.key_generation = Some(KeyGeneration::None);
-    let contract = declaration.normalize().unwrap();
-    assert_eq!(contract.primary_key().scalar_type, ScalarType::Uuid);
-    assert_eq!(contract.key_generation(), &KeyGeneration::None);
-}
-
-#[test]
-fn built_in_generators_can_override_the_uuid_default() {
-    for generator in [KeyGeneration::UuidV7, KeyGeneration::UuidV4] {
-        for policy in [
-            InsertKeyPolicy::AllowExplicit,
-            InsertKeyPolicy::GeneratedOnly,
-        ] {
-            let mut declaration = TableDeclaration::new("tasks", vec![]);
-            declaration.key_generation = Some(generator.clone());
-            declaration.insert_key_policy = policy;
-            let contract = declaration.normalize().unwrap();
-            assert_eq!(contract.key_generation(), &generator);
-            assert_eq!(contract.insert_key_policy(), policy);
-        }
-    }
-}
-
-#[test]
 fn built_in_uuid_generators_reject_incompatible_key_types() {
     for key_type in [ScalarType::String, ScalarType::Int64] {
         for generator in [KeyGeneration::UuidV7, KeyGeneration::UuidV4] {

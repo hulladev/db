@@ -2,12 +2,20 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{ScalarType, SchemaError, TableContract, TableDeclaration, UuidGeneration};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ReferenceOnDelete {
+    #[default]
+    Restrict,
+    Cascade,
+    SetNull,
+}
+
 /// An explicit single-field reference to another table's selected primary key.
 ///
-/// Storage must enforce target existence and restrict deletion of referenced rows;
-/// automatic deletion or clearing of dependent rows is not part of this slice.
+/// Storage enforces target existence and the configured atomic deletion policy.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReferenceDeclaration {
+    pub on_delete: ReferenceOnDelete,
     pub table: String,
     pub field: String,
     pub target_table: String,
@@ -20,6 +28,7 @@ impl ReferenceDeclaration {
         target_table: impl Into<String>,
     ) -> Self {
         Self {
+            on_delete: ReferenceOnDelete::Restrict,
             table: table.into(),
             field: field.into(),
             target_table: target_table.into(),
@@ -40,6 +49,7 @@ pub struct SchemaDeclaration {
 /// not evidence that any particular referenced row exists.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReferenceContract {
+    on_delete: ReferenceOnDelete,
     table: String,
     field: String,
     target_table: String,
@@ -128,7 +138,14 @@ impl SchemaDeclaration {
                     key_type: key.scalar_type,
                 });
             }
+            if reference.on_delete == ReferenceOnDelete::SetNull && !field.nullable {
+                return Err(SchemaError::InvalidConstraint {
+                    table: reference.table,
+                    name: reference.field,
+                });
+            }
             references.push(ReferenceContract {
+                on_delete: reference.on_delete,
                 table: reference.table,
                 field: reference.field,
                 target_table: reference.target_table,
@@ -168,6 +185,9 @@ impl SchemaContract {
 }
 
 impl ReferenceContract {
+    pub fn on_delete(&self) -> ReferenceOnDelete {
+        self.on_delete
+    }
     pub fn table(&self) -> &str {
         &self.table
     }

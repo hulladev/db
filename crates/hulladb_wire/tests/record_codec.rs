@@ -174,7 +174,7 @@ fn scalar_tags_must_be_exactly_one_known_member_with_a_string_payload() {
 }
 
 #[test]
-fn numbers_and_arrays_never_become_logical_scalars() {
+fn numeric_literals_are_float64_and_arrays_require_json_tag() {
     for raw in [
         "0",
         "-1",
@@ -182,11 +182,11 @@ fn numbers_and_arrays_never_become_logical_scalars() {
         "1e3",
         "9007199254740993",
         "9223372036854775807",
-        "1e1000",
-        "[]",
-        "[true]",
-        "[[[null]]]",
     ] {
+        let values = decode_record(&format!(r#"{{"value":{raw}}}"#)).unwrap();
+        assert!(matches!(values["value"], Value::Float64(_)));
+    }
+    for raw in ["1e1000", "[]", "[true]", "[[[null]]]"] {
         assert_field_error(
             &format!(r#"{{"value":{raw}}}"#),
             "value",
@@ -299,4 +299,45 @@ fn decoding_and_schema_validation_remain_separate_with_no_coercion() {
         ValidationErrorKind::PrimaryKeyImmutable
     );
     assert_eq!(row, original);
+}
+
+#[test]
+fn json_payloads_preserve_tag_shaped_objects_arrays_and_nested_null() {
+    let values = hulladb_schema::RecordValues::from([
+        (
+            "json".into(),
+            hulladb_schema::Value::Json(
+                serde_json::json!({"$int64":"42","items":[null,{"$uuid":"literal"}]}),
+            ),
+        ),
+        (
+            "number".into(),
+            hulladb_schema::Value::float64(1.25).unwrap(),
+        ),
+    ]);
+    let encoded = hulladb_wire::encode_record(&values).unwrap();
+    assert_eq!(hulladb_wire::decode_record(&encoded).unwrap(), values);
+}
+
+#[test]
+fn temporal_tags_preserve_types_and_reject_impossible_calendar_values() {
+    let text = r#"{"date":{"$date":"2024-02-29"},"instant":{"$timestamp":"2024-02-29T12:30:00.123456Z"},"local":{"$localTimestamp":"2024-10-27T02:30:00"}}"#;
+    let record = decode_record(text).unwrap();
+    assert_eq!(record["date"], Value::Date("2024-02-29".into()));
+    assert_eq!(
+        record["instant"],
+        Value::Timestamp("2024-02-29T12:30:00.123456Z".into())
+    );
+    assert_eq!(
+        record["local"],
+        Value::LocalTimestamp("2024-10-27T02:30:00".into())
+    );
+    assert_eq!(encode_record(&record).unwrap(), text);
+    for bad in [
+        r#"{"day":{"$date":"2023-02-29"}}"#,
+        r#"{"day":{"$timestamp":"2024-02-29T12:30:00"}}"#,
+        r#"{"day":{"$localTimestamp":"2024-02-29T12:30:00Z"}}"#,
+    ] {
+        assert!(decode_record(bad).is_err());
+    }
 }

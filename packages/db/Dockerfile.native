@@ -1,0 +1,10 @@
+# Build with the repository root as context. Export /native using BuildKit:
+# docker build --platform linux/amd64 -f packages/db/Dockerfile.native --output type=local,dest=/tmp/hulladb-native .
+FROM rust:1.98.1-bookworm AS build
+WORKDIR /build
+COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+COPY crates ./crates
+RUN cargo build --release --locked -p hulladb_server --features typescript --bin hulladb-bridge --bin hulladb-service -p hulladb_js --bin hulladb-js
+RUN mkdir /native && cp target/release/hulladb-bridge target/release/hulladb-service target/release/hulladb-js /native/
+FROM scratch AS artifacts
+COPY --from=build /native /native

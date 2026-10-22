@@ -1,13 +1,17 @@
 [workspace]
-members = ["crates/hulladb_schema", "crates/hulladb_wire", "crates/hulladb_protocol", "crates/hulladb_client", "crates/hulladb_postgres", "crates/hulladb_sync", "crates/hulladb_server", "crates/hulladb_cdc"]
-default-members = ["crates/hulladb_schema", "crates/hulladb_wire", "crates/hulladb_protocol", "crates/hulladb_client", "crates/hulladb_postgres", "crates/hulladb_sync", "crates/hulladb_server"]
+members = ["crates/hulladb", "crates/hulladb_macros", "crates/hulladb_schema", "crates/hulladb_wire", "crates/hulladb_protocol", "crates/hulladb_client", "crates/hulladb_postgres", "crates/hulladb_server", "crates/hulladb_cdc", "crates/hulladb_js"]
+default-members = ["crates/hulladb", "crates/hulladb_macros", "crates/hulladb_schema", "crates/hulladb_wire", "crates/hulladb_protocol", "crates/hulladb_client", "crates/hulladb_postgres", "crates/hulladb_server", "crates/hulladb_js"]
 resolver = "3"
 
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.98.1"
-publish = false
+publish = true
+license = "MIT"
+authors = ["Samuel Hulla"]
+repository = "https://github.com/hulladev/db"
+homepage = "https://github.com/hulladev/db"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

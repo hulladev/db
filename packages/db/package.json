@@ -1,0 +1,117 @@
+{
+  "name": "@hulla/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "hulla-db": "./dist/cli.js"
+  },
+  "exports": {
+    "./bindings": {
+      "hulladb-source": "./src/bindings.ts",
+      "types": "./dist/bindings.d.ts",
+      "default": "./dist/bindings.js"
+    },
+    ".": {
+      "hulladb-source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./schema": {
+      "hulladb-source": "./src/schema.ts",
+      "types": "./dist/schema.d.ts",
+      "default": "./dist/schema.js"
+    },
+    "./config": {
+      "hulladb-source": "./src/config.ts",
+      "types": "./dist/config.d.ts",
+      "default": "./dist/config.js"
+    },
+    "./server": {
+      "hulladb-source": "./src/server.ts",
+      "types": "./dist/server.d.ts",
+      "default": "./dist/server.js"
+    },
+    "./codegen": {
+      "hulladb-source": "./src/codegen.ts",
+      "types": "./dist/codegen.d.ts",
+      "default": "./dist/codegen.js"
+    },
+    "./zod": {
+      "hulladb-source": "./src/zod.ts",
+      "types": "./dist/zod.d.ts",
+      "default": "./dist/zod.js"
+    },
+    "./internal/functions": {
+      "hulladb-source": "./src/declarations.ts",
+      "types": "./dist/declarations.d.ts",
+      "default": "./dist/declarations.js"
+    },
+    "./internal/worker": {
+      "hulladb-source": "./src/worker.ts",
+      "types": "./dist/worker.d.ts",
+      "default": "./dist/worker.js"
+    },
+    "./internal/client": {
+      "hulladb-source": "./src/internal/client.ts",
+      "types": "./dist/internal/client.d.ts",
+      "default": "./dist/internal/client.js"
+    }
+  },
+  "scripts": {
+    "check": "bun run generate:test && tsc --noEmit && bun --conditions=hulladb-source test tests/*.test.ts",
+    "generate:test": "bun --conditions=hulladb-source tests/generate.ts",
+    "typecheck": "bun run generate:test && tsc --noEmit",
+    "test": "bun run generate:test && bun --conditions=hulladb-source test tests/*.test.ts",
+    "build": "bun scripts/build.ts",
+    "build:native": "bun scripts/build-native.ts",
+    "prepack": "bun run build && bun scripts/check-package.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.2",
+    "@types/node": "26.2.0",
+    "valibot": "1.5.0",
+    "zod": "4.6.7",
+    "typescript": "7.0.2"
+  },
+  "files": [
+    "dist",
+    "native",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "peerDependencies": {
+    "typescript": "7.0.2",
+    "zod": "^4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "typescript": {
+      "optional": true
+    },
+    "zod": {
+      "optional": true
+    }
+  },
+  "description": "Typed PostgreSQL access and generated reactive function clients for Node, Bun and browsers",
+  "license": "MIT",
+  "author": {
+    "name": "Samuel Hulla",
+    "url": "https://hulla.dev"
+  },
+  "homepage": "https://github.com/hulladev/db#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hulladev/db.git",
+    "directory": "packages/db"
+  },
+  "bugs": {
+    "url": "https://github.com/hulladev/db/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}

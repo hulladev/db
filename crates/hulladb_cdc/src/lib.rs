@@ -2,7 +2,7 @@
 //!
 //! This crate is not part of managed synchronization. It exercises pgoutput v1
 //! capture/recovery; the optional raw replica is an inspection probe. Production
-//! task delivery lives in `hulladb_sync` and has no dependency on this crate.
+//! function delivery lives in `hulladb_server` and has no dependency on this crate.
 
 mod bootstrap;
 mod capture;

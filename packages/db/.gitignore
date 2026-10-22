@@ -1,0 +1,8 @@
+/tests/generated/
+# Scratch projects from interrupted code-generation checks.
+/tests/codegen-*/
+/tests/schema-codegen-*/
+/tests/config-project-*/
+/tests/dev-project-*/
+/tests/validator-bundle-*/
+/tests/forbidden-bundle-*/

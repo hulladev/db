@@ -50,7 +50,13 @@ pub struct ValidationError {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValidationErrorKind {
+    ConstraintViolation,
     UnknownField,
+    InvalidTemporal,
+    InvalidJson {
+        path: String,
+        message: String,
+    },
     MissingField,
     NullNotAllowed,
     TypeMismatch {
@@ -65,6 +71,16 @@ impl fmt::Display for ValidationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "table {:?}, field {:?}: ", self.table, self.field)?;
         match &self.kind {
+            ValidationErrorKind::ConstraintViolation => {
+                write!(f, "value violates field constraints")
+            }
+            ValidationErrorKind::InvalidJson { path, message } => {
+                write!(f, "JSON {path}: {message}")
+            }
+            ValidationErrorKind::InvalidTemporal => write!(
+                f,
+                "invalid calendar date or timestamp, or excessive fractional precision"
+            ),
             ValidationErrorKind::UnknownField => write!(f, "field is not declared"),
             ValidationErrorKind::MissingField => write!(
                 f,

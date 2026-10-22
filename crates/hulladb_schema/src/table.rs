@@ -8,6 +8,8 @@ use crate::{
 /// A table description emitted by an authoring frontend.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TableDeclaration {
+    pub indexes: Vec<crate::IndexDeclaration>,
+    pub checks: Vec<crate::CheckDefinition>,
     pub name: String,
     pub fields: Vec<FieldDefinition>,
     /// `None` selects `id`; an explicit name selects exactly one declared field.
@@ -30,6 +32,8 @@ pub struct TableDeclaration {
 /// before a schema can be activated or used for storage/code generation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TableContract {
+    indexes: Vec<crate::IndexDeclaration>,
+    checks: Vec<crate::CheckDefinition>,
     name: String,
     fields: Vec<FieldDefinition>,
     field_indices: BTreeMap<String, usize>,
@@ -43,6 +47,8 @@ impl TableDeclaration {
     /// Declare a table with default key selection, generation, and insert policy.
     pub fn new(name: impl Into<String>, fields: Vec<FieldDefinition>) -> Self {
         Self {
+            indexes: Vec::new(),
+            checks: Vec::new(),
             name: name.into(),
             fields,
             primary_key: None,
@@ -70,6 +76,33 @@ impl TableDeclaration {
 
         let mut field_indices = BTreeMap::new();
         for (index, field) in self.fields.iter().enumerate() {
+            if !field.constraints.validate_definition(field) {
+                return Err(SchemaError::InvalidConstraint {
+                    table: self.name,
+                    name: field.name.clone(),
+                });
+            }
+            if match field.scalar_type {
+                ScalarType::Timestamp | ScalarType::LocalTimestamp => {
+                    !matches!(field.precision, Some(0..=6))
+                }
+                _ => field.precision.is_some(),
+            } {
+                return Err(SchemaError::InvalidTemporalPrecision {
+                    table: self.name,
+                    field: field.name.clone(),
+                });
+            }
+            if field
+                .json_shape
+                .as_ref()
+                .is_some_and(|shape| field.scalar_type != ScalarType::Json || !shape.is_bounded())
+            {
+                return Err(SchemaError::InvalidFieldShape {
+                    table: self.name,
+                    field: field.name.clone(),
+                });
+            }
             if field.name.is_empty() {
                 return Err(SchemaError::EmptyFieldName { table: self.name });
             }
@@ -178,7 +211,47 @@ impl TableDeclaration {
             &field_indices,
         )?;
 
+        let mut names = std::collections::BTreeSet::new();
+        for index in &self.indexes {
+            let selected: std::collections::BTreeSet<_> = index.fields.iter().collect();
+            if index.name.is_empty()
+                || !names.insert(index.name.clone())
+                || index.fields.is_empty()
+                || selected.len() != index.fields.len()
+                || index.fields.iter().any(|f| !field_indices.contains_key(f))
+            {
+                return Err(SchemaError::InvalidConstraint {
+                    table: self.name,
+                    name: index.name.clone(),
+                });
+            }
+        }
+        for check in &self.checks {
+            if check.name.is_empty()
+                || !names.insert(check.name.clone())
+                || check.parts.len() != check.operands.len() + 1
+                || (check.operands.is_empty() && check.parts.iter().all(|p| p.trim().is_empty()))
+                || check.parts.iter().any(|p| {
+                    ["\0", ";", "--", "/*", "*/"]
+                        .iter()
+                        .any(|bad| p.contains(bad))
+                })
+                || check.operands.iter().any(|operand| match operand {
+                    crate::CheckOperand::Field(f) => !field_indices.contains_key(f),
+                    crate::CheckOperand::Value(crate::Value::String(s)) => s.contains('\0'),
+                    crate::CheckOperand::Value(crate::Value::Json(_)) => true,
+                    _ => false,
+                })
+            {
+                return Err(SchemaError::InvalidConstraint {
+                    table: self.name,
+                    name: check.name.clone(),
+                });
+            }
+        }
         Ok(TableContract {
+            indexes: self.indexes,
+            checks: self.checks,
             name: self.name,
             fields: self.fields,
             field_indices,
@@ -191,6 +264,12 @@ impl TableDeclaration {
 }
 
 impl TableContract {
+    pub fn indexes(&self) -> &[crate::IndexDeclaration] {
+        &self.indexes
+    }
+    pub fn checks(&self) -> &[crate::CheckDefinition] {
+        &self.checks
+    }
     pub fn name(&self) -> &str {
         &self.name
     }

@@ -4,24 +4,46 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+description = "Authenticated HTTP and SSE hosting and native bridge executables for hulladb"
+keywords = ["database", "postgresql", "reactive"]
+categories = ["database"]
+
+exclude = ["/tests/direct_bridge.rs", "/tests/service.rs", "/tests/managed_host.rs"]
+
+[features]
+typescript = ["hulladb_postgres/typescript", "dep:tokio-postgres", "tokio/io-std", "tokio/rt-multi-thread", "tokio/signal"]
 
 [dependencies]
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
-futures-util = "0.3"
-hulladb_postgres = { path = "../hulladb_postgres" }
-hulladb_protocol = { path = "../hulladb_protocol" }
-hulladb_sync = { path = "../hulladb_sync" }
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "net", "signal"] }
-tokio-postgres = "0.7"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+hulladb_postgres = { version = "0.1.0", path = "../hulladb_postgres" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt", "sync", "time", "net"] }
+tokio-postgres = { version = "0.7", optional = true }
 uuid = { version = "1", features = ["serde", "v7"] }
 
 [dev-dependencies]
-serde_json = "1"
-hulladb_client = { path = "../hulladb_client" }
+tokio-postgres = "0.7"
+tokio = { version = "1", features = ["rt-multi-thread"] }
+hulladb_schema = { version = "0.1.0", path = "../hulladb_schema" }
 http-body-util = "0.1"
-hyper = { version = "1", features = ["client", "http1"] }
-hyper-util = { version = "0.1", features = ["tokio"] }
 tower = { version = "0.5", features = ["util"] }
 
 [lints]
 workspace = true
+
+[[bin]]
+name = "hulladb-bridge"
+path = "src/bin/hulladb-bridge.rs"
+required-features = ["typescript"]
+
+[[bin]]
+name = "hulladb-service"
+path = "src/bin/hulladb-service.rs"
+required-features = ["typescript"]

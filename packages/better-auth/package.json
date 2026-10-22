@@ -1,0 +1,64 @@
+{
+  "name": "@hulla/db-better-auth",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "hulladb-source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./schema": {
+      "hulladb-source": "./src/schema.ts",
+      "types": "./dist/schema.d.ts",
+      "default": "./dist/schema.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "bun ../db/scripts/build-binding.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun --conditions=hulladb-source test tests/*.test.ts"
+  },
+  "peerDependencies": {
+    "@hulla/db": "^0.1.0",
+    "better-auth": "^1.7.12"
+  },
+  "devDependencies": {
+    "@hulla/db": "workspace:*",
+    "better-auth": "1.7.12",
+    "@types/bun": "1.4.2",
+    "typescript": "7.0.2",
+    "@types/node": "26.2.0"
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "dependencies": {
+    "@better-auth/core": "1.7.12"
+  },
+  "description": "Better Auth storage adapter for @hulla/db",
+  "license": "MIT",
+  "author": {
+    "name": "Samuel Hulla",
+    "url": "https://hulla.dev"
+  },
+  "homepage": "https://github.com/hulladev/db#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hulladev/db.git",
+    "directory": "packages/better-auth"
+  },
+  "bugs": {
+    "url": "https://github.com/hulladev/db/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}

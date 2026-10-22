@@ -1,0 +1,13 @@
+{
+  "name": "@hulla/db-workspace",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "bun run --cwd packages/db build && bun run --cwd packages/react build && bun run --cwd packages/vue build && bun run --cwd packages/svelte build && bun run --cwd packages/solid build && bun run --cwd packages/better-auth build",
+    "test:bindings": "bun --conditions=hulladb-source test packages/db/tests/bindings.test.ts && bun run --cwd packages/react test && bun run --cwd packages/vue test && bun run --cwd packages/svelte test && bun run --cwd packages/solid test",
+    "test:auth": "bun run --cwd packages/better-auth test"
+  }
+}

@@ -29,8 +29,25 @@ struct WireScalar<'a>(&'a Value);
 impl Serialize for WireScalar<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match self.0 {
+            Value::Json(value) => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("$json", value)?;
+                map.end()
+            }
+            Value::Float64(value) => value.serialize(serializer),
             Value::Null => serializer.serialize_unit(),
             Value::String(value) => serializer.serialize_str(value),
+            value @ (Value::Date(_) | Value::Timestamp(_) | Value::LocalTimestamp(_)) => {
+                let (tag, text) = match value {
+                    Value::Date(text) => ("$date", text),
+                    Value::Timestamp(text) => ("$timestamp", text),
+                    Value::LocalTimestamp(text) => ("$localTimestamp", text),
+                    _ => unreachable!(),
+                };
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry(tag, text)?;
+                map.end()
+            }
             Value::Boolean(value) => serializer.serialize_bool(*value),
             Value::Int64(value) => {
                 let mut map = serializer.serialize_map(Some(1))?;

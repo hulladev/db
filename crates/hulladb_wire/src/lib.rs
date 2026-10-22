@@ -2,8 +2,10 @@
 //!
 //! Strings, booleans, and null use native JSON values. Integers use
 //! `{"$int64":"9223372036854775807"}` and UUIDs use
-//! `{"$uuid":"00112233-4455-6677-8899-aabbccddeeff"}`. Native JSON numbers,
-//! arrays, and other objects are rejected. Omission remains absence of a field.
+//! `{"$uuid":"00112233-4455-6677-8899-aabbccddeeff"}`. Finite JSON numbers
+//! represent float64 values. Date/time strings use `$date`, `$timestamp`, and `$localTimestamp` tags.
+//! Structured JSON uses a `$json` tag. Untagged arrays and objects are rejected.
+//! Omission remains absence of a field.
 //!
 //! Decoding checks wire representation, not table shape, permissions, or storage
 //! constraints. Pass the decoded record to the appropriate schema validator.

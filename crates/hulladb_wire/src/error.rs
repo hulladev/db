@@ -47,12 +47,12 @@ impl fmt::Display for WireError {
                 match kind {
                     WireErrorKind::DuplicateField => write!(f, "field is supplied more than once"),
                     WireErrorKind::UnsupportedValue => {
-                        write!(f, "use null, string, boolean, or a tagged int64/UUID")
+                        write!(f, "use null, string, boolean, or a supported scalar tag")
                     }
                     WireErrorKind::InvalidScalarTag => {
                         write!(
                             f,
-                            "use exactly one $int64 or $uuid tag with a string payload"
+                            "use exactly one supported scalar tag with a valid payload"
                         )
                     }
                     WireErrorKind::InvalidInt64 => {
