@@ -8,6 +8,11 @@
   "scripts": {
     "build": "bun run --cwd packages/db build && bun run --cwd packages/react build && bun run --cwd packages/vue build && bun run --cwd packages/svelte build && bun run --cwd packages/solid build && bun run --cwd packages/better-auth build",
     "test:bindings": "bun --conditions=hulladb-source test packages/db/tests/bindings.test.ts && bun run --cwd packages/react test && bun run --cwd packages/vue test && bun run --cwd packages/svelte test && bun run --cwd packages/solid test",
-    "test:auth": "bun run --cwd packages/better-auth test"
+    "test:auth": "bun run --cwd packages/better-auth test",
+    "release:npm": "bun scripts/release/npm.ts",
+    "release:cargo": "cargo package --workspace --exclude hulladb_cdc --all-features --allow-dirty --locked",
+    "release:manifest": "bun scripts/release/manifest.ts",
+    "release:prepare": "bun run release:npm && bun run release:cargo && bun run release:manifest",
+    "release:check": "bun scripts/release/verify-npm.ts && bun scripts/release/dry-run.ts && bun scripts/release/verify-cargo.ts"
   }
 }

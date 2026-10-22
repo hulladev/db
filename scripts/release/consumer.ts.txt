@@ -1,0 +1,24 @@
+import { list, create } from './db/_generated/client/notes';
+import { useQuery as reactQuery, useMutation as reactMutation } from '@hulla/db-react';
+import { useQuery as vueQuery } from '@hulla/db-vue';
+import { createQuery as svelteQuery } from '@hulla/db-svelte';
+import { createQuery as solidQuery } from '@hulla/db-solid';
+import type { Input, Output } from '@hulla/db';
+
+export function reactConsumer() {
+  const result = reactQuery(list);
+  const save = reactMutation(create);
+  if (result.status === 'success') {
+    const title: string = result.data[0]!.title;
+    // @ts-expect-error: published declarations must preserve the row field type.
+    const invalid: number = result.data[0]!.title;
+    void invalid;
+    return [title, save];
+  }
+  return save;
+}
+export function vueConsumer() { return vueQuery(list).value.data?.[0]?.data.rank; }
+export function svelteConsumer() { return svelteQuery(list).data?.[0]?.title; }
+export function solidConsumer() { return solidQuery(list)().data?.[0]?.title; }
+export type ListResult = Output<typeof list>;
+export type CreateInput = Input<typeof create>;
