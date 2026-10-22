@@ -4,3 +4,13 @@
 .env.*
 !.env.example
 __pycache__/
+node_modules/
+/deploy/selfhost/secrets/
+*.dump
+*.dump.json
+/packages/db/dist/
+/packages/*/dist/
+/packages/db/native/
+/packages/db/*.tgz
+
+/output/releases/

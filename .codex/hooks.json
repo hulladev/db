@@ -1,0 +1,53 @@
+{
+  "description": "Tag Codex shell children and clean up this session at turn boundaries.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^Bash$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/scripts/codex_process_cleanup.py\"",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/scripts/codex_process_cleanup.py\"",
+            "timeout": 3,
+            "statusMessage": "Cleaning up Codex processes"
+          }
+        ]
+      }
+    ],
+    "Interrupt": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/scripts/codex_process_cleanup.py\"",
+            "timeout": 3,
+            "statusMessage": "Cleaning up Codex processes"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/scripts/codex_process_cleanup.py\"",
+            "timeout": 3,
+            "statusMessage": "Cleaning up Codex processes"
+          }
+        ]
+      }
+    ]
+  }
+}
