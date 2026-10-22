@@ -71,7 +71,7 @@ npm install --save-dev typescript@7.0.2
 
 Use `@hulla/db-vue`, `@hulla/db-svelte` or `@hulla/db-solid` for other UI
 frameworks. Add `@hulla/db-better-auth` when Better Auth stores its records in this
-database. The [installation guide](https://hulla.dev/docs/db/installation) covers
+database. The [deployment guide](docs/deployment.md#install-the-packages) covers
 runtime requirements and framework choices.
 
 For native Rust applications:
