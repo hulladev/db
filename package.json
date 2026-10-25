@@ -13,6 +13,8 @@
     "release:cargo": "cargo package --workspace --exclude hulladb_cdc --all-features --allow-dirty --locked",
     "release:manifest": "bun scripts/release/manifest.ts",
     "release:prepare": "bun run release:npm && bun run release:cargo && bun run release:manifest",
+    "release:prepare:cargo": "bun run release:cargo && bun run release:manifest --cargo-only",
+    "release:check:cargo": "bun scripts/release/verify-cargo.ts",
     "release:check": "bun scripts/release/verify-npm.ts && bun scripts/release/dry-run.ts && bun scripts/release/verify-cargo.ts"
   }
 }

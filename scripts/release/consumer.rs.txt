@@ -1,0 +1,54 @@
+use hulladb::{Id, Input, Table};
+
+#[derive(Table)]
+#[table(name = "notes")]
+pub struct Note {
+    pub id: Id<Note>,
+    pub title: String,
+}
+
+#[derive(Input)]
+pub struct CreateNote {
+    pub title: String,
+}
+
+pub fn schema() -> Result<hulladb::schema::SchemaContract, hulladb::schema::SchemaError> {
+    hulladb::schema!(Note)
+}
+
+// These signatures protect interoperability across the published crate paths.
+// Separate copies of a moved type would break real consumers at these boundaries.
+#[cfg(feature = "legacy")]
+pub mod compatibility {
+    pub fn receipt(value: hulladb_protocol::functions::Receipt) -> hulladb::Receipt {
+        value
+    }
+
+    pub fn application_error(
+        value: hulladb_protocol::ApplicationError,
+    ) -> hulladb_postgres::managed::ApplicationError {
+        value
+    }
+
+    pub fn endpoint(value: hulladb_client::http::Endpoint) -> hulladb::http::Endpoint {
+        value
+    }
+
+    pub fn transport_error(value: hulladb_client::http::Error) -> hulladb::http::Error {
+        value
+    }
+
+    pub fn host<I: Send + Sync + 'static>(
+        value: hulladb_server::managed::ManagedHost<I>,
+    ) -> hulladb::hosting::managed::ManagedHost<I> {
+        value
+    }
+
+    pub fn host_options(value: hulladb_server::HostOptions) -> hulladb::hosting::HostOptions {
+        value
+    }
+
+    pub fn decode(value: &str) -> Result<hulladb_schema::RecordValues, hulladb_wire::WireError> {
+        hulladb::wire::decode_record(value)
+    }
+}
