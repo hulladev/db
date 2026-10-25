@@ -16,14 +16,19 @@ categories = ["database"]
 [features]
 default = ["server"]
 server = ["dep:hulladb_postgres", "hulladb_macros/server"]
-remote = ["dep:hulladb_client", "dep:rusqlite", "dep:serde"]
+remote = ["http", "dep:rusqlite", "dep:serde"]
+http = ["dep:http-body-util", "dep:hyper", "dep:hyper-util", "tokio/net", "dep:tokio-rustls", "dep:webpki-roots"]
+hosting = ["server", "hulladb_postgres/http"]
 
 [dependencies]
-hulladb_macros = { version = "0.1.0", path = "../hulladb_macros" }
-hulladb_schema = { version = "0.1.0", path = "../hulladb_schema" }
-hulladb_postgres = { version = "0.1.0", path = "../hulladb_postgres", optional = true }
-hulladb_protocol = { version = "0.1.0", path = "../hulladb_protocol" }
-hulladb_client = { version = "0.1.0", path = "../hulladb_client", features = ["http"], optional = true }
+hulladb_macros = { version = "0.1.1", path = "../hulladb_macros" }
+hulladb_schema = { version = "0.1.1", path = "../hulladb_schema" }
+hulladb_postgres = { version = "0.1.1", path = "../hulladb_postgres", optional = true }
+http-body-util = { version = "0.1", optional = true }
+hyper = { version = "1", features = ["client", "http1"], optional = true }
+hyper-util = { version = "0.1", features = ["tokio"], optional = true }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"], optional = true }
+webpki-roots = { version = "1", optional = true }
 rusqlite = { version = "0.39", features = ["bundled"], optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = "1"
@@ -33,7 +38,7 @@ uuid = { version = "1", features = ["v7"] }
 [dev-dependencies]
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 tokio-postgres = "0.7"
-hulladb_server = { version = "0.1.0", path = "../hulladb_server" }
+hulladb_server = { version = "0.1.1", path = "../hulladb_server" }
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["rt-multi-thread", "net", "signal", "fs", "io-util"] }

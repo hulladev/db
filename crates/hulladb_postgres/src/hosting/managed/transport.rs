@@ -1,4 +1,5 @@
 use super::HostState;
+use crate::managed::{Context, Error, QueryRound, Receipt, RoundQuery, Snapshot};
 use axum::{
     Extension, Json, Router,
     body::Body,
@@ -15,7 +16,6 @@ use axum::{
     routing::{get, post},
 };
 use futures_util::stream;
-use hulladb_postgres::managed::{Context, Error, QueryRound, Receipt, RoundQuery, Snapshot};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{convert::Infallible, sync::Arc};
@@ -52,7 +52,7 @@ struct Member {
     #[serde(default)]
     input: Value,
     #[serde(default)]
-    page: Option<hulladb_postgres::managed::PageMetadata>,
+    page: Option<crate::managed::PageMetadata>,
 }
 impl Subscription {
     fn captured(&self) -> Vec<RoundQuery> {
@@ -126,7 +126,7 @@ async fn observe<I: Clone + Send + Sync + 'static>(
 struct Failure {
     status: StatusCode,
     code: &'static str,
-    application: Option<hulladb_postgres::managed::ApplicationError>,
+    application: Option<crate::managed::ApplicationError>,
 }
 impl Failure {
     fn terminal(code: &str) -> Self {
@@ -274,10 +274,10 @@ impl From<Error> for Failure {
         }
     }
 }
-fn auth_error(error: crate::AuthenticationError) -> Failure {
+fn auth_error(error: crate::hosting::AuthenticationError) -> Failure {
     match error {
-        crate::AuthenticationError::InvalidCredentials => Failure::unauthorized(),
-        crate::AuthenticationError::Unavailable => Failure::unavailable(),
+        crate::hosting::AuthenticationError::InvalidCredentials => Failure::unauthorized(),
+        crate::hosting::AuthenticationError::Unavailable => Failure::unavailable(),
     }
 }
 fn same_context<I>(a: &Context<I>, b: &Context<I>) -> bool {
@@ -806,5 +806,5 @@ async fn subscribe<I: Clone + Send + Sync + 'static>(
 }
 
 #[cfg(test)]
-#[path = "../../tests/unit/managed_errors.rs"]
+#[path = "../../../tests/unit/managed_errors.rs"]
 mod error_tests;

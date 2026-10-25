@@ -108,5 +108,5 @@ impl Gate {
 }
 
 #[cfg(test)]
-#[path = "../../tests/unit/managed_quotas.rs"]
+#[path = "../../../tests/unit/managed_quotas.rs"]
 mod tests;

@@ -84,7 +84,7 @@ struct WireSnapshot {
     revision: String,
     result: Json,
     #[serde(default)]
-    page: Option<hulladb_protocol::functions::PageMetadata>,
+    page: Option<hulladb_schema::protocol::functions::PageMetadata>,
 }
 pub fn snapshot(value: Json, session: Session, source: Uuid) -> Result<Snapshot, Error> {
     let value: WireSnapshot = serde_json::from_value(value).map_err(|_| protocol())?;
@@ -177,20 +177,20 @@ struct MemberResult {
     key: String,
     result: Json,
     #[serde(default)]
-    page: Option<hulladb_protocol::functions::PageMetadata>,
+    page: Option<hulladb_schema::protocol::functions::PageMetadata>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct MemberError {
     key: String,
-    error: hulladb_protocol::ApiError,
+    error: hulladb_schema::protocol::ApiError,
 }
 impl WireRound {
     pub fn check(
         self,
         session: Session,
         source: Uuid,
-    ) -> Result<(i64, Result<Snapshot, hulladb_client::http::Error>), Error> {
+    ) -> Result<(i64, Result<Snapshot, crate::http::Error>), Error> {
         let head = Head {
             source: self.source,
             scope: self.scope,
@@ -222,8 +222,8 @@ impl WireRound {
                     return Err(protocol());
                 }
                 Err(match value.error.application {
-                    Some(error) => hulladb_client::http::Error::Application(error),
-                    None => hulladb_client::http::Error::Api(value.error.code),
+                    Some(error) => crate::http::Error::Application(error),
+                    None => crate::http::Error::Api(value.error.code),
                 })
             }
             _ => return Err(protocol()),
@@ -232,8 +232,8 @@ impl WireRound {
     }
 }
 fn checked_page(
-    page: Option<hulladb_protocol::functions::PageMetadata>,
-) -> Result<Option<hulladb_protocol::functions::PageMetadata>, Error> {
+    page: Option<hulladb_schema::protocol::functions::PageMetadata>,
+) -> Result<Option<hulladb_schema::protocol::functions::PageMetadata>, Error> {
     if page
         .as_ref()
         .is_some_and(|page| page.range.is_empty() || page.range.len() > 65_536)

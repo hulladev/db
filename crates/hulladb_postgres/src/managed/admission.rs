@@ -165,7 +165,7 @@ pub(super) async fn finish_success<I>(
 }
 fn stored_failure(value: &str) -> Result<Error, Error> {
     if value.starts_with('{') {
-        let payload: hulladb_protocol::ApplicationError =
+        let payload: hulladb_schema::protocol::ApplicationError =
             serde_json::from_str(value).map_err(|_| Error::CorruptData)?;
         if !payload.valid() {
             return Err(Error::CorruptData);

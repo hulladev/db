@@ -9,13 +9,14 @@ authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
 readme = "README.md"
-description = "Binary row and schema codecs for hulladb"
+description = "Compatibility reexports of hulladb lossless tagged JSON record codecs"
 keywords = ["database", "postgresql", "reactive"]
 categories = ["database"]
 
 [dependencies]
-hulladb_schema = { version = "0.1.0", path = "../hulladb_schema" }
-serde = "1"
+hulladb_schema = { version = "0.1.1", path = "../hulladb_schema" }
+
+[dev-dependencies]
 serde_json = { version = "1", features = ["raw_value"] }
 
 [lints]

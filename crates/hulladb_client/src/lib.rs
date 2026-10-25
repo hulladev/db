@@ -1,3 +1,4 @@
-//! Bounded native HTTP/SSE transport for named-function clients.
+//! Compatibility entry point for the SDK HTTP/SSE transport.
+//! New code can use `hulladb::http` with the `http` or `remote` feature.
 #[cfg(feature = "http")]
-pub mod http;
+pub use hulladb::http;

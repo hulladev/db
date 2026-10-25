@@ -33,7 +33,7 @@ pub use hulladb_postgres::managed::{
     OutboxJob, OutboxStatus, OutboxWorker, ReceiptStatus, Registry, RetryOptions, Roles,
     ScopeQuota, ScopeStatus, Usage, WorkerOptions,
 };
-pub use hulladb_protocol::functions::{ClientFailure, Receipt, Revision, Snapshot};
+pub use hulladb_schema::protocol::functions::{ClientFailure, Receipt, Revision, Snapshot};
 pub type FunctionFuture<'a, T> =
     std::pin::Pin<Box<dyn std::future::Future<Output = Result<T, Error>> + Send + 'a>>;
 pub use hulladb_schema as schema;
@@ -98,3 +98,11 @@ macro_rules! schema {
         declaration.normalize()
     }};
 }
+
+/// Bounded native HTTP/SSE transport.
+#[cfg(feature = "http")]
+pub mod http;
+/// Authenticated HTTP/SSE hosting.
+#[cfg(feature = "hosting")]
+pub use hulladb_postgres::hosting;
+pub use hulladb_schema::{protocol, wire};

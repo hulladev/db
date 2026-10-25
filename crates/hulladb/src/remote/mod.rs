@@ -2,16 +2,16 @@
 mod storage;
 mod wire;
 
+use crate::http::{
+    self,
+    generic::{HttpTransport, SseFrame},
+};
 use crate::{
     ClientFailure, Error, FunctionFuture, MutationContract, MutationIntent, RawQueryState,
     RawSubscription, Receipt, Runtime, Snapshot, runtime::Validator,
 };
 pub use http::{ClientOptions, Endpoint};
-use hulladb_client::http::{
-    self,
-    generic::{HttpTransport, SseFrame},
-};
-use hulladb_protocol::ApiErrorCode;
+use hulladb_schema::protocol::ApiErrorCode;
 use serde_json::{Value as Json, json};
 use std::{
     future::Future,
@@ -563,7 +563,7 @@ impl RemoteRuntime {
                     });
                 }
                 SseFrame::Event { name, data, .. } if name == "error" => {
-                    let error: hulladb_protocol::ApiError =
+                    let error: hulladb_schema::protocol::ApiError =
                         serde_json::from_str(&data).map_err(|_| wire::protocol())?;
                     if !error.valid() {
                         return Err(wire::protocol());

@@ -73,6 +73,7 @@ sdk-check:
 	cd packages/db && bun run check
 
 client-test:
+	cargo test -p hulladb --no-default-features --features http --lib --locked
 	cargo test -p hulladb_client --features http --locked
 
 db-up:
@@ -88,7 +89,7 @@ db-shell:
 production-check:
 	cargo fmt -p hulladb -p hulladb_postgres -p hulladb_server -- --check
 	cargo clippy -p hulladb -p hulladb_postgres -p hulladb_server --all-targets --locked -- -D warnings
-	cargo test -p hulladb_server --lib --locked
+	cargo test -p hulladb_postgres --features http --lib --locked
 	cargo test -p hulladb_postgres --test production_operations --locked
 	cd packages/db && bun run check
 
@@ -108,7 +109,7 @@ outbox-test:
 remote-functions-check:
 	cargo check -p hulladb --no-default-features --features remote --example remote --locked
 	cargo test -p hulladb --no-default-features --features remote --test authoring --test remote --locked
-	cargo test -p hulladb_client --features http --lib --locked
+	cargo test -p hulladb --no-default-features --features http --lib --locked
 
 remote-functions-test: remote-functions-check
 	cargo test -p hulladb --features remote --test remote --locked -- --ignored

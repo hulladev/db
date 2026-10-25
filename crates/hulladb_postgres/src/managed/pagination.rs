@@ -445,10 +445,12 @@ mod tests;
 #[derive(Default)]
 pub(super) struct PageExecution {
     pub requested: Option<String>,
-    pub produced: std::sync::Mutex<Option<hulladb_protocol::functions::PageMetadata>>,
+    pub produced: std::sync::Mutex<Option<hulladb_schema::protocol::functions::PageMetadata>>,
 }
 impl PageExecution {
-    pub fn metadata(&self) -> Result<Option<hulladb_protocol::functions::PageMetadata>, Error> {
+    pub fn metadata(
+        &self,
+    ) -> Result<Option<hulladb_schema::protocol::functions::PageMetadata>, Error> {
         Ok(self
             .produced
             .lock()

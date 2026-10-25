@@ -18,7 +18,7 @@ pub struct RoundQuery {
     pub key: String,
     pub operation: String,
     pub input: Json,
-    pub page: Option<hulladb_protocol::functions::PageMetadata>,
+    pub page: Option<hulladb_schema::protocol::functions::PageMetadata>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -43,7 +43,7 @@ impl Default for RoundLimits {
 pub struct RoundResult {
     pub key: String,
     pub result: Result<Json, Error>,
-    pub page: Option<hulladb_protocol::functions::PageMetadata>,
+    pub page: Option<hulladb_schema::protocol::functions::PageMetadata>,
     /// Failed handlers conservatively depend on all tables, including failures
     /// before their first read. Empty successful reads still record their table.
     pub tables: BTreeSet<String>,

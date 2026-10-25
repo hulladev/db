@@ -276,7 +276,7 @@ async fn sdk_lifecycle(typescript: bool) {
         registry,
         credentials.clone(),
         Options {
-            budgets: HostOptions {
+            budgets: hulladb_postgres::hosting::HostOptions {
                 poll_interval: Duration::from_millis(20),
                 credential_check_interval: Duration::from_millis(20),
                 operation_timeout: Duration::from_secs(2),

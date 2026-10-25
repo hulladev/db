@@ -5,7 +5,7 @@ use hulladb_schema::{
 use hulladb_wire::{WireError, WireErrorKind, decode_record, encode_record};
 
 fn assert_field_error(input: &str, field: &str, kind: WireErrorKind) {
-    let error = decode_record(input).unwrap_err();
+    let error: WireError = hulladb_schema::wire::decode_record(input).unwrap_err();
     assert_eq!(
         error,
         WireError::Field {
@@ -33,7 +33,7 @@ fn records_have_an_exact_deterministic_encoding_and_preserve_every_scalar() {
         ("true".into(), Value::Boolean(true)),
         ("false".into(), Value::Boolean(false)),
     ]);
-    let encoded = encode_record(&values).unwrap();
+    let encoded = hulladb_schema::wire::encode_record(&values).unwrap();
     assert_eq!(
         encoded,
         r#"{"false":false,"max":{"$int64":"9223372036854775807"},"min":{"$int64":"-9223372036854775808"},"null":null,"string":"9223372036854775807","true":true,"uuid":{"$uuid":"00112233-4455-6677-8899-aabbccddeeff"}}"#

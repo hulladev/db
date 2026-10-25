@@ -8,7 +8,7 @@
 mod admission;
 mod aggregate;
 pub use aggregate::{Aggregate, AggregateOp, AggregateQuery};
-pub use hulladb_protocol::ApplicationError;
+pub use hulladb_schema::protocol::ApplicationError;
 mod concurrency;
 mod db;
 mod write_expression;
@@ -65,7 +65,7 @@ pub struct Context<I> {
     pub identity: I,
 }
 
-pub use hulladb_protocol::functions::{PageMetadata, Receipt, Revision, Snapshot};
+pub use hulladb_schema::protocol::functions::{PageMetadata, Receipt, Revision, Snapshot};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Row {
@@ -76,11 +76,11 @@ pub struct Row {
 
 #[derive(Debug)]
 pub enum Error {
-    Client(hulladb_protocol::functions::ClientFailure),
+    Client(hulladb_schema::protocol::functions::ClientFailure),
     Forbidden,
     InvalidTicket,
     TerminalFailure(String),
-    Application(hulladb_protocol::ApplicationError),
+    Application(hulladb_schema::protocol::ApplicationError),
     NotFound,
     Conflict,
     ReferenceViolation,

@@ -1429,7 +1429,8 @@ async fn explicit_commit_rejection_is_a_known_failure_and_rolls_back_everything(
         .mutate(&registry, &context, request, "bundle", bundle_input())
         .await;
     admin(&format!("DROP TRIGGER fail_commit ON \"{namespace}\".receipts; DROP FUNCTION \"{namespace}\".fail_commit();")).await;
-    assert!(matches!(failed, Err(Error::Database(_))));
+    // Deferred constraints use the same sanitized error mapping as statement errors.
+    assert!(matches!(failed, Err(Error::InvalidInput(_))), "{failed:?}");
     assert!(store.receipt(&context, request).await.unwrap().is_none());
     let view = snapshot(&mut store, &registry, &context).await;
     assert_eq!(view.revision.sequence, 0);

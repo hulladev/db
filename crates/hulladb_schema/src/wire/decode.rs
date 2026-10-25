@@ -1,10 +1,10 @@
 use std::fmt;
 
-use hulladb_schema::{RecordValues, Value};
+use crate::{RecordValues, Value};
 use serde::de::{Deserialize, Deserializer, MapAccess, Visitor};
 use serde_json::value::RawValue;
 
-use crate::{WireError, WireErrorKind};
+use super::{WireError, WireErrorKind};
 
 /// Decode exactly one JSON record, preserving types and rejecting duplicate
 /// decoded field names before they can overwrite a map entry.
@@ -78,7 +78,7 @@ fn decode_scalar(raw: &str) -> Result<Value, WireErrorKind> {
             if tag == "$json" {
                 let value = serde_json::from_str(payload.get())
                     .map_err(|_| WireErrorKind::UnsupportedValue)?;
-                hulladb_schema::JsonShape::Any
+                crate::JsonShape::Any
                     .validate(&value)
                     .map_err(|_| WireErrorKind::UnsupportedValue)?;
                 return Ok(Value::Json(value));
@@ -86,13 +86,11 @@ fn decode_scalar(raw: &str) -> Result<Value, WireErrorKind> {
             let text: String =
                 serde_json::from_str(payload.get()).map_err(|_| WireErrorKind::InvalidScalarTag)?;
             match tag.as_str() {
-                "$date" if hulladb_schema::temporal::date(&text).is_some() => Ok(Value::Date(text)),
-                "$timestamp" if hulladb_schema::temporal::timestamp(&text, 6, true).is_some() => {
+                "$date" if crate::temporal::date(&text).is_some() => Ok(Value::Date(text)),
+                "$timestamp" if crate::temporal::timestamp(&text, 6, true).is_some() => {
                     Ok(Value::Timestamp(text))
                 }
-                "$localTimestamp"
-                    if hulladb_schema::temporal::timestamp(&text, 6, false).is_some() =>
-                {
+                "$localTimestamp" if crate::temporal::timestamp(&text, 6, false).is_some() => {
                     Ok(Value::LocalTimestamp(text))
                 }
                 "$int64" => decode_int64(&text).map(Value::Int64),

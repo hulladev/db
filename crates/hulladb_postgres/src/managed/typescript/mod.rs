@@ -218,7 +218,7 @@ impl TypescriptFunction {
                             let rows = response["page"].as_array().ok_or(Error::CorruptData)?;
                             native_page = Some(json!({"page":rows.iter().map(|row|row["row"].clone()).collect::<Vec<_>>(),"cursor":cursor}));
                             if self.contract.paginated && let Some(execution) = page_execution {
-                                *execution.produced.lock().map_err(|_|Error::CorruptData)? = Some(hulladb_protocol::functions::PageMetadata {range:range.clone()});
+                                *execution.produced.lock().map_err(|_|Error::CorruptData)? = Some(hulladb_schema::protocol::functions::PageMetadata {range:range.clone()});
                             }
                             json!({"page":rows,"cursor":cursor,"range":range})
                         } else { operation.execute(db, write).await? };
@@ -350,7 +350,7 @@ enum Frame {
         code: String,
     },
     ApplicationError {
-        error: hulladb_protocol::ApplicationError,
+        error: hulladb_schema::protocol::ApplicationError,
     },
 }
 

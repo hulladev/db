@@ -1,9 +1,9 @@
 use std::fmt::Write;
 
-use hulladb_schema::{RecordValues, Value};
+use crate::{RecordValues, Value};
 use serde::ser::{Serialize, SerializeMap, Serializer};
 
-use crate::WireError;
+use super::WireError;
 
 /// Encode a logical record deterministically in lexicographic field-name order.
 /// Integers use canonical decimal text; UUIDs use lowercase hyphenated text.

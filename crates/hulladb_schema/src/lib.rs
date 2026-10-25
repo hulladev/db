@@ -1,9 +1,8 @@
-//! Language-neutral schema contracts for Hulla DB.
+//! Shared schema, function protocol and record contracts for Hulla DB.
 //!
 //! Authoring frontends produce [`TableDeclaration`] values. Normalization resolves
 //! the primary key and adds the implicit UUID `id` only when needed. These are
-//! internal compiler contracts; the application-facing Rust and TypeScript APIs
-//! remain provisional.
+//! shared compiler contracts used by the application-facing Rust and TypeScript APIs.
 //!
 //! ```
 //! use hulladb_schema::{FieldDefinition, KeyGeneration, ScalarType, TableDeclaration};
@@ -237,3 +236,8 @@ pub use validation::{InsertKeyAction, PreparedInsert, ValidationError, Validatio
 pub use value::{RecordValues, Value};
 
 pub use constraints::{CheckDefinition, CheckOperand, FieldConstraints, IndexDeclaration};
+
+/// Portable function contracts and public transport errors.
+pub mod protocol;
+/// Lossless tagged JSON record encoding and decoding.
+pub mod wire;

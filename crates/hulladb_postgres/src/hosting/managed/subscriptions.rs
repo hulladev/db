@@ -1,5 +1,5 @@
 use super::{HostState, pool::PoolError};
-use hulladb_postgres::managed::{Context, RoundLimits, RoundQuery};
+use crate::managed::{Context, RoundLimits, RoundQuery};
 use serde_json::Value;
 use std::{
     collections::HashMap,
@@ -101,7 +101,7 @@ impl<I: Clone + Send + Sync + 'static> Group<I> {
         if !joining && let Some(snapshot) = &current.snapshot {
             let (head_source, revision) = store.managed_head(context).await?;
             if head_source != source {
-                return Err(hulladb_postgres::managed::Error::SourceMismatch.into());
+                return Err(crate::managed::Error::SourceMismatch.into());
             }
             if snapshot["revision"]
                 .as_str()

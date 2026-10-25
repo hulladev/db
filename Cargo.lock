@@ -593,27 +593,30 @@ checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 
 [[package]]
 name = "hulladb"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "axum",
  "futures-util",
- "hulladb_client",
+ "http-body-util",
  "hulladb_macros",
  "hulladb_postgres",
- "hulladb_protocol",
  "hulladb_schema",
  "hulladb_server",
+ "hyper",
+ "hyper-util",
  "rusqlite",
  "serde",
  "serde_json",
  "tokio",
  "tokio-postgres",
+ "tokio-rustls",
  "uuid",
+ "webpki-roots",
 ]
 
 [[package]]
 name = "hulladb_cdc"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "futures-util",
  "pgwire-replication",
@@ -627,11 +630,10 @@ dependencies = [
 
 [[package]]
 name = "hulladb_client"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "axum",
- "http-body-util",
- "hulladb_protocol",
+ "hulladb",
  "hyper",
  "hyper-util",
  "rcgen",
@@ -639,12 +641,11 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "uuid",
- "webpki-roots",
 ]
 
 [[package]]
 name = "hulladb_js"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rquickjs",
  "serde_json",
@@ -652,7 +653,7 @@ dependencies = [
 
 [[package]]
 name = "hulladb_macros"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -661,9 +662,11 @@ dependencies = [
 
 [[package]]
 name = "hulladb_postgres"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
+ "axum",
  "futures-core",
+ "futures-util",
  "hulladb_protocol",
  "hulladb_schema",
  "rcgen",
@@ -681,25 +684,24 @@ dependencies = [
 
 [[package]]
 name = "hulladb_protocol"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
- "serde",
- "serde_json",
- "uuid",
+ "hulladb_schema",
 ]
 
 [[package]]
 name = "hulladb_schema"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
  "time",
+ "uuid",
 ]
 
 [[package]]
 name = "hulladb_server"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "axum",
  "futures-util",
@@ -716,10 +718,9 @@ dependencies = [
 
 [[package]]
 name = "hulladb_wire"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hulladb_schema",
- "serde",
  "serde_json",
 ]
 

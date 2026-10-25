@@ -9,8 +9,8 @@ mod subscriptions;
 mod transport;
 pub use quotas::PrincipalQuotas;
 
-use crate::{AuthenticationError, HostOptions};
-use hulladb_postgres::managed::{Context, ManagedSchema, Registry};
+use crate::hosting::{AuthenticationError, HostOptions};
+use crate::managed::{Context, ManagedSchema, Registry};
 use std::{future::Future, pin::Pin, sync::Arc};
 use tokio::sync::{Semaphore, watch};
 
@@ -66,13 +66,13 @@ impl<I: Clone + Send + Sync + 'static> ManagedHost<I> {
         registry: Registry<I>,
         auth: Arc<dyn Authenticator<I>>,
         options: Options,
-    ) -> Result<Self, crate::HostError> {
+    ) -> Result<Self, crate::hosting::HostError> {
         options.budgets.validate()?;
         if options
             .principal_quotas
             .is_some_and(|quotas| !quotas.valid())
         {
-            return Err(crate::HostError::InvalidOptions);
+            return Err(crate::hosting::HostError::InvalidOptions);
         }
         if options.cors_origins.iter().any(|origin| {
             origin == "null"
@@ -80,11 +80,11 @@ impl<I: Clone + Send + Sync + 'static> ManagedHost<I> {
                 || !origin.contains("://")
                 || origin.parse::<axum::http::HeaderValue>().is_err()
         }) {
-            return Err(crate::HostError::InvalidOptions);
+            return Err(crate::hosting::HostError::InvalidOptions);
         }
         let pool = pool::Pool::connect(url, schema, options.budgets.database_connections)
             .await
-            .map_err(crate::HostError::Managed)?;
+            .map_err(crate::hosting::HostError::Managed)?;
         let (stopped, _) = watch::channel(false);
         let state = Arc::new(HostState {
             requests: Arc::new(Semaphore::new(options.budgets.max_inflight_requests)),

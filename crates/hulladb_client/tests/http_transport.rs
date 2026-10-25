@@ -54,7 +54,7 @@ impl Server {
         });
         Self { address, task }
     }
-    fn endpoint(&self) -> Endpoint {
+    fn endpoint(&self) -> hulladb::http::Endpoint {
         format!("https://localhost:{}", self.address.port())
             .parse()
             .unwrap()

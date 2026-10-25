@@ -1,4 +1,4 @@
-use hulladb_postgres::managed::{Error, ManagedSchema, ManagedStore};
+use crate::managed::{Error, ManagedSchema, ManagedStore};
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicU64, AtomicUsize, Ordering},

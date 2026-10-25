@@ -493,7 +493,7 @@ pub(super) async fn usage(
         .query_one(
             &format!(
                 "SELECT COALESCE(sum(pg_column_size(a)+CASE WHEN status='pending' THEN {} ELSE 0 END),0)::bigint FROM {} a WHERE scope=$1",
-                hulladb_protocol::MAX_APPLICATION_ERROR_BYTES + 128,
+                hulladb_schema::protocol::MAX_APPLICATION_ERROR_BYTES + 128,
                 schema.relation("admissions")
             ),
             &[&scope],

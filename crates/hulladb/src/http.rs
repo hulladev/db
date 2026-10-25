@@ -1,6 +1,6 @@
 //! Native HTTP/1 transport with verified HTTPS and loopback-only plaintext.
 use http_body_util::{BodyExt, Full};
-use hulladb_protocol::{ApiError, ApiErrorCode};
+use hulladb_schema::protocol::{ApiError, ApiErrorCode};
 use hyper::{
     body::{Bytes, Incoming},
     client::conn::http1,
@@ -40,7 +40,7 @@ pub enum Error {
     Protocol,
     Budget,
     Api(ApiErrorCode),
-    Application(hulladb_protocol::ApplicationError),
+    Application(hulladb_schema::protocol::ApplicationError),
 }
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

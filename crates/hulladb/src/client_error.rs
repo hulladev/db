@@ -10,7 +10,7 @@ pub enum Error {
     ReceiptExpired,
     InvalidTicket,
     TerminalFailure(String),
-    Application(hulladb_protocol::ApplicationError),
+    Application(hulladb_schema::protocol::ApplicationError),
     TransactionDeadline,
     InvalidInput(String),
     CorruptData,
