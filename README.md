@@ -77,7 +77,7 @@ runtime requirements and framework choices.
 For native Rust applications:
 
 ```sh
-cargo add hulladb@0.1.0
+cargo add hulladb@0.1.1
 ```
 
 The npm SDK includes macOS arm64 and Linux x64/glibc native executables. Server
@@ -168,14 +168,12 @@ Changing PostgreSQL major versions requires a database upgrade.
 | `packages/db` | Schema authoring/types, Rust contract emission, generated callables and browser HTTP/SSE recovery |
 | `packages/react`, `vue`, `svelte`, `solid` | Separate UI bindings, live pagination and SSR initial data |
 | `packages/better-auth` | Optional Better Auth PostgreSQL storage and schema support |
-| `crates/hulladb` | Rust derives, typed contexts, direct calls, embedded and remote runtimes |
+| `crates/hulladb` | Rust derives, typed contexts, direct calls, embedded and remote runtimes, HTTP client |
 | `crates/hulladb_macros` | Table/input derives and query/mutation registration/call generation |
-| `crates/hulladb_schema` | Logical table/key/reference/unique constraints, validation and projections |
-| `crates/hulladb_wire` | Lossless tagged JSON values and record codec |
-| `crates/hulladb_postgres` | Schema-driven managed functions/CRUD, atomic revisions and receipts |
-| `crates/hulladb_protocol` | Portable scoped query and delivery contracts |
-| `crates/hulladb_client` | Reusable native HTTP/SSE transport with verified TLS |
-| `crates/hulladb_server` | Authenticated HTTP/SSE, scheduled polling, pooling and recovery |
+| `crates/hulladb_schema` | Shared schema, validation, function protocol and lossless record contracts |
+| `crates/hulladb_postgres` | Managed PostgreSQL functions/CRUD, receipts and optional HTTP/SSE hosting |
+| `crates/hulladb_js` | Restricted JavaScript worker in a separate process |
+| `crates/hulladb_protocol`, `hulladb_wire`, `hulladb_client`, `hulladb_server` | Compatibility reexports for the published 0.1.0 paths; native executable entrypoints |
 | `crates/hulladb_cdc` | Optional diagnostic PostgreSQL capture/log |
 | `docs/architecture.md` | Requirements, selected boundaries and implementation gates |
 | `docs/query-coverage.md` | Entity projections and exact function-result coverage |
@@ -191,3 +189,9 @@ Rust-authored handlers use generated row/input/ID types and typed contexts.
 TypeScript callbacks execute through the optional restricted JavaScript worker bridge;
 client-only Rust bindings and durable native function clients use the optional
 `hulladb/remote` feature.
+
+The Rust `0.1.1` patch consolidates implementation into five crates. New consumers
+can use `hulladb::protocol`, `hulladb::wire`, `hulladb::http` (feature `http` or
+`remote`), and `hulladb::hosting` (feature `hosting`). Existing crate imports,
+features and native executable names remain supported. npm packages remain at
+`0.1.0`; the storage and transport formats are unchanged.

@@ -4,6 +4,10 @@
 [managed PostgreSQL functions](managed-functions.md). `hulladb_macros` emits
 canonical table/input metadata, checked codecs, typed field selectors, insert and
 patch inputs, function registration adapters, direct async calls and query watches.
+The default `server` feature provides PostgreSQL execution. Enable `hosting` to
+serve through `hulladb::hosting`; shared contracts are available as
+`hulladb::schema`, `hulladb::protocol` and `hulladb::wire`. The 0.1.1 patch keeps
+the existing standalone crate paths as compatibility reexports.
 The [tasks example](../crates/hulladb/examples/tasks.rs) compiles with the workspace
 and runs against an owned PostgreSQL namespace:
 

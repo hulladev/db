@@ -34,6 +34,11 @@ The production dependency graph contains neither `hulladb_postgres`,
 `tokio-postgres`, nor `hulladb_server`. Server integration tests still have database
 dev dependencies. Cross-language generation from Rust signatures remains separate work.
 
+In 0.1.1, HTTP/SSE transport lives in `hulladb::http`. Feature `http` enables just
+the transport; `remote` adds the durable runtime and SQLite recovery store.
+`hulladb_client::http` remains a compatibility reexport of the same types. New
+SDK consumers do not pull in the client, protocol or wire compatibility crates.
+
 ## Connection and calls
 
 Supply a fixed `Endpoint`, opaque bearer, trusted `Session` containing scope,

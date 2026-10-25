@@ -4,9 +4,24 @@ The first release is `0.1.0`, under MIT, from
 [the hulladev/db repository](https://github.com/hulladev/db). Applications install
 `@hulla/db@0.1.0` and the matching framework/auth packages from npm, or
 `hulladb = "0.1.0"` from crates.io. The steps below are for maintainers.
+The next Rust patch is `0.1.1`; npm remains at `0.1.0`. It consolidates the Rust
+implementation while preserving public crate paths, features and formats.
 Preparation creates
 local artifacts; it never calls `npm publish`, `cargo publish`, pushes Git commits,
 creates hosted services or enables paid features.
+
+For the Rust-only patch, use:
+
+```sh
+bun run release:prepare:cargo
+bun run release:check:cargo
+```
+
+This produces nine Cargo archives and their manifest/checksums in
+`output/releases/0.1.1/`, without rebuilding or republishing npm. Five crates own
+the implementation; four preserve published imports through reexports. Full
+release preparation also supports different Rust/npm versions: archive filenames
+carry their own registry version, and the manifest directory uses the Rust version.
 
 ## Build the candidate
 
@@ -35,7 +50,7 @@ The release requires both `darwin-arm64` and `linux-x64`; Linux uses glibc.
 Other native targets need their own build and execution evidence before inclusion.
 Browser bindings do not execute native binaries.
 
-Artifacts are written to `output/releases/0.1.0/`: six npm tarballs, nine Cargo
+For a full release, artifacts are written under `output/releases/<rust-version>/`: six npm tarballs, nine Cargo
 archives, `manifest.json` and `SHA256SUMS`. The manifest records exact archive
 hashes, package sizes, source HEAD and whether the checkout was dirty. Treat a
 dirty candidate as review material: commit the reviewed source, rerun preparation
@@ -90,14 +105,14 @@ Cargo dependencies must be available before their consumers:
 
 ```text
 hulladb_schema
-hulladb_protocol
 hulladb_macros
 hulladb_js
-hulladb_wire
-hulladb_client
 hulladb_postgres
 hulladb_server
 hulladb
+hulladb_protocol
+hulladb_wire
+hulladb_client
 ```
 
 Wait for each dependency to be indexed before publishing consumers. Run
@@ -110,11 +125,21 @@ Verify that the source commit is pushed to the public repository and every regis
 version is accessible without authentication. Install the published package names in
 a fresh consumer; local archive checks alone do not establish registry publication.
 
-## Compatibility policy for 0.1.0
+## Compatibility policy
 
 This is the first public storage and protocol baseline. Deploy the service, SDKs
 and generated artifacts from the same exact release; mixed-release deployments
-are unsupported. There is no supported upgrade path from development fixtures.
+are unsupported unless explicitly documented. The Rust `0.1.1` consolidation is
+compatible with the `0.1.0` storage/protocol baseline and npm `0.1.0`; no migration
+or regenerated application artifacts are required. There is no supported upgrade
+path from development fixtures.
+
+Existing `hulladb_client`, `hulladb_protocol`, `hulladb_wire` and `hulladb_server`
+imports remain supported. They forward to the canonical implementations in
+`hulladb` (HTTP transport), `hulladb_schema` (protocol/wire), and
+`hulladb_postgres` (HTTP hosting). The server compatibility package also retains
+the `hulladb-bridge` and `hulladb-service` executable names and `typescript` feature.
+Macros and the isolated JS worker retain their separate compiler/process boundaries.
 
 Initialization verifies an existing schema and refuses incompatible storage; it
 does not reset data or run migrations. Back up existing data before deployment.

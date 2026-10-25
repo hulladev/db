@@ -39,8 +39,18 @@ cargo tree -p hulladb --no-default-features --features remote --edges normal,bui
 
 The October 19, 2026 host audit resolved 106, 16 and 63 unique package/version
 entries respectively, including local crates and build dependencies. These counts
-are observations, not thresholds or regression tests. The SDK's no-feature HTTP
-transport crate has no normal dependencies; enabling `http` activates its stack.
+are observations, not thresholds or regression tests. The compatibility HTTP
+transport crate has no normal dependencies with its `http` feature disabled.
+In 0.1.1, enabling it forwards to `hulladb/http`; new consumers use that SDK feature
+directly. `hulladb/remote` also enables SQLite, while `hulladb/hosting` enables the
+backend's optional HTTP server stack.
+
+Five crates own the Rust implementation: `hulladb`, `hulladb_schema`,
+`hulladb_postgres`, `hulladb_macros` and the separate `hulladb_js` worker.
+The shared schema crate owns function protocol and tagged record encoding too.
+The four other published names remain thin compatibility entrypoints; they are
+absent from the SDK's normal dependency graph. No registry dependency versions
+were changed by the consolidation.
 
 Unused futures procedural macros and syn extra traits were removed. Multithreaded
 Tokio and process/signal features are enabled by executables or tests where used,
