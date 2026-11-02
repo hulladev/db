@@ -1,10 +1,10 @@
 # Release workflow
 
-The current release is `0.1.1`, under MIT, from
+The current npm release is `0.1.2`, under MIT, from
 [the hulladev/db repository](https://github.com/hulladev/db). Applications install
-`@hulla/db@0.1.1` and the matching framework/auth packages from npm, or
+`@hulla/db@0.1.2` and the matching framework/auth packages from npm, or
 `hulladb = "0.1.1"` from crates.io. The steps below are for maintainers.
-The Rust and npm packages share version `0.1.1`. The Rust implementation preserves
+The Rust packages use version `0.1.1`. The Rust implementation preserves
 public crate paths, features and formats. The npm packages include local development,
 application schema upgrades and the optional `@hulla/db-studio` workbench.
 Preparation creates
@@ -70,6 +70,8 @@ cd ../..
 ```
 
 The release requires both `darwin-arm64` and `linux-x64`; Linux uses glibc.
+The Linux runtime and development assets use Debian 12 (Bookworm) as their build
+baseline so local PostgreSQL also runs on that distribution.
 Other native targets need their own build and execution evidence before inclusion.
 Browser bindings do not execute native binaries.
 Package checks require development assets for every included native target, so

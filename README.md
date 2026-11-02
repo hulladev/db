@@ -67,7 +67,7 @@ and [Rust remote clients](docs/rust-remote-client.md) for durable result caching
 Install the core SDK and the binding for your application:
 
 ```sh
-npm install @hulla/db@0.1.1 @hulla/db-react@0.1.1 zod
+npm install @hulla/db@0.1.2 @hulla/db-react@0.1.2 zod
 ```
 
 Use `@hulla/db-vue`, `@hulla/db-svelte` or `@hulla/db-solid` for other UI
