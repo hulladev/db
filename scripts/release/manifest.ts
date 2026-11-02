@@ -7,7 +7,7 @@ const cargoOnly = Bun.argv.includes("--cargo-only");
 const directory = join(root, "output/releases", version);
 await mkdir(directory, { recursive: true });
 const cargoOrder = ["hulladb_schema", "hulladb_macros", "hulladb_js", "hulladb_postgres", "hulladb_server", "hulladb", "hulladb_protocol", "hulladb_wire", "hulladb_client"];
-const npmOrder = cargoOnly ? [] : ["@hulla/db", "@hulla/db-react", "@hulla/db-vue", "@hulla/db-svelte", "@hulla/db-solid", "@hulla/db-better-auth"];
+const npmOrder = cargoOnly ? [] : ["@hulla/db", "@hulla/db-studio", "@hulla/db-react", "@hulla/db-vue", "@hulla/db-svelte", "@hulla/db-solid", "@hulla/db-better-auth"];
 const artifacts: { name: string; file: string; bytes: number; sha256: string }[] = [];
 for (const name of [...npmOrder, ...cargoOrder]) {
   const file = name.startsWith("@") ? `${name.replace("@", "").replace("/", "-")}-${npmVersion}.tgz` : `${name}-${version}.crate`;

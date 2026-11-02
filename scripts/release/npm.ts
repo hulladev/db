@@ -2,9 +2,10 @@ import { cp, mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { executables, verifyNative } from "../../packages/db/scripts/native-artifacts.ts";
+import { verifyDevelopment } from "../../packages/db/scripts/development-artifacts.ts";
 
 const root = Bun.fileURLToPath(new URL("../../", import.meta.url));
-const directories = ["db", "react", "vue", "svelte", "solid", "better-auth"];
+const directories = ["db", "studio", "react", "vue", "svelte", "solid", "better-auth"];
 const platforms = ["darwin-arm64", "linux-x64"];
 function command(args: string[], cwd = root): string {
   const result = Bun.spawnSync(args, { cwd, stdout: "pipe", stderr: "pipe" });
@@ -31,9 +32,11 @@ try {
     await Bun.write(join(stage, "README.md"), readme);
     await Bun.write(join(stage, "LICENSE"), Bun.file(join(root, "LICENSE")));
     if (directory === "db") {
+      await cp(join(source, "development"), join(stage, "development"), { recursive: true });
       for (const platform of platforms) {
         for (const executable of executables) await verifyNative(join(source, "native", platform, executable), platform);
-        await cp(join(source, "native", platform), join(stage, "native", platform), { recursive: true });
+        await verifyDevelopment(source, platform);
+        await cp(join(source, "native", platform), join(stage, "native", platform), { recursive: true, dereference: true });
       }
       await nativeNotices(stage);
       manifest.files.push("THIRD_PARTY_NOTICES.md", "licenses");

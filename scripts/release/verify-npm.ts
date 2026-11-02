@@ -19,7 +19,7 @@ try {
     dependencies[name!] = (await Bun.file(join(root, "packages", directory!, "node_modules", name!, "package.json")).json()).version;
   }
   // Content-address local archives so caches cannot substitute an older build.
-  for (const directory of ["db", "react", "vue", "svelte", "solid", "better-auth"]) {
+  for (const directory of ["db", "studio", "react", "vue", "svelte", "solid", "better-auth"]) {
     const name = directory === "db" ? "@hulla/db" : `@hulla/db-${directory}`;
     const file = Bun.file(join(archives, `${name.replace("@", "").replace("/", "-")}-${version}.tgz`));
     const hash = new Bun.CryptoHasher("sha256").update(await file.arrayBuffer()).digest("hex");
@@ -29,7 +29,7 @@ try {
   }
   await Bun.write(join(consumer, "package.json"), JSON.stringify({ private: true, type: "module", dependencies }));
   command(["npm", "install", "--ignore-scripts", "--no-audit", "--no-fund"]);
-  console.log("Installed all six release archives outside the checkout.");
+  console.log("Installed all seven release archives outside the checkout.");
   for (const name of Object.keys(dependencies).filter(name => name.startsWith("@hulla/"))) {
     const packageRoot = join(consumer, "node_modules", name);
     const manifest = await Bun.file(join(packageRoot, "package.json")).json();
@@ -51,7 +51,7 @@ try {
   await Bun.write(join(consumer, "db/schema.ts"), `import { defineSchema, defineTable, v } from '@hulla/db/schema';\nimport {betterAuthTables} from '@hulla/db-better-auth/schema';\nexport default defineSchema({ ...betterAuthTables(), notes: defineTable({ title: v.string(), data: v.object({ rank: v.number() }) }) });\n`);
   await Bun.write(join(consumer, "db.config.ts"), `import {defineConfig} from '@hulla/db/config';\nexport default defineConfig({database:{server:{url:'postgresql://unused@127.0.0.1:1/unused'},client:{url:'https://database.example.com'}}});\n`);
   await Bun.write(join(consumer, "db/notes.ts"), `import {query,mutation} from './_generated/functions';\nexport const list=query(ctx=>ctx.db.select('notes'));\nexport const create=mutation(ctx=>ctx.db.insert('notes',{title:'Packaged',data:{rank:1}}));\n`);
-  command([process.execPath, "--bun", "node_modules/@hulla/db/dist/cli.js", "generate"]);
+  command(["node", "node_modules/@hulla/db/dist/cli.js", "generate"]);
   await cp(join(root, "scripts/release/consumer.ts.txt"), join(consumer, "consumer.ts"));
   await Bun.write(join(consumer, "tsconfig.json"), JSON.stringify({ compilerOptions: { target: "ES2023", module: "ESNext", moduleResolution: "Bundler", strict: true, skipLibCheck: true, noEmit: true, allowImportingTsExtensions: true }, include: ["consumer.ts", "db"] }));
   await Bun.write(join(consumer, "server-consumer.ts"), `import {hullaAdapter} from '@hulla/db-better-auth';\nimport type {BetterAuthOptions} from 'better-auth';\nimport {db} from './db/_generated/server';\nexport const options: BetterAuthOptions = { database: hullaAdapter(db) };\n`);

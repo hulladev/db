@@ -30,7 +30,7 @@ if (from) {
   }
 } else {
   if (Bun.version !== developmentBun) throw new Error(`Build the distributed development runtime with Bun ${developmentBun}; installed Bun is ${Bun.version}.`);
-  const nativeCompiler = dirname(Bun.fileURLToPath(import.meta.resolve(`@typescript/typescript-${platform}/package.json`)));
+  const nativeCompiler = dirname(Bun.resolveSync(`@typescript/typescript-${platform}/package.json`, compiler));
   await rm(resolve(destination, "compiler"), { recursive: true, force: true });
   await cp(nativeCompiler, resolve(destination, "compiler"), { recursive: true, dereference: true });
   const build = await Bun.build({ entrypoints: [resolve(root, "scripts/development-entry.ts")], compile: { outfile: resolve(destination, "hulladb-dev") } });
