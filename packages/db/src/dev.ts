@@ -1,6 +1,7 @@
 import { lstatSync, watch, type FSWatcher } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { runtimeExportConditions } from "./runtime-conditions.ts";
+import type { StudioFlags } from "./cli-options.ts";
 import { startLocalPostgres, type LocalPostgres } from "./local-postgres.ts";
 import { cliError, cliOutput } from "./cli-output.ts";
 import type { DevelopmentAddresses } from "./cli-address.ts";
@@ -29,9 +30,10 @@ function relevant(directory: string, path: string, event: string): boolean {
 }
 
 /** Development-only supervisor. Each generation gets a fresh module cache. */
-export async function startDevelopment(configPath: string): Promise<{ close(): Promise<void>; closed: Promise<void> }> {
+export async function startDevelopment(configPath: string, studio?: StudioFlags): Promise<{ close(): Promise<void>; closed: Promise<void> }> {
   if (typeof Bun === "undefined") throw new Error("hulla-db dev requires Bun. Use Node or Bun with hulla-db serve for generated applications.");
   const config = resolve(configPath), root = dirname(config);
+  const studioToken = studio ? crypto.getRandomValues(Buffer.alloc(32)).toString("base64url") : undefined;
   const watchers = new Map<string, FSWatcher>();
   const addresses: DevelopmentAddresses = {};
   let child: Bun.Subprocess<"inherit", "inherit", "inherit"> | undefined;
@@ -87,8 +89,9 @@ export async function startDevelopment(configPath: string): Promise<{ close(): P
     const runtimeArguments = runtimeExportConditions().map(condition => `--conditions=${condition}`);
     const workerPath = Bun.fileURLToPath(new URL(import.meta.url.endsWith(".ts") ? "./dev-worker.ts" : "./dev-worker.js", import.meta.url));
     try {
-      child = Bun.spawn([process.execPath, ...runtimeArguments, workerPath, config, JSON.stringify(addresses)], {
+      child = Bun.spawn([process.execPath, ...runtimeArguments, workerPath, config, JSON.stringify(studio ?? null), JSON.stringify(addresses)], {
         stdin: "inherit", stdout: "inherit", stderr: "inherit",
+        env: { ...process.env, ...(studioToken ? { HULLADB_STUDIO_TOKEN: studioToken } : {}) },
         ipc(message: unknown, sender) {
           if (stopped || child !== sender || !message || typeof message !== "object") return;
           if ("cancelStartup" in message && message.cancelStartup === true) { void handle.close().catch(() => {}); return; }

@@ -2,6 +2,8 @@ import { dirname, resolve } from "node:path";
 import { defineConfig } from "./config.ts";
 import { generateProject } from "./project-codegen.ts";
 import { startService } from "./service.ts";
+import { startStudio, type StudioService } from "./studio.ts";
+import type { StudioFlags } from "./cli-options.ts";
 import { initializeDatabase, migrateDatabase } from "./server-database.ts";
 import { DatabaseError } from "./error.ts";
 import { resolveDatabaseConnection } from "./local-connection.ts";
@@ -10,9 +12,10 @@ import { AddressConflict, addressURL, startCLIListener, StartupCancelled, type D
 
 let stopping = false;
 let service: Awaited<ReturnType<typeof startService>> | undefined;
+let studio: StudioService | undefined;
 let cancelDatabaseRequest: (() => void) | undefined;
 const startup = new AbortController();
-const addresses = JSON.parse(process.argv[3] ?? "{}") as DevelopmentAddresses;
+const addresses = JSON.parse(process.argv[4] ?? "{}") as DevelopmentAddresses;
 function remembered(kind: "service" | "studio", requested: ListenAddress): ListenAddress {
   const choice = addresses[kind];
   return choice?.requested.host === requested.host && choice.requested.port === requested.port ? choice.address : requested;
@@ -29,6 +32,7 @@ const stop = () => {
   startup.abort();
   cancelDatabaseRequest?.();
   void service?.close().catch(() => {});
+  void studio?.close().catch(() => {});
 };
 process.on("SIGINT", stop); process.on("SIGTERM", stop);
 try {
@@ -80,7 +84,19 @@ try {
       }
       remember("service", requested, actual);
       cliOutput.listening("Database service", service.url);
-      await service.closed;
+      const options = JSON.parse(process.argv[3] ?? "null") as StudioFlags | null;
+      if (options && !stopping) {
+        const requested = { host: "127.0.0.1", port: options.port };
+        const started = await startCLIListener("Hulla Studio", remembered("studio", requested),
+          address => startStudio(path, { ...options, port: address.port }), { signal: startup.signal, fixedHost: true });
+        studio = started.listener;
+        if (stopping) await studio.close();
+        else {
+          remember("studio", requested, { ...started.address, port: Number(new URL(studio.url).port || 80) });
+          cliOutput.listening("Hulla Studio", studio.url);
+        }
+      }
+      await (studio ? Promise.race([service.closed, studio.closed]) : service.closed);
     }
   }
 } catch (error) {
@@ -96,6 +112,7 @@ try {
   }
 } finally {
   process.off("SIGINT", stop); process.off("SIGTERM", stop);
+  await studio?.close().catch(() => {});
   await service?.close().catch(() => {});
   if (process.connected) process.disconnect?.();
 }

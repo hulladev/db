@@ -62,6 +62,7 @@ test("CLI help runs without project or development assets on Node and Bun; inval
       expect(child.exitCode).toBe(invalid ? 1 : 0);
       const output = (invalid ? child.stderr : child.stdout).toString();
       expect(output).toContain("Usage: hulla-db");
+      expect(output).toContain("--studio-port");
       expect(output).not.toContain("\x1b");
       expect((invalid ? child.stdout : child.stderr).toString()).toBe("");
     }

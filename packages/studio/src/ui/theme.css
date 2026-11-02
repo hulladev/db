@@ -1,0 +1,78 @@
+/* Hulla UI semantic theme, adapted from hulladev/ui generated/astro/styles.css
+   at 6778602eed2e6a8aaabe3d7e3185b34a60a4d2c2. Keep roles aligned with the
+   registry; native control styles use CSS instead of Tailwind utilities. */
+@font-face {
+  font-family: "Schibsted Grotesk";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/schibsted-grotesk.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-mono.woff2") format("woff2");
+}
+:root {
+  color-scheme: light;
+  --font-sans: "Schibsted Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --color-background: oklch(0.982 0.012 250);
+  --color-surface: oklch(0.996 0.004 250);
+  --color-surface-raised: oklch(1 0 0);
+  --color-foreground: oklch(0.16 0.04 265);
+  --color-muted-foreground: oklch(0.44 0.04 255);
+  --color-border: color-mix(in oklab, var(--color-foreground) 14%, transparent);
+  --color-primary: oklch(0.52 0.22 264);
+  --color-primary-text: var(--color-primary);
+  --color-primary-foreground: oklch(0.99 0.005 245);
+  --color-focus-ring: color-mix(in oklab, var(--color-primary) 82%, var(--color-foreground));
+  --color-success: oklch(0.54 0.14 150);
+  --color-warning: oklch(0.77 0.13 85);
+  --color-danger: oklch(0.56 0.18 27);
+  --color-on-emphasis: oklch(0.99 0.005 245);
+  --color-disabled-foreground: color-mix(in oklab, var(--color-muted-foreground) 75%, transparent);
+  --color-disabled-surface: color-mix(in oklab, var(--color-foreground) 3.5%, transparent);
+  --color-disabled-border: color-mix(in oklab, var(--color-foreground) 8%, transparent);
+  --color-hover-surface: color-mix(in oklab, var(--color-foreground) 8%, transparent);
+  --color-selected-surface: color-mix(in oklab, var(--color-primary) 10%, transparent);
+  --color-selected-hover-surface: color-mix(in oklab, var(--color-primary) 16%, transparent);
+  --shadow-control: 0 1px 2px oklch(0 0 0 / 0.1), inset 0 1px 0 oklch(1 0 0 / 0.12);
+  --shadow-raised: 0 2px 4px -2px oklch(0 0 0 / 0.08), 0 12px 32px -12px oklch(0 0 0 / 0.14);
+  --shadow-overlay: 0 2px 4px -2px oklch(0 0 0 / 0.12), 0 24px 80px -28px oklch(0 0 0 / 0.28);
+  --radius-sm: 0.4375rem;
+  --radius-md: 0.6875rem;
+  --radius-lg: 1rem;
+  --code-property: oklch(0.42 0.09 210);
+  --code-string: oklch(0.4 0.12 150);
+  --code-number: oklch(0.5 0.18 28);
+  --code-literal: oklch(0.43 0.19 315);
+  --code-punctuation: oklch(0.4 0 0);
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-background: oklch(0.105 0 0);
+  --color-surface: oklch(0.145 0 0);
+  --color-surface-raised: oklch(0.19 0 0);
+  --color-foreground: oklch(0.97 0 0);
+  --color-muted-foreground: oklch(0.7 0 0);
+  --color-border: color-mix(in oklab, var(--color-foreground) 14%, transparent);
+  --color-primary-text: color-mix(in oklab, var(--color-primary) 55%, var(--color-foreground));
+  --color-focus-ring: color-mix(in oklab, var(--color-primary) 72%, white);
+  --color-success: oklch(0.73 0.105 155);
+  --color-warning: oklch(0.77 0.105 75);
+  --color-danger: oklch(0.68 0.18 20);
+  --code-property: oklch(0.76 0.1 205);
+  --code-string: oklch(0.74 0.12 150);
+  --code-number: oklch(0.75 0.15 32);
+  --code-literal: oklch(0.75 0.16 320);
+  --code-punctuation: oklch(0.72 0.025 250);
+  --color-hover-surface: color-mix(in oklab, var(--color-foreground) 12%, transparent);
+  --color-selected-surface: color-mix(in oklab, var(--color-primary) 18%, transparent);
+  --color-selected-hover-surface: color-mix(in oklab, var(--color-primary) 26%, transparent);
+  --shadow-control: 0 1px 2px oklch(0 0 0 / 0.3), inset 0 1px 0 oklch(1 0 0 / 0.1);
+  --shadow-raised: 0 2px 4px -2px oklch(0 0 0 / 0.18), 0 12px 32px -12px oklch(0 0 0 / 0.5), inset 0 1px 0 oklch(1 0 0 / 0.05);
+  --shadow-overlay: 0 2px 4px -2px oklch(0 0 0 / 0.28), 0 24px 80px -28px oklch(0 0 0 / 0.9), inset 0 1px 0 oklch(1 0 0 / 0.08);
+}

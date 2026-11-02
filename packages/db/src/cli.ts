@@ -8,7 +8,7 @@ import { startCLIListener, StartupCancelled } from "./cli-address.ts";
 async function main() {
   const args = process.argv.slice(2);
   if (!args.length || args.includes("--help") || args.includes("-h")) { cliOutput.help(); return; }
-  const { command, config, check } = parseCLI(args);
+  const { command, config, studio, check } = parseCLI(args, process.env.NODE_ENV === "production");
   const configPath = resolve(config);
   if (command === "generate" || command === "dev") {
     if (typeof Bun === "undefined") return (await import("./development-runtime.ts")).runDevelopmentCLI();
@@ -18,15 +18,19 @@ async function main() {
     const { generateProject } = await import("./project-codegen.ts");
     await generateProject(configPath);
     cliOutput.success("Generated database entrypoints.");
-  } else if (command === "serve" || command === "dev") {
+  } else if (command === "serve" || command === "dev" || command === "studio") {
     let service: { close(): Promise<void>; closed: Promise<void>; url?: string } | undefined;
     let stopping = false;
     const startup = new AbortController();
     const stop = () => { stopping = true; startup.abort(); void service?.close().catch(() => {}); };
     process.on("SIGINT", stop); process.on("SIGTERM", stop);
     try {
-      if (command === "dev") service = await (await import("./dev.ts")).startDevelopment(configPath);
-      else {
+      if (command === "dev") service = await (await import("./dev.ts")).startDevelopment(configPath, studio);
+      else if (command === "studio") {
+        const { startStudio } = await import("./studio.ts");
+        service = (await startCLIListener("Hulla Studio", { host: "127.0.0.1", port: studio!.port },
+          address => startStudio(configPath, { ...studio!, port: address.port }), { signal: startup.signal, fixedHost: true })).listener;
+      } else {
         const { defineConfig } = await import("./config.ts");
         const config = defineConfig((await import(pathToFileURL(configPath).href)).default);
         const { startService } = await import("./service.ts");
@@ -34,7 +38,7 @@ async function main() {
           address => startService(configPath, address), { signal: startup.signal })).listener;
       }
       if (stopping) await service.close();
-      else if (service.url) cliOutput.listening("Database service", service.url);
+      else if (service.url) cliOutput.listening(command === "studio" ? "Hulla Studio" : "Database service", service.url);
       await service.closed;
     }
     catch (error) { if (!stopping) throw error; }

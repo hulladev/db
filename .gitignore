@@ -12,6 +12,7 @@ node_modules/
 *.dump.json
 /packages/db/dist/
 /packages/*/dist/
+/packages/studio/example/_generated/
 /packages/db/native/
 /packages/db/*.tgz
 

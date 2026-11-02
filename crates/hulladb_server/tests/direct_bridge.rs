@@ -223,6 +223,18 @@ async fn schema_migration_under_node() {
 }
 
 #[tokio::test]
+#[ignore = "requires PostgreSQL and built Studio browser assets"]
+async fn studio_managed_operations_under_bun() {
+    generated_server_database("BUN", "bun", "../studio/tests/database.integration.ts").await;
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL, Node.js and built Studio browser assets"]
+async fn studio_managed_operations_under_node() {
+    generated_server_database("NODE", "node", "../studio/tests/database.integration.ts").await;
+}
+
+#[tokio::test]
 #[ignore = "requires PostgreSQL, Bun and Better Auth workspace dependencies"]
 async fn better_auth_storage_under_bun() {
     generated_server_database("BUN", "bun", "../better-auth/tests/adapter.integration.ts").await;
