@@ -1,11 +1,12 @@
 # Release workflow
 
-The first release is `0.1.0`, under MIT, from
+The current release is `0.1.1`, under MIT, from
 [the hulladev/db repository](https://github.com/hulladev/db). Applications install
-`@hulla/db@0.1.0` and the matching framework/auth packages from npm, or
-`hulladb = "0.1.0"` from crates.io. The steps below are for maintainers.
-The next Rust patch is `0.1.1`; npm remains at `0.1.0`. It consolidates the Rust
-implementation while preserving public crate paths, features and formats.
+`@hulla/db@0.1.1` and the matching framework/auth packages from npm, or
+`hulladb = "0.1.1"` from crates.io. The steps below are for maintainers.
+The Rust and npm packages share version `0.1.1`. The Rust implementation preserves
+public crate paths, features and formats. The npm packages include local development,
+application schema upgrades and the optional `@hulla/db-studio` workbench.
 Preparation creates
 local artifacts; it never calls `npm publish`, `cargo publish`, pushes Git commits,
 creates hosted services or enables paid features.
@@ -160,7 +161,7 @@ a fresh consumer; local archive checks alone do not establish registry publicati
 This is the first public storage and protocol baseline. Deploy the service, SDKs
 and generated artifacts from the same exact release; mixed-release deployments
 are unsupported unless explicitly documented. The Rust `0.1.1` consolidation is
-compatible with the `0.1.0` storage/protocol baseline and npm `0.1.0`; no migration
+compatible with the `0.1.0` storage/protocol baseline; no migration
 or regenerated application artifacts are required. There is no supported upgrade
 path from development fixtures.
 
