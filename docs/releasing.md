@@ -132,17 +132,18 @@ uploading it with `npm publish --dry-run --ignore-scripts /absolute/package.tgz`
 Actual publication uses `npm publish /absolute/package.tgz --access public` after
 release approval and registry authentication.
 
-Cargo dependencies must be available before their consumers:
+Cargo dependencies, including development dependencies needed during package verification,
+must be available before their consumers:
 
 ```text
 hulladb_schema
 hulladb_macros
 hulladb_js
+hulladb_protocol
+hulladb_wire
 hulladb_postgres
 hulladb_server
 hulladb
-hulladb_protocol
-hulladb_wire
 hulladb_client
 ```
 
