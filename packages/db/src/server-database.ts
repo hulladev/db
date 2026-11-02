@@ -97,7 +97,7 @@ class Bridge {
     if (this.#pending) throw failure("engine_protocol", "Concurrent engine command");
     const encoded = JSON.stringify(frame) + "\n";
     if (Buffer.byteLength(encoded) > this.maxFrame) throw failure("execution_limit", "Database request exceeds the transport budget");
-    this.#committing = frame.type === "commit";
+    this.#committing = frame.type === "commit" || (frame.type === "init" && frame.migration === true);
     const response = await new Promise<Record<string, unknown>>((resolve, reject) => {
       const timer = setTimeout(() => this.destroy(failure(this.#committing ? "commit_outcome_unknown" : "engine_timeout", "Database engine did not respond in time")), this.limits.executionMs + 1000);
       this.#pending = { resolve, reject, timer };
@@ -292,5 +292,23 @@ export async function initializeDatabase(schema: SchemaDefinition, connection: D
   const session = new Bridge();
   try {
     await session.command({ type: "init", url: config.url, namespace: config.namespace ?? "hulla", schema: schemaDescriptor(schema), initialize: true }, "ready");
+  } finally { session.destroy(); await session.exited; }
+}
+
+export type SchemaChange =
+  | { readonly kind: "add_table" | "reorder_fields"; readonly table: string }
+  | { readonly kind: "add_field" | "add_reference"; readonly table: string; readonly field: string };
+export type MigrationPlan = { readonly source: string; readonly changes: readonly SchemaChange[] };
+
+/** Apply supported upgrades using a provisioning connection. Set check to inspect
+ * without changing storage. Owned local development uses this same transaction. */
+export async function migrateDatabase(schema: SchemaDefinition, connection: DatabaseConnection, options: { readonly check?: boolean } = {}): Promise<MigrationPlan> {
+  const config = defineConfig({ database: { server: connection } }).database.server;
+  const session = new Bridge(resolveLimits({ executionMs: 60_000 }));
+  try {
+    const response = await session.command({ type: "init", url: config.url, namespace: config.namespace ?? "hulla", schema: schemaDescriptor(schema), migration: !options.check }, "ready");
+    const plan = response.migration as MigrationPlan | undefined;
+    if (!plan || typeof plan.source !== "string" || !Array.isArray(plan.changes)) throw failure("engine_protocol", "Invalid database migration response");
+    return plan;
   } finally { session.destroy(); await session.exited; }
 }

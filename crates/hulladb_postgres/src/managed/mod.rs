@@ -19,11 +19,13 @@ pub use predicate::{Direction, FieldPath, Operand, Order, Predicate};
 mod direct;
 mod functions;
 mod input_digest;
+mod migration;
 mod operations;
 mod outbox;
 mod pagination;
 mod query_round;
 mod storage;
+pub use migration::{MigrationPlan, SchemaChange};
 mod store;
 mod tls;
 #[cfg(feature = "typescript")]
@@ -130,9 +132,9 @@ impl fmt::Display for Error {
             }
             Self::InvalidInput(reason) => f.write_str(reason),
             Self::Validation(error) => error.fmt(f),
-            Self::SchemaMismatch => {
-                f.write_str("installed schema differs; recreate development fixtures explicitly")
-            }
+            Self::SchemaMismatch => f.write_str(
+                "installed schema differs; inspect an explicit schema migration before serving",
+            ),
             Self::SourceMismatch => {
                 f.write_str("managed source changed; retire the existing execution lifecycle")
             }

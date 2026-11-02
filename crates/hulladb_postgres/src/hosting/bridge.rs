@@ -24,6 +24,8 @@ enum Command {
         #[serde(default)]
         initialize: bool,
         #[serde(default)]
+        migration: Option<bool>,
+        #[serde(default)]
         limits: InvocationLimits,
         #[serde(default)]
         development: bool,
@@ -113,7 +115,7 @@ fn failure(error: &Error, id: Option<u64>) -> Value {
         Error::NotFound => ("not_found", "database row or scope does not exist"),
         Error::SchemaMismatch => (
             "schema_mismatch",
-            "installed schema differs; recreate development fixtures explicitly",
+            "installed schema differs; inspect hulla-db migrate before serving",
         ),
         Error::TransactionDeadline => (
             "execution_limit",
@@ -161,6 +163,7 @@ async fn run() -> Result<(), Error> {
         schema,
         scope,
         initialize,
+        migration,
         limits,
         development,
     }) = io.lock().await.receive().await?
@@ -180,6 +183,22 @@ async fn run() -> Result<(), Error> {
     config.options(&options);
     let mut store =
         ManagedStore::connect_config(config, schema_from_descriptor(&namespace, schema)?).await?;
+    if let Some(apply) = migration {
+        if initialize {
+            return Err(Error::InvalidInput(
+                "initialization and migration are separate commands".into(),
+            ));
+        }
+        let plan = store.plan_migration().await?;
+        if apply {
+            store.apply_migration(&plan).await?;
+        }
+        io.lock()
+            .await
+            .send(json!({"type":"ready","migration":plan}))
+            .await?;
+        return Ok(());
+    }
     if initialize {
         store.initialize().await?;
     } else {

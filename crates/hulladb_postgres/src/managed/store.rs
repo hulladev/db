@@ -22,7 +22,7 @@ pub struct ManagedStore {
     pub(super) client: Client,
     connection: JoinHandle<Result<(), tokio_postgres::Error>>,
     pub(super) schema: ManagedSchema,
-    initialized: bool,
+    pub(super) initialized: bool,
 }
 
 impl Drop for ManagedStore {
@@ -124,7 +124,7 @@ impl ManagedStore {
             )
             .await?
             .get(0);
-        if exists {
+        let installed_descriptor = if exists {
             let metadata_exists: bool = tx
                 .query_one(
                     "SELECT to_regclass($1) IS NOT NULL AND to_regclass($2) IS NOT NULL AND to_regclass($3) IS NOT NULL",
@@ -149,26 +149,30 @@ impl ManagedStore {
                 .await?
                 .ok_or(Error::SchemaMismatch)?
                 .try_get::<_, String>(0)?;
-            let descriptor: Json =
+            let parsed: Json =
                 serde_json::from_str(&descriptor).map_err(|_| Error::SchemaMismatch)?;
-            if !super::storage::descriptor_equal(&descriptor, &self.schema.descriptor()) {
+            if !super::storage::descriptor_equal(&parsed, &self.schema.descriptor()) {
                 return Err(Error::SchemaMismatch);
             }
+            descriptor
         } else {
             if !install {
                 return Err(Error::SchemaMismatch);
             }
             tx.batch_execute(&self.schema.ddl()?).await?;
+            let descriptor = self.schema.descriptor().to_string();
             tx.execute(
                 &format!(
                     "INSERT INTO {} VALUES (true,$1,$2)",
                     self.schema.relation("metadata")
                 ),
-                &[&Uuid::now_v7(), &self.schema.descriptor().to_string()],
+                &[&Uuid::now_v7(), &descriptor],
             )
             .await?;
-        }
+            descriptor
+        };
         tx.commit().await?;
+        self.schema.installed_descriptor = Some(installed_descriptor);
         self.initialized = true;
         Ok(())
     }
@@ -644,6 +648,27 @@ pub(super) async fn head(
     scope: Uuid,
     lock: bool,
 ) -> Result<(Uuid, Revision), Error> {
+    // Read metadata first: its transaction lock coordinates explicit migrations.
+    // Existing sessions must reject an upgraded contract before executing SQL.
+    let metadata = tx
+        .query_one(
+            &format!(
+                "SELECT source,CASE WHEN contract=$1 THEN NULL ELSE contract END FROM {} WHERE singleton",
+                schema.relation("metadata")
+            ),
+            &[&schema.installed_descriptor.as_ref().ok_or(Error::SchemaMismatch)?],
+        )
+        .await?;
+    if let Some(descriptor) = metadata.try_get::<_, Option<String>>(1)? {
+        // Equivalent Float64 encodings retain their existing compatibility;
+        // arbitrary JSON defaults still require exact descriptor equality.
+        let descriptor: Json =
+            serde_json::from_str(&descriptor).map_err(|_| Error::SchemaMismatch)?;
+        if !super::storage::descriptor_equal(&descriptor, &schema.descriptor()) {
+            return Err(Error::SchemaMismatch);
+        }
+    }
+    let source: Uuid = metadata.try_get(0)?;
     let sql = format!(
         "SELECT sequence FROM {} WHERE id=$1{}",
         schema.relation("scopes"),
@@ -653,16 +678,6 @@ pub(super) async fn head(
         .query_opt(&sql, &[&scope])
         .await?
         .ok_or(Error::NotFound)?
-        .try_get(0)?;
-    let source: Uuid = tx
-        .query_one(
-            &format!(
-                "SELECT source FROM {} WHERE singleton",
-                schema.relation("metadata")
-            ),
-            &[],
-        )
-        .await?
         .try_get(0)?;
     if sequence < 0 {
         return Err(Error::CorruptData);

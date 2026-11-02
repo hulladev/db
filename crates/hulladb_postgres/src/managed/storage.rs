@@ -12,6 +12,9 @@ use super::Error;
 pub struct ManagedSchema {
     pub(super) namespace: String,
     pub(super) contract: SchemaContract,
+    // Bound by initialize/verify on this connection. Ordinary execution compares
+    // installed text without decoding the schema on every request.
+    pub(super) installed_descriptor: Option<String>,
 }
 
 impl ManagedSchema {
@@ -30,6 +33,7 @@ impl ManagedSchema {
         Ok(Self {
             namespace,
             contract,
+            installed_descriptor: None,
         })
     }
 
@@ -72,7 +76,7 @@ impl ManagedSchema {
     }
 
     /// Fresh installation only. Existing layouts are compared against the full
-    /// contract, never migrated or silently reset. Defaults/generators remain
+    /// contract. Explicit additive migrations reuse the same DDL. Defaults/generators remain
     /// managed runtime operations; cross-row constraints live in PostgreSQL.
     pub(super) fn ddl(&self) -> Result<String, Error> {
         let scopes = self.relation("scopes");
@@ -92,84 +96,23 @@ impl ManagedSchema {
             self.namespace
         );
         sql.push_str(&super::admission::ddl(self));
-        for table in self.contract.tables() {
+        sql.push_str(&self.application_ddl(0, 0)?);
+        Ok(sql)
+    }
+
+    pub(super) fn application_ddl(
+        &self,
+        table_start: usize,
+        reference_start: usize,
+    ) -> Result<String, Error> {
+        let scopes = self.relation("scopes");
+        let mut sql = String::new();
+        for table in &self.contract.tables()[table_start..] {
             let relation = self.table_relation(table);
             sql.push_str(&format!("CREATE TABLE {relation} (_scope uuid NOT NULL REFERENCES {scopes}(id), _version bigint NOT NULL CHECK(_version > 0)"));
             for (i, field) in table.fields().iter().enumerate() {
-                let scalar = match field.scalar_type {
-                    ScalarType::Date => "date".to_owned(),
-                    ScalarType::Timestamp => {
-                        format!("timestamp({}) with time zone", field.precision.unwrap_or(3))
-                    }
-                    ScalarType::LocalTimestamp => format!(
-                        "timestamp({}) without time zone",
-                        field.precision.unwrap_or(3)
-                    ),
-                    ScalarType::Json => "jsonb".to_owned(),
-                    ScalarType::Float64 => "double precision".to_owned(),
-                    ScalarType::String => "text".to_owned(),
-                    ScalarType::Boolean => "boolean".to_owned(),
-                    ScalarType::Int64 => "bigint".to_owned(),
-                    ScalarType::Uuid => "uuid".to_owned(),
-                };
-                sql.push_str(&format!(
-                    ", f{i} {scalar}{}",
-                    if field.nullable { "" } else { " NOT NULL" }
-                ));
-                if matches!(
-                    field.scalar_type,
-                    ScalarType::Date | ScalarType::Timestamp | ScalarType::LocalTimestamp
-                ) {
-                    let suffix = match field.scalar_type {
-                        ScalarType::Date => "date",
-                        ScalarType::Timestamp => "timestamptz",
-                        _ => "timestamp",
-                    };
-                    let lower = if field.scalar_type == ScalarType::Date {
-                        "0001-01-01"
-                    } else if field.scalar_type == ScalarType::Timestamp {
-                        "0001-01-01T00:00:00Z"
-                    } else {
-                        "0001-01-01T00:00:00"
-                    };
-                    let upper = if field.scalar_type == ScalarType::Date {
-                        "10000-01-01"
-                    } else if field.scalar_type == ScalarType::Timestamp {
-                        "10000-01-01T00:00:00Z"
-                    } else {
-                        "10000-01-01T00:00:00"
-                    };
-                    sql.push_str(&format!(
-                        " CHECK (f{i} >= '{lower}'::{suffix} AND f{i} < '{upper}'::{suffix})"
-                    ));
-                }
-            }
-            for (i, field) in table.fields().iter().enumerate() {
-                let expression = if field.scalar_type == ScalarType::String {
-                    format!("char_length(f{i})")
-                } else {
-                    format!("f{i}")
-                };
-                for (bound, operator) in [
-                    (&field.constraints.min, ">="),
-                    (&field.constraints.max, "<="),
-                ] {
-                    if let Some(bound) = bound {
-                        sql.push_str(&format!(
-                            ", CHECK ({expression} {operator} {})",
-                            sql_literal(bound)?
-                        ));
-                    }
-                }
-                if !field.constraints.one_of.is_empty() {
-                    let choices = field
-                        .constraints
-                        .one_of
-                        .iter()
-                        .map(sql_literal)
-                        .collect::<Result<Vec<_>, _>>()?;
-                    sql.push_str(&format!(", CHECK (f{i} IN ({}))", choices.join(",")));
-                }
+                sql.push_str(", ");
+                sql.push_str(&column_definition(i, field)?);
             }
             for (index, check) in table.checks().iter().enumerate() {
                 let mut expression = check.parts[0].clone();
@@ -217,7 +160,7 @@ impl ManagedSchema {
             }
         }
         // After all relations exist, forward and cyclic references are valid.
-        for reference in self.contract.references() {
+        for reference in &self.contract.references()[reference_start..] {
             let table = self.table(reference.table())?;
             let target = self.table(reference.target_table())?;
             let column = self.column(table, reference.field())?;
@@ -234,13 +177,33 @@ impl ManagedSchema {
                     .position(|r| std::ptr::eq(r, reference))
                     .expect("reference");
                 let function = self.relation(&format!("null_reference_{index}"));
-                sql.push_str(&format!("CREATE FUNCTION {function}() RETURNS trigger LANGUAGE plpgsql AS $hulla$ BEGIN IF NEW._version = OLD._version AND NEW.{column} IS DISTINCT FROM OLD.{column} THEN NEW._version := OLD._version + 1; END IF; RETURN NEW; END $hulla$; CREATE TRIGGER null_reference_{index} BEFORE UPDATE OF {column} ON {} FOR EACH ROW EXECUTE FUNCTION {function}();", self.table_relation(table)));
+                sql.push_str(&self.null_reference_function(index)?);
+                sql.push_str(&format!("CREATE TRIGGER null_reference_{index} BEFORE UPDATE OF {column} ON {} FOR EACH ROW EXECUTE FUNCTION {function}();", self.table_relation(table)));
             }
             sql.push_str(&format!(
                 "ALTER TABLE {} ADD FOREIGN KEY (_scope,{}) REFERENCES {} (_scope,{}) ON DELETE {policy};",
                 self.table_relation(table), self.column(table, reference.field())?,
                 self.table_relation(target), self.column(target, reference.target_field())?,
             ));
+        }
+        Ok(sql)
+    }
+
+    fn null_reference_function(&self, index: usize) -> Result<String, Error> {
+        let reference = &self.contract.references()[index];
+        let column = self.column(self.table(reference.table())?, reference.field())?;
+        let function = self.relation(&format!("null_reference_{index}"));
+        Ok(format!(
+            "CREATE OR REPLACE FUNCTION {function}() RETURNS trigger LANGUAGE plpgsql AS $hulla$ BEGIN IF NEW._version = OLD._version AND NEW.{column} IS DISTINCT FROM OLD.{column} THEN NEW._version := OLD._version + 1; END IF; RETURN NEW; END $hulla$;"
+        ))
+    }
+
+    pub(super) fn refresh_reference_functions(&self, count: usize) -> Result<String, Error> {
+        let mut sql = String::new();
+        for (index, reference) in self.contract.references()[..count].iter().enumerate() {
+            if reference.on_delete() == ReferenceOnDelete::SetNull {
+                sql.push_str(&self.null_reference_function(index)?);
+            }
         }
         Ok(sql)
     }
@@ -277,6 +240,85 @@ impl ManagedSchema {
     }
 }
 
+pub(super) fn column_definition(
+    i: usize,
+    field: &hulladb_schema::FieldDefinition,
+) -> Result<String, Error> {
+    let scalar = match field.scalar_type {
+        ScalarType::Date => "date".to_owned(),
+        ScalarType::Timestamp => {
+            format!("timestamp({}) with time zone", field.precision.unwrap_or(3))
+        }
+        ScalarType::LocalTimestamp => format!(
+            "timestamp({}) without time zone",
+            field.precision.unwrap_or(3)
+        ),
+        ScalarType::Json => "jsonb".to_owned(),
+        ScalarType::Float64 => "double precision".to_owned(),
+        ScalarType::String => "text".to_owned(),
+        ScalarType::Boolean => "boolean".to_owned(),
+        ScalarType::Int64 => "bigint".to_owned(),
+        ScalarType::Uuid => "uuid".to_owned(),
+    };
+    let mut sql = format!(
+        "f{i} {scalar}{}",
+        if field.nullable { "" } else { " NOT NULL" }
+    );
+    if matches!(
+        field.scalar_type,
+        ScalarType::Date | ScalarType::Timestamp | ScalarType::LocalTimestamp
+    ) {
+        let suffix = match field.scalar_type {
+            ScalarType::Date => "date",
+            ScalarType::Timestamp => "timestamptz",
+            _ => "timestamp",
+        };
+        let lower = if field.scalar_type == ScalarType::Date {
+            "0001-01-01"
+        } else if field.scalar_type == ScalarType::Timestamp {
+            "0001-01-01T00:00:00Z"
+        } else {
+            "0001-01-01T00:00:00"
+        };
+        let upper = if field.scalar_type == ScalarType::Date {
+            "10000-01-01"
+        } else if field.scalar_type == ScalarType::Timestamp {
+            "10000-01-01T00:00:00Z"
+        } else {
+            "10000-01-01T00:00:00"
+        };
+        sql.push_str(&format!(
+            " CHECK (f{i} >= '{lower}'::{suffix} AND f{i} < '{upper}'::{suffix})"
+        ));
+    }
+    let expression = if field.scalar_type == ScalarType::String {
+        format!("char_length(f{i})")
+    } else {
+        format!("f{i}")
+    };
+    for (bound, operator) in [
+        (&field.constraints.min, ">="),
+        (&field.constraints.max, "<="),
+    ] {
+        if let Some(bound) = bound {
+            sql.push_str(&format!(
+                " CHECK ({expression} {operator} {})",
+                sql_literal(bound)?
+            ));
+        }
+    }
+    if !field.constraints.one_of.is_empty() {
+        let choices = field
+            .constraints
+            .one_of
+            .iter()
+            .map(sql_literal)
+            .collect::<Result<Vec<_>, _>>()?;
+        sql.push_str(&format!(" CHECK (f{i} IN ({}))", choices.join(",")));
+    }
+    Ok(sql)
+}
+
 fn describe_value(value: &Value) -> Json {
     match value {
         Value::Json(value) => json!(["json", value]),
@@ -304,7 +346,7 @@ fn describe_constraints(constraints: &hulladb_schema::FieldConstraints) -> Json 
     result
 }
 
-fn sql_literal(value: &Value) -> Result<String, Error> {
+pub(super) fn sql_literal(value: &Value) -> Result<String, Error> {
     let quoted = |s: &str| -> Result<String, Error> {
         if s.contains('\0') {
             return Err(Error::InvalidInput("SQL check literal contains NUL".into()));

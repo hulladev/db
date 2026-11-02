@@ -29,9 +29,9 @@ pub use hulladb_macros::{Input, Table, mutation, query};
 #[cfg(feature = "server")]
 pub use hulladb_postgres::managed::{
     ClaimOptions, Context, DeliveryError, DeliveryFuture, DeliveryOutcome, EnqueueOptions, Error,
-    Invocation, ManagedSchema, ManagedStore, MutationConcurrency, OutboxEntry, OutboxHandler,
-    OutboxJob, OutboxStatus, OutboxWorker, ReceiptStatus, Registry, RetryOptions, Roles,
-    ScopeQuota, ScopeStatus, Usage, WorkerOptions,
+    Invocation, ManagedSchema, ManagedStore, MigrationPlan, MutationConcurrency, OutboxEntry,
+    OutboxHandler, OutboxJob, OutboxStatus, OutboxWorker, ReceiptStatus, Registry, RetryOptions,
+    Roles, SchemaChange, ScopeQuota, ScopeStatus, Usage, WorkerOptions,
 };
 pub use hulladb_schema::protocol::functions::{ClientFailure, Receipt, Revision, Snapshot};
 pub type FunctionFuture<'a, T> =
