@@ -27,6 +27,8 @@ jobs:
   sdk:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      HULLADB_JS: ${{ github.workspace }}/target/debug/hulladb-js
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -35,7 +37,10 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.4
+      - uses: dtolnay/rust-toolchain@1.98.1
+      - uses: Swatinem/rust-cache@v2
       - run: bun install --frozen-lockfile
+      - run: cargo build -p hulladb_js --locked
       - run: make sdk-check
       - run: bun run test:bindings
       - run: bun run test:auth
