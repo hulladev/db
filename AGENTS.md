@@ -24,10 +24,10 @@
 
 ## Choosing local checks
 
-There are currently no hosted CI workflows in this repo. The Makefile provides
-local checks; `make check` is the broad validation entry point, not the default
-for every edit. Use the following commands as examples, selecting only what the
-change warrants:
+Hosted CI in `.github/workflows/ci.yml` runs Rust checks, SDK/binding checks and
+explicit PostgreSQL integration plus backup/restore tests. The Makefile provides
+local equivalents; `make check` is the broad non-database entry point, not the
+default for every edit. Select only what the change warrants:
 
 - Focused Rust tests:
   `cargo test -p <crate> --test <target> --locked [test_filter]`.
@@ -113,12 +113,20 @@ change warrants:
 
 ## Implementation footprint
 
-- Prefer Bun-native APIs in Bun-only TypeScript code generation, development tooling
+- Use Bun-native APIs in Bun-only TypeScript code generation, development tooling
   and build scripts: `Bun.file`/`Bun.write` for file contents, `Bun.spawn`/`spawnSync`
   and native IPC for subprocesses, `Bun.build` for bundling, and Bun utilities where
   they fit. Changing the executable alone is not an API migration. Use Node-compatible
   APIs where Bun recommends them or lacks a suitable equivalent, including path
-  operations, directory watching, directory creation and symlink-aware inspection.
+  operations, directory watching, directory creation/copying, symlink-aware inspection
+  and exclusive file creation. Preserve those semantics when migrating APIs.
+- Treat development supervisors, code generators, native asset staging, release
+  scripts and Bun-run test harnesses as Bun-only tooling, even when their files live
+  under a published package's `src/` directory. Launching Node to test compatibility
+  does not make the test harness a Node runtime surface; use `Bun.spawn` there too.
+  Keep Node APIs in the CLI bootstrap that runs before Bun is available and in
+  modules imported by Node applications. Explain non-obvious exceptions briefly
+  at the call site instead of treating all code under `src/` as portable runtime code.
 - Keep shared production TypeScript runtime code and generated application code
   compatible with both Node and Bun; browser code must remain browser-compatible.
   Do not introduce unconditional Bun globals into these surfaces. Choose APIs by
@@ -135,14 +143,17 @@ change warrants:
   production execution into simulated behavior. Clean up temporary proof code and
   generated scratch projects before handoff.
 
-## Pre-publication compatibility
+## Release compatibility
 
-- Until publication to Cargo and npm, do not maintain schema generations,
-  application protocol versions, file-format versions, or upgrade migrations.
-  Recreate incompatible development fixtures explicitly; never reset data silently.
+- Application schema upgrades within the published storage baseline use the
+  explicit additive migration workflow in `docs/schema-migrations.md`.
+  Do not add compatibility readers or migration journals for unreleased fixtures,
+  application protocol versions or file-format versions speculatively. Recreate
+  incompatible development fixtures explicitly; never reset data silently.
 - Keep runtime source/subscription identities, revision counters, and row concurrency
   versions: these protect correctness and are unrelated to release compatibility.
-- Introduce release compatibility and migrations only as part of publication work.
+- Storage/protocol format changes still require an explicit release upgrade and
+  recovery plan as part of publication work.
 
 ## Dependency footprint
 
