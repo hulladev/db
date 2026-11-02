@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url";
 import { defineConfig, type VerifyIdentity } from "./config.ts";
 import { resolveNativeExecutable } from "./native.ts";
 import { schemaDescriptor } from "./schema-contract.ts";
+import { resolveDatabaseConnection } from "./local-connection.ts";
 
 class VerificationTimeout extends Error {}
 
@@ -51,6 +52,7 @@ export async function verifyServiceIdentity(verify: VerifyIdentity | undefined, 
 /** Runtime-only launcher. The native host owns HTTP/SSE, transactions and revalidation. */
 export async function startService(configPath: string): Promise<{ url: string; close(): Promise<void>; closed: Promise<void> }> {
   const config = defineConfig((await import(pathToFileURL(resolve(configPath)).href)).default);
+  const connection = resolveDatabaseConnection(config.database.server, resolve(configPath));
   const schemaPath = resolve(dirname(resolve(configPath)), config.schema ?? "db/schema.ts");
   const schema = (await import(pathToFileURL(schemaPath).href)).default;
   const generated = resolve(dirname(schemaPath), "_generated");
@@ -127,7 +129,7 @@ export async function startService(configPath: string): Promise<{ url: string; c
   }
   const timer = setTimeout(() => fail("Database service startup timed out"), 30_000);
   try {
-    send({ type: "init", url: config.database.server.url, namespace: config.database.server.namespace ?? "hulla",
+    send({ type: "init", url: connection.url, namespace: connection.namespace ?? "hulla",
       schema: schemaDescriptor(schema), manifest, development: process.env.NODE_ENV !== "production",
       worker: {
         executable: resolveNativeExecutable("js"),

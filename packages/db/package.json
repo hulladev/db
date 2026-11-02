@@ -64,6 +64,8 @@
     "test": "bun run generate:test && bun --conditions=hulladb-source test tests/*.test.ts",
     "build": "bun scripts/build.ts",
     "build:native": "bun scripts/build-native.ts",
+    "build:postgres": "bun scripts/build-postgres.ts",
+    "build:development": "bun scripts/build-development.ts",
     "prepack": "bun run build && bun scripts/check-package.ts"
   },
   "devDependencies": {
@@ -76,6 +78,7 @@
   "files": [
     "dist",
     "native",
+    "development",
     "README.md",
     "LICENSE"
   ],
@@ -83,13 +86,9 @@
     "node": ">=22.18.0"
   },
   "peerDependencies": {
-    "typescript": "7.0.2",
     "zod": "^4.0.0"
   },
   "peerDependenciesMeta": {
-    "typescript": {
-      "optional": true
-    },
     "zod": {
       "optional": true
     }

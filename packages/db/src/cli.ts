@@ -10,9 +10,7 @@ async function main() {
   const { command, config, check } = parseCLI(args);
   const configPath = resolve(config);
   if (command === "generate" || command === "dev") {
-    if (typeof Bun === "undefined") throw new Error(`hulla-db ${command} requires Bun. Run bun --bun hulla-db ${command}.`);
-    try { await import("typescript/unstable/async"); }
-    catch { throw new Error("Code generation requires TypeScript 7.0.2. Install it with bun add --dev typescript@7.0.2."); }
+    if (typeof Bun === "undefined") return (await import("./development-runtime.ts")).runDevelopmentCLI();
   }
   cliOutput.heading(command, configPath);
   if (command === "generate") {
@@ -34,10 +32,11 @@ async function main() {
   } else {
     const { defineConfig } = await import("./config.ts");
     const { initializeDatabase, migrateDatabase } = await import("./server-database.ts");
+    const { resolveDatabaseConnection } = await import("./local-connection.ts");
     const config = defineConfig((await import(pathToFileURL(configPath).href)).default);
     const schemaPath = resolve(dirname(configPath), config.schema ?? "db/schema.ts");
     const schema = (await import(pathToFileURL(schemaPath).href)).default;
-    const connection = config.database.server;
+    const connection = resolveDatabaseConnection(config.database.server, configPath);
     if (command === "migrate") {
       const plan = await migrateDatabase(schema, connection, { check: check ?? false });
       for (const change of plan.changes) {

@@ -1,7 +1,7 @@
 import { resolveLimits, clientConnection, type ClientConnection, type InvocationLimits } from "./config.ts";
 import { lstat, mkdir, readdir } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
-import { API, SymbolFlags } from "typescript/unstable/async";
+import { API, SymbolFlags } from "./development-compiler.ts";
 import { isFunctionDefinition } from "./declarations.ts";
 import { assertModuleName, validExportName } from "./names.ts";
 import { checkGeneratedDirectory } from "./schema-codegen.ts";

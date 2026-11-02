@@ -37,6 +37,11 @@ export interface DatabaseConnection {
   readonly url: string;
   readonly namespace?: string;
 }
+/** An omitted URL selects CLI-managed development PostgreSQL, or DATABASE_URL. */
+export interface DatabaseSettings {
+  readonly url?: string;
+  readonly namespace?: string;
+}
 
 /** Verified provider data; never accepted as proof from a browser payload. */
 export interface VerifiedIdentity {
@@ -69,7 +74,7 @@ export function clientConnection(value: ClientConnection): Readonly<ClientConnec
   return Object.freeze({ ...value });
 }
 export interface DatabaseConfig {
-  readonly database: { readonly server: DatabaseConnection; readonly client?: ClientConnection };
+  readonly database: { readonly server: DatabaseSettings; readonly client?: ClientConnection };
   readonly limits?: InvocationLimits;
   /** Resolved relative to this config file. Defaults to ./db/schema.ts. */
   readonly schema?: string;
@@ -100,11 +105,13 @@ export function defineConfig<C extends DatabaseConfig>(config: C): Readonly<C & 
   record(config.database, ["server", "client"], "database connection");
   record(config.database.server, ["url", "namespace"], "database.server");
   const { url, namespace } = config.database.server;
-  if (typeof url !== "string" || !url.trim()) throw new TypeError("database.server.url must be a PostgreSQL connection URL");
-  try {
-    const parsed = new URL(url);
-    if (!["postgres:", "postgresql:"].includes(parsed.protocol)) throw new Error();
-  } catch { throw new TypeError("database.server.url must be a PostgreSQL connection URL"); }
+  if (url !== undefined) {
+    if (typeof url !== "string" || !url.trim()) throw new TypeError("database.server.url must be a PostgreSQL connection URL");
+    try {
+      const parsed = new URL(url);
+      if (!["postgres:", "postgresql:"].includes(parsed.protocol)) throw new Error();
+    } catch { throw new TypeError("database.server.url must be a PostgreSQL connection URL"); }
+  }
   if (namespace !== undefined && (typeof namespace !== "string" || !/^[a-z_][a-z0-9_]{0,62}$/.test(namespace)))
     throw new TypeError("database.server.namespace must be a PostgreSQL identifier of at most 63 characters");
   for (const key of ["schema", "functions"] as const)
@@ -124,7 +131,7 @@ export function defineConfig<C extends DatabaseConfig>(config: C): Readonly<C & 
   const limits = config.limits === undefined ? undefined : validateLimits(config.limits);
   return Object.freeze({
     ...(limits === undefined ? {} : { limits }),
-    database: Object.freeze({ server: Object.freeze({ url, ...(namespace === undefined ? {} : { namespace }) }),
+    database: Object.freeze({ server: Object.freeze({ ...(url === undefined ? {} : { url }), ...(namespace === undefined ? {} : { namespace }) }),
       ...(config.database.client === undefined ? {} : { client: clientConnection(config.database.client) }) }),
     ...(config.schema === undefined ? {} : { schema: config.schema }),
     ...(config.functions === undefined ? {} : { functions: config.functions }),

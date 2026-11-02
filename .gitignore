@@ -5,6 +5,8 @@
 !.env.example
 __pycache__/
 node_modules/
+.hulla/
+/packages/db/development/
 /deploy/selfhost/secrets/
 *.dump
 *.dump.json

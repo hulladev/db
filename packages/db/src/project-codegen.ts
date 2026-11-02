@@ -1,6 +1,6 @@
 import { lstat } from "node:fs/promises";
 import { dirname, relative, resolve, sep } from "node:path";
-import { defineConfig, type DatabaseConfig } from "./config.ts";
+import { defineConfig, type DatabaseConfig, type ClientConnection } from "./config.ts";
 import { discoverFunctions, generateFunctions } from "./codegen.ts";
 import { checkGeneratedDirectory, generateSchema } from "./schema-codegen.ts";
 import { compileWorker, workerBundleHeader } from "./worker-codegen.ts";
@@ -13,7 +13,7 @@ function importPath(directory: string, path: string): string {
 }
 
 /** Generate a project from its trusted config without opening a database or listener. */
-export async function generateProject(configPath = "db.config.ts"): Promise<void> {
+export async function generateProject(configPath = "db.config.ts", developmentClient?: ClientConnection): Promise<void> {
   const source = resolve(configPath);
   const config = defineConfig((await import(Bun.pathToFileURL(source).href)).default as DatabaseConfig);
   const root = dirname(source);
@@ -49,13 +49,14 @@ ${entries.map(([name], index) => `  ${JSON.stringify(name)}: module${index},`).j
   // Diagnose statically resolved unsupported imports before generation evaluates
   // selected declaration modules in its trusted build process.
   const compiled = await compileWorker(worker);
-  await generateFunctions({ schema, outDir: client, modules, ...(config.database.client === undefined ? {} : { client: config.database.client }), ...(config.limits === undefined ? {} : { limits: config.limits }) });
+  const clientConnection = config.database.client ?? developmentClient;
+  await generateFunctions({ schema, outDir: client, modules, ...(clientConnection === undefined ? {} : { client: clientConnection }), ...(config.limits === undefined ? {} : { limits: config.limits }) });
   await Bun.write(bundle, compiled);
   await Bun.write(server, `${header}import config from ${JSON.stringify(importPath(outDir, source))}
 import schema from ${JSON.stringify(importPath(outDir, schema))}
 import type { Schema } from './types'
-import { createDatabase, type Database } from '@hulla/db/server'
+import { createDatabase, resolveDatabaseConnection, type Database } from '@hulla/db/server'
 
-export const db: Database<Schema> = createDatabase(schema as Schema, config.database.server, config.limits)
+export const db: Database<Schema> = createDatabase(schema as Schema, resolveDatabaseConnection(config.database.server, new URL(${JSON.stringify(importPath(outDir, source))}, import.meta.url)), config.limits)
 `);
 }

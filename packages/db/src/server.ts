@@ -7,3 +7,4 @@ export type { Projection, Projected } from "./projection.ts";
 export type { Aggregates, AggregateValue, AggregateResult, GroupedQuery, GroupedAggregate } from "./aggregate.ts";
 export type { Page, PageOptions } from "./page.ts";
 export type { Expressions, Predicate } from "./filters.ts";
+export { resolveDatabaseConnection } from "./local-connection.ts";

@@ -1,4 +1,4 @@
-import { API, TypeFlags, SymbolFlags, type Checker, type Type } from "typescript/unstable/async";
+import { API, TypeFlags, SymbolFlags, isDateLibrary, type Checker, type Type } from "./development-compiler.ts";
 import type { ValueShape } from "./codec.ts";
 
 const canonicalPath = (path: string) => {
@@ -33,7 +33,7 @@ async function shape(checker: Checker, type: Type | undefined, parents = new Set
   if (type.flags & TypeFlags.Number) return { kind: "number" };
   if (type.flags & TypeFlags.Boolean) return { kind: "boolean" };
   const symbol = await type.getSymbol();
-  if (symbol?.name === "Date" && symbol.declarations.some(declaration => /\/node_modules\/(?:typescript|@typescript\/typescript-[^/]+)\/lib\/lib\.[^/]+\.d\.ts$/i.test(canonicalPath(declaration.path)))) return { kind: "date" };
+  if (symbol?.name === "Date" && symbol.declarations.some(declaration => isDateLibrary(canonicalPath(declaration.path)))) return { kind: "date" };
   if (type.isUnionType()) return { kind: "union", choices: await Promise.all((await type.getTypes()).map(t => shape(checker, t, nested))) };
   if (type.isIntersectionType()) {
     // Phantom ID brands do not add wire fields to a primitive.

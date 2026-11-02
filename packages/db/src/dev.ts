@@ -1,9 +1,11 @@
 import { lstatSync, watch, type FSWatcher } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { runtimeExportConditions } from "./runtime-conditions.ts";
+import { startLocalPostgres, type LocalPostgres } from "./local-postgres.ts";
+import { cliError, cliOutput } from "./cli-output.ts";
 
 const ignored = new Set([
-  "_generated", "node_modules", ".git", "dist", "build", "target", "coverage",
+  "_generated", "node_modules", ".git", ".hulla", "dist", "build", "target", "coverage",
   ".next", ".nuxt", ".output", ".svelte-kit", ".astro", ".solid", ".cache",
   ".turbo", ".vite", ".vercel", ".netlify",
 ]);
@@ -33,8 +35,11 @@ export async function startDevelopment(configPath: string): Promise<{ close(): P
   let child: Bun.Subprocess<"ignore", "inherit", "inherit"> | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let stopped = false, revision = 0, chain = Promise.resolve();
+  const databaseAbort = new AbortController();
+  let database: Promise<LocalPostgres> | undefined;
+  let terminalError: unknown;
   let finish!: () => void;
-  const closed = new Promise<void>(resolve => { finish = resolve; });
+  const closed = new Promise<void>((resolve, reject) => { finish = () => terminalError ? reject(terminalError) : resolve(); });
 
   async function stopChild() {
     if (!child) return;
@@ -52,8 +57,9 @@ export async function startDevelopment(configPath: string): Promise<{ close(): P
       chain = chain.then(async () => {
         await stopChild();
         if (stopped || next !== revision) return;
+        cliOutput.info("Source changed; restarting development…");
         launch();
-      }).catch(() => { console.error("Development restart failed; waiting for the next source change."); });
+      }).catch(() => { cliError.error("Development restart failed; waiting for the next source change."); });
     }, 100);
   }
   function watchDirectory(directory: string) {
@@ -65,14 +71,14 @@ export async function startDevelopment(configPath: string): Promise<{ close(): P
       });
       watcher.on("error", () => {
         watcher.close(); watchers.delete(path);
-        console.error(`Cannot watch ${path}; restart dev after restoring this directory.`);
+        cliError.warn(`Cannot watch ${cliError.file(path)}; restart dev after restoring this directory.`);
       });
       watchers.set(path, watcher);
       for (const [existing, handle] of watchers) {
         if (existing !== path && contains(path, existing)) { handle.close(); watchers.delete(existing); }
       }
     } catch {
-      console.error(`Cannot watch ${path}; changes there require restarting dev.`);
+      cliError.warn(`Cannot watch ${cliError.file(path)}; changes there require restarting dev.`);
     }
   }
   function launch() {
@@ -82,8 +88,27 @@ export async function startDevelopment(configPath: string): Promise<{ close(): P
       child = Bun.spawn([process.execPath, ...runtimeArguments, workerPath, config], {
         stdin: "ignore", stdout: "inherit", stderr: "inherit",
         ipc(message: unknown, sender) {
-          if (stopped || child !== sender || !message || typeof message !== "object" || !("watch" in message)
-            || !Array.isArray(message.watch)) return;
+          if (stopped || child !== sender || !message || typeof message !== "object") return;
+          if ("database" in message && message.database === true) {
+            database ??= startLocalPostgres(config, databaseAbort.signal).then(local => {
+              void local.closed.catch(error => {
+                if (!stopped) { terminalError = error; void handle.close().catch(() => {}); }
+              });
+              return local;
+            }).catch(error => { database = undefined; throw error; });
+            const respond = (reply: { database: string } | { databaseError: string }) => {
+              if (!stopped && child === sender) {
+                try { sender.send(reply); } catch { /* The worker can exit while PostgreSQL starts. */ }
+              }
+            };
+            void database.then(local => {
+              respond({ database: local.url });
+            }, error => {
+              respond({ databaseError: error instanceof Error ? error.message : "Cannot start local PostgreSQL" });
+            });
+            return;
+          }
+          if (!("watch" in message) || !Array.isArray(message.watch)) return;
           const roots = [root, ...message.watch.filter((path): path is string => typeof path === "string").map(path => resolve(path))];
           const desired = roots.filter((path, index) => !roots.some((parent, other) =>
             other !== index && contains(parent, path) && (parent !== path || other < index)));
@@ -94,14 +119,14 @@ export async function startDevelopment(configPath: string): Promise<{ close(): P
         },
       });
     } catch {
-      console.error("Cannot start development worker; waiting for the next source change.");
+      cliError.error("Cannot start development worker; waiting for the next source change.");
     }
   }
   watchDirectory(root);
   if (!watchers.size) throw new Error("Cannot watch the project directory");
   launch();
   let closing: Promise<void> | undefined;
-  return {
+  const handle = {
     closed,
     close() {
       closing ??= (async () => {
@@ -109,11 +134,17 @@ export async function startDevelopment(configPath: string): Promise<{ close(): P
         clearTimeout(timer);
         for (const watcher of watchers.values()) watcher.close();
         watchers.clear();
-        await chain;
-        await stopChild();
-        finish();
+        try {
+          await chain;
+          await stopChild();
+          databaseAbort.abort();
+          const local = await database?.catch(() => undefined);
+          await local?.close();
+        } catch (error) { terminalError ??= error; throw error; }
+        finally { finish(); }
       })();
       return closing;
     },
   };
+  return handle;
 }
