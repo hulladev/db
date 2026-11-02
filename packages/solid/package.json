@@ -1,6 +1,6 @@
 {
   "name": "@hulla/db-solid",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "exports": {
     ".": {
@@ -21,7 +21,7 @@
     "LICENSE"
   ],
   "peerDependencies": {
-    "@hulla/db": "^0.1.1",
+    "@hulla/db": "^0.1.2",
     "solid-js": "^1.9.0"
   },
   "devDependencies": {
