@@ -3,6 +3,7 @@ import { resolve, dirname } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseCLI, usage } from "./cli-options.ts";
 import { cliError, cliOutput } from "./cli-output.ts";
+import { startCLIListener, StartupCancelled } from "./cli-address.ts";
 
 async function main() {
   const args = process.argv.slice(2);
@@ -18,16 +19,28 @@ async function main() {
     await generateProject(configPath);
     cliOutput.success("Generated database entrypoints.");
   } else if (command === "serve" || command === "dev") {
-    const service = command === "dev"
-      ? await (await import("./dev.ts")).startDevelopment(configPath)
-      : await (await import("./service.ts")).startService(configPath);
-    const stop = () => { void service.close().catch(() => {}); };
+    let service: { close(): Promise<void>; closed: Promise<void>; url?: string } | undefined;
+    let stopping = false;
+    const startup = new AbortController();
+    const stop = () => { stopping = true; startup.abort(); void service?.close().catch(() => {}); };
     process.on("SIGINT", stop); process.on("SIGTERM", stop);
-    if ("url" in service && typeof service.url === "string") cliOutput.listening("Database service", service.url);
-    try { await service.closed; }
+    try {
+      if (command === "dev") service = await (await import("./dev.ts")).startDevelopment(configPath);
+      else {
+        const { defineConfig } = await import("./config.ts");
+        const config = defineConfig((await import(pathToFileURL(configPath).href)).default);
+        const { startService } = await import("./service.ts");
+        service = (await startCLIListener("Database service", { host: config.service?.host ?? "127.0.0.1", port: config.service?.port ?? 3001 },
+          address => startService(configPath, address), { signal: startup.signal })).listener;
+      }
+      if (stopping) await service.close();
+      else if (service.url) cliOutput.listening("Database service", service.url);
+      await service.closed;
+    }
+    catch (error) { if (!stopping) throw error; }
     finally {
       process.off("SIGINT", stop); process.off("SIGTERM", stop);
-      await service.close();
+      await service?.close();
     }
   } else {
     const { defineConfig } = await import("./config.ts");
@@ -51,9 +64,13 @@ async function main() {
 }
 try { await main(); } catch (error) {
   // Do not dump imported config contents, driver errors or connection URLs.
-  if (error instanceof Error && error.message === usage) {
-    cliError.error("Invalid command or options."); cliError.help(); process.exitCode = 1;
+  if (error instanceof StartupCancelled) { cliOutput.info(error.message); }
+  else if (error instanceof Error && error.message === usage) {
+    cliError.error("Invalid command or options.");
+    cliError.help();
+    process.exitCode = 1;
   } else {
-    cliError.error(error instanceof Error ? error.message : "Database setup failed"); process.exitCode = 1;
+    cliError.error(error instanceof Error ? error.message : "Database setup failed");
+    process.exitCode = 1;
   }
 }

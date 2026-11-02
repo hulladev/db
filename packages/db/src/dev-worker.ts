@@ -6,14 +6,23 @@ import { initializeDatabase, migrateDatabase } from "./server-database.ts";
 import { DatabaseError } from "./error.ts";
 import { resolveDatabaseConnection } from "./local-connection.ts";
 import { cliError, cliOutput } from "./cli-output.ts";
+import { AddressConflict, addressURL, startCLIListener, StartupCancelled, type DevelopmentAddresses, type ListenAddress } from "./cli-address.ts";
 
 let stopping = false;
 let service: Awaited<ReturnType<typeof startService>> | undefined;
 let cancelDatabaseRequest: (() => void) | undefined;
 const startup = new AbortController();
-function developmentURL(address: { host: string; port: number }): string {
+const addresses = JSON.parse(process.argv[3] ?? "{}") as DevelopmentAddresses;
+function remembered(kind: "service" | "studio", requested: ListenAddress): ListenAddress {
+  const choice = addresses[kind];
+  return choice?.requested.host === requested.host && choice.requested.port === requested.port ? choice.address : requested;
+}
+function remember(kind: "service" | "studio", requested: ListenAddress, address: ListenAddress) {
+  process.send?.({ listening: { kind, requested, address } });
+}
+function developmentURL(address: ListenAddress): string {
   const host = address.host === "0.0.0.0" ? "127.0.0.1" : address.host === "::" ? "::1" : address.host;
-  return `http://${host.includes(":") ? `[${host}]` : host}:${address.port}`;
+  return addressURL({ host, port: address.port });
 }
 const stop = () => {
   stopping = true;
@@ -45,7 +54,7 @@ try {
     });
   }
   const requested = { host: config.service?.host ?? "127.0.0.1", port: config.service?.port ?? 3001 };
-  const initial = requested;
+  const initial = remembered("service", requested);
   await generateProject(path, initial.port ? { url: developmentURL(initial) } : undefined);
   cliOutput.success("Generated database entrypoints.");
   if (managed && !stopping) {
@@ -59,7 +68,9 @@ try {
     }
   }
   if (!stopping) {
-    service = await startService(path);
+    const started = await startCLIListener("Database service", initial,
+      address => startService(path, address), { signal: startup.signal });
+    service = started.listener;
     if (stopping) await service.close();
     else {
       const url = new URL(service.url);
@@ -67,12 +78,18 @@ try {
       if (actual.host !== initial.host || actual.port !== initial.port) {
         await generateProject(path, { url: developmentURL(actual) });
       }
+      remember("service", requested, actual);
       cliOutput.listening("Database service", service.url);
       await service.closed;
     }
   }
 } catch (error) {
-  if (!stopping) {
+  if (error instanceof StartupCancelled) {
+    cliOutput.info(error.message);
+    process.send?.({ cancelStartup: true });
+  } else if (error instanceof AddressConflict && process.send) {
+    process.send({ startupError: error.message });
+  } else if (!stopping) {
     cliError.error(error instanceof Error ? error.message : "Development startup failed");
     cliError.info("Waiting for source changes before restarting.");
     process.exitCode = 1;

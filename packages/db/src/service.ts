@@ -8,6 +8,7 @@ import { defineConfig, type VerifyIdentity } from "./config.ts";
 import { resolveNativeExecutable } from "./native.ts";
 import { schemaDescriptor } from "./schema-contract.ts";
 import { resolveDatabaseConnection } from "./local-connection.ts";
+import type { ListenAddress } from "./cli-address.ts";
 
 class VerificationTimeout extends Error {}
 
@@ -50,7 +51,7 @@ export async function verifyServiceIdentity(verify: VerifyIdentity | undefined, 
 }
 
 /** Runtime-only launcher. The native host owns HTTP/SSE, transactions and revalidation. */
-export async function startService(configPath: string): Promise<{ url: string; close(): Promise<void>; closed: Promise<void> }> {
+export async function startService(configPath: string, address?: ListenAddress): Promise<{ url: string; close(): Promise<void>; closed: Promise<void> }> {
   const config = defineConfig((await import(pathToFileURL(resolve(configPath)).href)).default);
   const connection = resolveDatabaseConnection(config.database.server, resolve(configPath));
   const schemaPath = resolve(dirname(resolve(configPath)), config.schema ?? "db/schema.ts");
@@ -66,6 +67,7 @@ export async function startService(configPath: string): Promise<{ url: string; c
   }
   const executable = resolveNativeExecutable("service");
   const child = spawn(executable, [], { stdio: ["pipe", "pipe", "pipe"], env: {} });
+  const childExit = new Promise<void>(resolve => child.once("close", () => resolve()));
   let diagnostics = "";
   child.stderr.on("data", (chunk: Buffer) => {
     diagnostics += chunk.toString("utf8");
@@ -80,6 +82,7 @@ export async function startService(configPath: string): Promise<{ url: string; c
   void closed.catch(() => {});
   const fail = (message: string) => {
     const error = new Error(message);
+    if (message === "browser service address is already in use") Object.assign(error, { code: "EADDRINUSE" });
     startupFailed(error); failed(error); child.kill();
   };
   const send = (frame: unknown) => { if (!stopping && !child.stdin.destroyed) child.stdin.write(JSON.stringify(frame) + "\n"); };
@@ -125,7 +128,7 @@ export async function startService(configPath: string): Promise<{ url: string; c
       child.stdin.end();
     }
     const timer = setTimeout(() => child.kill("SIGKILL"), 2000);
-    try { await closed; } finally { clearTimeout(timer); }
+    try { await closed; } finally { await childExit; clearTimeout(timer); }
   }
   const timer = setTimeout(() => fail("Database service startup timed out"), 30_000);
   try {
@@ -135,7 +138,7 @@ export async function startService(configPath: string): Promise<{ url: string; c
         executable: resolveNativeExecutable("js"),
         entrypoint: bundle,
       },
-      host: config.service?.host ?? "127.0.0.1", port: config.service?.port ?? 3001,
+      host: address?.host ?? config.service?.host ?? "127.0.0.1", port: address?.port ?? config.service?.port ?? 3001,
       origins: config.service?.origins ?? [],
     });
     return { url: await startup, close, closed };

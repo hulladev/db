@@ -3,6 +3,7 @@ import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { runtimeExportConditions } from "./runtime-conditions.ts";
 import { startLocalPostgres, type LocalPostgres } from "./local-postgres.ts";
 import { cliError, cliOutput } from "./cli-output.ts";
+import type { DevelopmentAddresses } from "./cli-address.ts";
 
 const ignored = new Set([
   "_generated", "node_modules", ".git", ".hulla", "dist", "build", "target", "coverage",
@@ -32,7 +33,8 @@ export async function startDevelopment(configPath: string): Promise<{ close(): P
   if (typeof Bun === "undefined") throw new Error("hulla-db dev requires Bun. Use Node or Bun with hulla-db serve for generated applications.");
   const config = resolve(configPath), root = dirname(config);
   const watchers = new Map<string, FSWatcher>();
-  let child: Bun.Subprocess<"ignore", "inherit", "inherit"> | undefined;
+  const addresses: DevelopmentAddresses = {};
+  let child: Bun.Subprocess<"inherit", "inherit", "inherit"> | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let stopped = false, revision = 0, chain = Promise.resolve();
   const databaseAbort = new AbortController();
@@ -85,10 +87,21 @@ export async function startDevelopment(configPath: string): Promise<{ close(): P
     const runtimeArguments = runtimeExportConditions().map(condition => `--conditions=${condition}`);
     const workerPath = Bun.fileURLToPath(new URL(import.meta.url.endsWith(".ts") ? "./dev-worker.ts" : "./dev-worker.js", import.meta.url));
     try {
-      child = Bun.spawn([process.execPath, ...runtimeArguments, workerPath, config], {
-        stdin: "ignore", stdout: "inherit", stderr: "inherit",
+      child = Bun.spawn([process.execPath, ...runtimeArguments, workerPath, config, JSON.stringify(addresses)], {
+        stdin: "inherit", stdout: "inherit", stderr: "inherit",
         ipc(message: unknown, sender) {
           if (stopped || child !== sender || !message || typeof message !== "object") return;
+          if ("cancelStartup" in message && message.cancelStartup === true) { void handle.close().catch(() => {}); return; }
+          if ("startupError" in message && typeof message.startupError === "string") {
+            terminalError = new Error(message.startupError);
+            void handle.close().catch(() => {});
+            return;
+          }
+          if ("listening" in message && message.listening && typeof message.listening === "object") {
+            const choice = message.listening as { kind: string } & DevelopmentAddresses["service"];
+            if (choice.kind === "service" || choice.kind === "studio") addresses[choice.kind] = choice;
+            return;
+          }
           if ("database" in message && message.database === true) {
             database ??= startLocalPostgres(config, databaseAbort.signal).then(local => {
               void local.closed.catch(error => {

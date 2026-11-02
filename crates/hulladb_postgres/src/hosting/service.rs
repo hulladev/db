@@ -289,7 +289,13 @@ async fn start(
     .map_err(|_| "browser service initialization failed")?;
     let listener = tokio::net::TcpListener::bind((init.host.as_str(), init.port))
         .await
-        .map_err(|_| "browser service address is unavailable")?;
+        .map_err(|error| {
+            if error.kind() == std::io::ErrorKind::AddrInUse {
+                "browser service address is already in use"
+            } else {
+                "browser service address is unavailable"
+            }
+        })?;
     Ok((host, listener))
 }
 
