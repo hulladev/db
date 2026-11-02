@@ -205,6 +205,24 @@ async fn generated_server_database_executes_real_transactions_under_node() {
 }
 
 #[tokio::test]
+#[ignore = "requires PostgreSQL and Bun; real CLI inspection and additive migration"]
+async fn schema_migration_under_bun() {
+    generated_server_database("BUN", "bun", "tests/migration.integration.ts").await;
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL and Node.js; real CLI inspection and additive migration"]
+async fn schema_migration_under_node() {
+    generated_server_database_with_runtime(
+        "BUN",
+        "bun",
+        "tests/migration.integration.ts",
+        Some("node"),
+    )
+    .await;
+}
+
+#[tokio::test]
 #[ignore = "requires PostgreSQL, Bun and Better Auth workspace dependencies"]
 async fn better_auth_storage_under_bun() {
     generated_server_database("BUN", "bun", "../better-auth/tests/adapter.integration.ts").await;
@@ -222,6 +240,15 @@ async fn better_auth_storage_under_node() {
 }
 
 async fn generated_server_database(runtime_variable: &str, fallback: &str, fixture: &str) {
+    generated_server_database_with_runtime(runtime_variable, fallback, fixture, None).await;
+}
+
+async fn generated_server_database_with_runtime(
+    runtime_variable: &str,
+    fallback: &str,
+    fixture: &str,
+    consumer_runtime: Option<&str>,
+) {
     let namespace = format!("bridge_{}", Uuid::now_v7().simple());
     let package = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages/db");
     let result = Command::new(std::env::var(runtime_variable).unwrap_or_else(|_| fallback.into()))
@@ -230,6 +257,7 @@ async fn generated_server_database(runtime_variable: &str, fallback: &str, fixtu
         .current_dir(package)
         .env("HULLADB_TEST_URL", url())
         .env("HULLADB_TEST_NAMESPACE", &namespace)
+        .env("HULLADB_TEST_RUNTIME", consumer_runtime.unwrap_or(fallback))
         .env("HULLADB_ENGINE", env!("CARGO_BIN_EXE_hulladb-bridge"))
         .kill_on_drop(true)
         .output()

@@ -131,3 +131,8 @@ browser-service-test:
 	cargo build -p hulladb_js --locked
 	cargo test -p hulladb_server --features typescript --test service_protocol --locked
 	cargo test -p hulladb_server --features typescript --test service --locked -- --ignored
+
+.PHONY: schema-migration-test
+schema-migration-test:
+	cargo test -p hulladb_postgres --test schema_migrations --locked -- --ignored
+	cargo test -p hulladb_server --features typescript --test direct_bridge --locked schema_migration -- --ignored
