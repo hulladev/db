@@ -1,6 +1,6 @@
 {
   "name": "@hulla/db-react",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "exports": {
     ".": {
@@ -21,7 +21,7 @@
     "LICENSE"
   ],
   "peerDependencies": {
-    "@hulla/db": "^0.1.0",
+    "@hulla/db": "^0.1.1",
     "react": "^19.0.0"
   },
   "devDependencies": {

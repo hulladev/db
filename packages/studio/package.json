@@ -1,8 +1,8 @@
 {
   "name": "@hulla/db-studio",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
-  "description": "Optional local database workbench for Hulla DB",
+  "description": "Optional local database workbench for @hulla/db",
   "license": "MIT",
   "exports": {
     ".": {
@@ -18,7 +18,7 @@
     "test": "bun --conditions=hulladb-source test tests/*.test.ts"
   },
   "peerDependencies": {
-    "@hulla/db": "^0.1.0"
+    "@hulla/db": "^0.1.1"
   },
   "devDependencies": {
     "@fontsource-variable/schibsted-grotesk": "5.3.0",

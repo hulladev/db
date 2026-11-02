@@ -1,6 +1,6 @@
 {
   "name": "@hulla/db-better-auth",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "exports": {
     ".": {
@@ -25,7 +25,7 @@
     "test": "bun --conditions=hulladb-source test tests/*.test.ts"
   },
   "peerDependencies": {
-    "@hulla/db": "^0.1.0",
+    "@hulla/db": "^0.1.1",
     "better-auth": "^1.7.12"
   },
   "devDependencies": {
