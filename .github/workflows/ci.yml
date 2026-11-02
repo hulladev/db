@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.98.1
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: make check
+
+  sdk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      - run: make sdk-check
+      - run: bun run test:bindings
+      - run: bun run test:auth
+      - name: Check framework and auth types
+        run: |
+          for package in react vue svelte solid better-auth studio; do
+            bun run --cwd "packages/$package" typecheck
+          done
+      - run: bun run build
+      - run: bun run --cwd packages/studio test
+
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:18.6-bookworm
+        env:
+          POSTGRES_USER: db_dev
+          POSTGRES_PASSWORD: db_dev
+          POSTGRES_DB: db_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U db_dev -d db_dev"
+          --health-interval 2s --health-timeout 3s --health-retries 20
+    env:
+      HULLADB_TEST_URL: postgresql://db_dev:db_dev@127.0.0.1:5432/db_dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: dtolnay/rust-toolchain@1.98.1
+      - uses: Swatinem/rust-cache@v2
+      - run: bun install --frozen-lockfile
+      - run: make ci-postgres
+      - name: Build development assets and test installed schema hot reload
+        run: |
+          bun run --cwd packages/db build:native --from "$GITHUB_WORKSPACE/target/debug" --platform linux-x64
+          bun run --cwd packages/db build:postgres
+          bun run --cwd packages/db build:development
+          bun run --cwd packages/db build
+          bun packages/db/tests/development.integration.ts
+      - name: Exercise backup and restore with matching PostgreSQL tools
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          docker exec "$POSTGRES_CONTAINER" sh -c 'apt-get update -qq && apt-get install -y --no-install-recommends python3'
+          docker cp scripts "$POSTGRES_CONTAINER:/tmp/scripts"
+          docker exec --workdir /tmp --env HULLADB_OPERATIONS_TEST_URL="$HULLADB_TEST_URL" "$POSTGRES_CONTAINER" python3 -m unittest scripts.tests.test_backup -v

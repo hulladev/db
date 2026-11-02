@@ -132,7 +132,21 @@ browser-service-test:
 	cargo test -p hulladb_server --features typescript --test service_protocol --locked
 	cargo test -p hulladb_server --features typescript --test service --locked -- --ignored
 
-.PHONY: schema-migration-test
+.PHONY: schema-migration-test ci-postgres backup-test
 schema-migration-test:
 	cargo test -p hulladb_postgres --test schema_migrations --locked -- --ignored
 	cargo test -p hulladb_server --features typescript --test direct_bridge --locked schema_migration -- --ignored
+
+# Real PostgreSQL coverage is explicit: ordinary Cargo runs ignore these cases.
+# The trusted public TLS endpoint test is separate from this local database gate.
+ci-postgres:
+	@test -n "$${HULLADB_TEST_URL}" || (echo 'Set HULLADB_TEST_URL to a disposable test database' >&2; exit 1)
+	cd packages/db && bun run generate:test
+	cargo build -p hulladb_js --locked
+	cargo test -p hulladb_postgres --features typescript --test managed_functions --test schema_constraints --test schema_migrations --test production_operations --test outbox --locked -- --include-ignored --skip database_tls_authenticates_when_channel_binding_is_required
+	cargo test -p hulladb --test admin --locked -- --ignored
+	cargo test -p hulladb_server --features typescript --test direct_bridge --locked -- --ignored --skip studio_managed_operations
+	cargo test -p hulladb_server --features typescript --test managed_host --locked -- --ignored
+
+backup-test:
+	HULLADB_OPERATIONS_TEST_URL="$${HULLADB_OPERATIONS_TEST_URL:?Set a privileged disposable PostgreSQL operations test URL}" python3 -m unittest scripts.tests.test_backup -v
