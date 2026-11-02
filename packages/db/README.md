@@ -1,5 +1,10 @@
 # TypeScript function SDK
 
+`hulla-db dev` automatically applies supported schema changes to its owned local
+database on save. For production or an external database, run `npx hulla-db migrate`;
+add `--check` for a read-only preview. See
+[schema upgrades](../../docs/schema-migrations.md) for supported changes and recovery.
+
 `@hulla/db` provides direct PostgreSQL access and generated reactive
 function calls. The generated server database supports lazy CRUD builders, typed
 filters/projections, grouping and aggregates, conflicts, stable pagination and
@@ -20,27 +25,35 @@ and `Output<typeof fn>` helpers infer declaration and callable contracts.
 Optional `@hulla/db-better-auth` stores provider data in PostgreSQL; see the
 [Better Auth setup](../../docs/better-auth.md).
 
-Generation and the development watcher use Bun. Production `serve` loads prepared
-artifacts without generation and can run under Node or Bun; see the setup guide for
-installed-package commands. The npm package contains compiled JavaScript,
-declarations and native binaries; see [deployment and packaging](../../docs/deployment.md).
-There are no required npm runtime dependencies.
-Generation and `dev` use the optional TypeScript 7.0.2 peer; applications using
-those tools install it as a dev dependency (`bun add --dev typescript@7.0.2`).
-Production `serve`, direct database access and browser bindings do not load it.
+`npx hulla-db dev` uses packaged development tools, including a private Bun runtime,
+TypeScript compiler and local PostgreSQL. No Bun, PostgreSQL or Docker installation
+is needed. Omit `database.server.url` to use managed local storage; an explicit URL
+or `DATABASE_URL` uses your own database. See [local development](../../docs/browser-service.md).
+Production `serve` loads prepared artifacts under Node or Bun. Development tools
+are separate assets and are not loaded by production or browser entrypoints.
+There are no required npm runtime dependencies. See [deployment and packaging](../../docs/deployment.md).
 See [dependency boundaries](../../docs/dependencies.md) for the native components.
 
 ## Install
 
 ```sh
 npm install @hulla/db@0.1.0
-npm install --save-dev typescript@7.0.2
-bun --bun hulla-db generate db.config.ts
+npx hulla-db dev
 ```
 
 The package includes native executables for macOS arm64 and Linux x64/glibc.
 Add the matching `@hulla/db-react`, `@hulla/db-vue`, `@hulla/db-svelte` or
 `@hulla/db-solid` package for framework bindings.
+
+Run `npx hulla-db --help` for commands and examples. Interactive terminals show
+colored status messages and clickable service, Studio, and config links where
+terminal hyperlinks are supported. Redirected output stays plain; set `NO_COLOR=1`
+to disable terminal formatting and hyperlinks.
+If a service or Studio address is occupied, the CLI offers the next available
+port (press Enter), a custom address, or exit. Studio stays on loopback. Development
+retains the choice across source reloads and updates the generated client URL;
+explicit `database.client` settings still take precedence. Noninteractive runs
+report the conflict and exit instead of waiting for input.
 
 ## Declaring functions
 

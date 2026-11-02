@@ -1,4 +1,4 @@
-# Hulla DB — architecture and implementation design
+# `@hulla/db` — architecture and implementation design
 
 **Status:** Architecture proposal with schema/value/projection contracts, lossless JSON codecs, schema-driven PostgreSQL functions, atomic receipts and managed revisions implemented. Authenticated HTTP/SSE serving supports Rust and TypeScript SDKs. Native function clients use verified TLS and durable SQLite result/recovery storage; browser clients keep live results in memory. TypeScript declarations execute through the restricted transaction worker, while server code can use direct schema-typed CRUD. CDC capture and raw snapshots remain separate diagnostics. The fixed task prototype has been retired. Local browser row replicas remain deferred; the implementation sections below distinguish current behavior from future gates.
 
@@ -61,7 +61,7 @@ This is initially a database platform built around an existing storage engine. B
 - Authoritative writes must preserve ACID. Reference enforcement must be atomic
   with the write and remain correct under concurrent commands. Schema or client
   validation does not replace storage constraints and transaction isolation.
-- A live development workflow that watches schema changes and regenerates runtime schemas, both SDKs' types and validates affected handlers. Release migrations are deferred until publication.
+- A live development workflow that watches schema changes, regenerates runtime schemas and SDK types, and validates affected handlers. Application schema upgrades use the explicit additive workflow in [schema migrations](schema-migrations.md); storage/protocol changes require a separate release plan.
 - Server-authoritative transactions, permissions, and business rules.
 - Application writes use managed transactions, with synchronization tracking atomic
   with data and permissions. Database integrity takes priority over latency gains.
@@ -118,7 +118,7 @@ implementation notes below describe the checkout pending consolidation, not a ma
 to preserve obsolete paths. Future local-row support would require a new decision;
 do not maintain its alternative design or speculative extension code in the meantime.
 
-The standard deployment is a supplied Hulla DB service that discovers and runs
+The standard deployment is a supplied `@hulla/db` service that discovers and runs
 application schemas/functions. TypeScript applications author TypeScript; the package
 owns native hosting, function registration, worker management and subscriptions.
 Application frameworks and serverless functions call this service. Executor lifecycle
@@ -132,7 +132,7 @@ browser access. Server applications use the typed database directly and own thei
 API routes or framework functions, optionally through `@hulla/api`. They need not
 declare a client-facing function for every database operation. Ordinary server
 transaction callbacks run once by default, with no automatic callback replay.
-External API calls and orchestration belong in application backend code; Hulla DB
+External API calls and orchestration belong in application backend code; `@hulla/db`
 is not a general application job runner.
 
 Declared queries and mutations execute within an enforced restricted executor.
@@ -880,9 +880,9 @@ Anything delivered to a client must be considered readable and copyable by that 
 ### Ownership
 
 Decision confirmed 12 October 2026: authentication is bring-your-own. Applications
-connect an established identity provider or authentication library; neither Hulla
+connect an established identity provider or authentication library; neither `@hulla/db`
 nor its application developers should need to build password, login or session
-cryptography for this integration. Hulla does not supply account management, login
+cryptography for this integration. `@hulla/db` does not supply account management, login
 flows or its own identity provider. The mounted query/mutation endpoint delegates
 credential verification to established implementations, with a trusted custom
 server-verifier extension for existing systems. Ordinary server CRUD and transactions
@@ -920,7 +920,7 @@ explicit session-to-subscription dependency integration is implemented.
 
 Expose the application's verified, typed identity through `ctx.identity`. Browser
 payloads cannot supply a trusted user/tenant identity. The application owns roles
-and business access rules. Hulla owns the integrity of the verification boundary,
+and business access rules. `@hulla/db` owns the integrity of the verification boundary,
 transaction/snapshot execution, per-identity result isolation and live-delivery
 enforcement, including configured credential/session expiry and revocation handling.
 It does not impose a membership schema.
@@ -931,7 +931,7 @@ conditionals, with reusable helpers where useful. Checks protecting database
 invariants execute in the same snapshot/transaction as the protected operation.
 No RLS, table-level policy language or separate native policy implementation is
 required to author an ordinary application. Optional row/table-level enforcement
-may supplement handlers as an advanced capability. Hulla must still track database
+may supplement handlers as an advanced capability. `@hulla/db` must still track database
 reads made by authorization helpers for live invalidation and must not reuse live
 query results without the applicable authorization checks. Decision confirmed
 17 October 2026: short-lived mutation confirmation delivers the original authorized
@@ -998,7 +998,8 @@ A storage backend must provide more than SQL execution:
 
 - Logical-to-physical type mappings, query compilation and capability reporting.
 - Transactions, storage constraints, concurrency protection and normalized errors.
-- Schema installation; release migrations are deferred until publication.
+- Schema installation and explicit additive [application upgrades](schema-migrations.md).
+  Changes to the storage/protocol format require a separate publication upgrade plan.
 - Atomic managed invalidation revisions with data, policy and request receipts.
 - Consistent authorized snapshots paired with source identity and revision.
 - Recovery, duplicate handling and explicit source-reset semantics.

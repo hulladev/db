@@ -1,13 +1,25 @@
 # Dependency boundaries
 
 The SDK has no required npm runtime dependencies. Browser bindings and production
-Node/Bun entrypoints use platform APIs. TypeScript 7.0.2 is a development dependency
-and optional peer used by generation and `dev`; install it in the application's
-build environment. Zod 4 is an optional peer for `@hulla/db/zod`: applications
+Node/Bun entrypoints use platform APIs. Generation and `dev` use a privately packaged
+Bun runtime and TypeScript 7.0.2 compiler, rather than an application peer dependency.
+Development assets include a local PostgreSQL 18.6 build; an explicit connection
+does not start or initialize it. Production entrypoints do not load this tooling.
+Zod 4 is an optional peer for `@hulla/db/zod`: applications
 choosing that adapter supply it; ordinary core entrypoints do not import it.
 Valibot and `@types/*` remain development fixtures/tooling. Prepared `serve` does not import the
 compiler. Native executables are built before packaging, without install scripts
 or installation-time downloads.
+
+Local PostgreSQL is built from the official 18.6 source archive with its pinned
+SHA-256. The build disables optional ICU, readline, compression and TLS libraries;
+it listens on loopback with PostgreSQL's SCRAM authentication. Original PostgreSQL,
+TypeScript and bundled Bun notices accompany the assets. The October 26 check of
+[PostgreSQL 18 advisories](https://www.postgresql.org/support/security/18/) found no
+listed fix newer than 18.6. This is scoped to the added PostgreSQL dependency.
+The distributed Bun runtime is pinned to 1.4.4, which includes the upstream
+[October 22 security fixes](https://bun.sh/blog/bun-v1.4.4). This avoids shipping
+the older maintainer runtime as a newly introduced application dependency.
 
 Separate UI packages use their matching framework and `@hulla/db` as peers.
 `@hulla/db-better-auth` uses Better Auth as a peer and its already-resolved

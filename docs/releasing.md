@@ -35,7 +35,28 @@ bun run release:check
 
 Stage genuine native binaries first when they are missing or runtime source has
 changed. Build the macOS arm64 executables on that host with
-`bun run --cwd packages/db build:native`. For Linux x64, build and stage the
+`bun run --cwd packages/db build:native`, then stage the development tools:
+Use Bun 1.4.4 for `build:development`; it pins the distributed runtime independently
+of the application's JavaScript runtime.
+
+```sh
+bun run --cwd packages/db build:postgres
+bun run --cwd packages/db build:development
+bun run --cwd packages/db build
+bun packages/db/tests/development.integration.ts
+```
+
+`build:postgres` builds the checksum-pinned official PostgreSQL 18.6 source on the
+target host using its C compiler and Make. It also accepts `--source-archive <file>`
+for an offline source archive, with the same checksum verification. The resulting
+bundle contains the server, initialization tool, runtime libraries and data files,
+without optional system libraries. On macOS it rewrites and signs library references
+so assets remain usable after leaving the build directory. `build:development`
+compiles the private Bun runtime, stages TypeScript and its native compiler/standard
+library, and preserves upstream notices. Consumers build or download none of these
+tools at installation or startup. Bun 1.4.4 is a maintainer build dependency.
+
+For Linux x64, build and stage the
 genuine cross-platform assets:
 
 ```sh
@@ -43,14 +64,22 @@ docker build --platform linux/amd64 -f packages/db/Dockerfile.native \
   --output type=local,dest=/tmp/hulladb-native .
 cd packages/db
 bun run build:native --from /tmp/hulladb-native/native --platform linux-x64
+bun run build:development --from /tmp/hulladb-native/native --platform linux-x64
 cd ../..
 ```
 
 The release requires both `darwin-arm64` and `linux-x64`; Linux uses glibc.
 Other native targets need their own build and execution evidence before inclusion.
 Browser bindings do not execute native binaries.
+Package checks require development assets for every included native target, so
+a candidate with only runtime binaries cannot accidentally ship a broken `dev`
+command. The installed development check must also run on each released target;
+macOS arm64 is verified locally, while Linux still needs its own execution evidence.
+It exercises generation, inferred Date codecs, hot reload, persistence, schema
+mismatch recovery, external database ownership and process cleanup with no Bun,
+compiler or PostgreSQL installation on the consumer's PATH.
 
-For a full release, artifacts are written under `output/releases/<rust-version>/`: six npm tarballs, nine Cargo
+For a full release, artifacts are written under `output/releases/<rust-version>/`: seven npm tarballs, nine Cargo
 archives, `manifest.json` and `SHA256SUMS`. The manifest records exact archive
 hashes, package sizes, source HEAD and whether the checkout was dirty. Treat a
 dirty candidate as review material: commit the reviewed source, rerun preparation
@@ -77,7 +106,7 @@ checkout. It uses npm to resolve the unpublished sibling tarballs, generates an
 application through the installed CLI, compiles all framework/Better Auth consumers,
 checks the browser bundle and license files, and runs the packaged native processes
 under Node without checkout/PATH fallbacks. It also runs npm publication dry runs
-for all six archives without uploading them. The temporary consumer is removed
+for all seven archives without uploading them. The temporary consumer is removed
 whether checks pass or fail. It also extracts the nine Cargo archives outside the
 checkout and checks every target/feature against those extracted sibling packages,
 using cached registry dependencies. This is archive validation; it does not replace the
@@ -85,11 +114,12 @@ SDK or PostgreSQL behavior tests recorded in the implementation/deployment notes
 
 ## Publication order
 
-Publish npm core first, followed by the five peer integrations:
+Publish npm core first, followed by Studio and the five framework/auth integrations:
 
 ```text
 @hulla/db
 @hulla/db-react
+@hulla/db-studio
 @hulla/db-vue
 @hulla/db-svelte
 @hulla/db-solid
@@ -143,6 +173,9 @@ Macros and the isolated JS worker retain their separate compiler/process boundar
 
 Initialization verifies an existing schema and refuses incompatible storage; it
 does not reset data or run migrations. Back up existing data before deployment.
+A separate explicit [application schema upgrade](schema-migrations.md) can add
+tables and nullable/defaulted fields within this storage baseline. Ship matching
+native executables and SDK artifacts containing the migration command.
 A future release that changes persisted server/client data or the protocol must
 provide an explicit upgrade/recovery plan before publication, including required
 privileges, destructive steps, rollback guarantees and mixed-version handling.

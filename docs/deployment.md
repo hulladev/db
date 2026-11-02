@@ -30,6 +30,10 @@ origin and HTTPS ingress that preserves SSE streaming without buffering. Configu
 the application's existing auth provider on both server boundaries, and notify the
 browser SDK through `setAuth` when its auth state changes.
 
+Changing an installed application schema requires a maintenance window and an
+explicit [schema upgrade](schema-migrations.md) before restarting the matching
+application and service. Deployment and serving never run a migration implicitly.
+
 For managed PostgreSQL, check TLS, connection limits and session behavior against
 the actual endpoint. A PostgreSQL-compatible label does not establish compatibility
 with transaction poolers: session settings and connection lifetime matter. Direct
@@ -41,7 +45,6 @@ Install the core SDK and any framework/auth integrations from npm:
 
 ```sh
 npm install @hulla/db@0.1.0
-npm install --save-dev typescript@7.0.2
 ```
 
 The package includes JavaScript, TypeScript declarations and native executables
@@ -60,9 +63,8 @@ service. Package maintainers can build and validate archives using the
 From the application with the package installed:
 
 ```sh
-# Build environment: Bun performs discovery and handler bundling.
-bun add --dev typescript@7.0.2
-bun --bun node_modules/@hulla/db/dist/cli.js generate db.config.ts
+# Build environment: the CLI uses its private runtime and compiler.
+npx hulla-db generate db.config.ts
 
 # Explicit provisioning step, using an appropriate database credential.
 node node_modules/@hulla/db/dist/cli.js init db.config.ts
@@ -75,6 +77,12 @@ Include the config, schema, generated artifacts and their dependencies in the
 service deployment. `serve` reads prepared artifacts and verifies existing storage.
 Initialization never silently resets incompatible development storage. Provisioning
 and application credentials should have distinct responsibilities.
+
+For local development, `npx hulla-db dev` can manage its own persistent PostgreSQL
+instance when no URL is configured. Production requires `database.server.url` or
+`DATABASE_URL` and never falls back to local development credentials. The private
+runtime, compiler and PostgreSQL live in separate development assets; production
+file tracing does not need to retain them. See [local setup](browser-service.md).
 
 Application bundlers must retain the native files. The
 [Next.js fixture](../deploy/cloud/next-app/next.config.mjs) uses an external server
@@ -111,6 +119,7 @@ Validation currently covers:
 | Environment | Verified behavior |
 | --- | --- |
 | macOS arm64, Node 22.18 and Bun 1.4 | Generated direct operations, rollback and service startup |
+| macOS arm64, Node 22.18 with an empty tool PATH | Packaged development runtime/compiler, owned PostgreSQL, hot reload, persistence, external database selection and shutdown |
 | Linux x64, Node 22.18, Debian Bookworm container | Installed package, native startup, CRUD, rollback and service query through the restricted handler engine |
 | Node/Bun process and PostgreSQL lifecycle tests | Idle drain, concurrent use, stale-session replacement and suspended-transaction rollback |
 | Next 16.4.2 standalone and Chromium | Traced native binary, SSR, route/server-action writes, live query updates, rollback and revoked-session data clearing |

@@ -27,7 +27,7 @@ import { defineConfig } from '@hulla/db/config'
 
 export default defineConfig({
   database: {
-    server: { url: process.env.DATABASE_URL! },
+    server: {}, // CLI-managed PostgreSQL; set a URL or DATABASE_URL to use your own.
     client: { url: "http://localhost:3001", credentials: "include" },
   },
   service: {
@@ -45,7 +45,7 @@ access, terminate HTTPS at your deployment's reverse proxy.
 Generate the constructors before authoring functions:
 
 ```sh
-bun --bun hulla-db generate db.config.ts
+npx hulla-db generate db.config.ts
 ```
 
 Then declare functions beside the schema:
@@ -69,29 +69,51 @@ This example uses Zod as the application's Standard Schema validator. It is not 
 required database dependency. Function discovery includes query/mutation declarations;
 ordinary exported helpers do not become endpoints.
 
-Initialize storage explicitly, then start development:
+Start development:
 
 ```sh
-bun --bun hulla-db init db.config.ts
-bun --bun hulla-db dev db.config.ts
+npx hulla-db dev db.config.ts
 ```
 
-`dev` uses Bun to generate bindings and the private handler bundle, start the service,
-and restart it after source changes. Each restart uses a fresh process so changed
+`dev` uses a private bundled runtime and compiler to generate bindings and the
+handler bundle, start the service, and restart it after source changes. Bun,
+TypeScript, PostgreSQL and Docker do not need to be installed separately.
+With no server URL or `DATABASE_URL`, it starts its own foreground PostgreSQL
+process and initializes that database. Storage persists in `.hulla/postgres`;
+the private connection lives in `.hulla/local.json`. Add `.hulla/` to the application's
+`.gitignore`. Generated server imports find this connection from a separate Node/Bun
+application, independent of its working directory. If `database.client` is omitted,
+`dev` generates a loopback client URL using the service port (3001 by default).
+An ephemeral service port (`0`) requires an explicit client URL.
+
+For your own database, set `database.server.url` or `DATABASE_URL`, then run
+`npx hulla-db init db.config.ts` before starting `dev`. External storage is never
+initialized automatically. Explicit config URLs take precedence over the environment.
+
+Each restart uses a fresh process so changed
 configuration and declarations are reloaded. It watches the config directory and
 any separately configured schema/function directories. Generated files, dependencies,
 Git metadata, logs and common framework/build/cache directories do not trigger
 restart loops. Imported helpers outside these roots and external symlink targets
 require a manual restart. Invalid edits stop that attempt; the
-watcher remains available for the next correction. Development never initializes or
-resets storage; schema changes may require explicit provisioning of development data.
+watcher remains available for the next correction. Managed development verifies
+storage on each restart and automatically applies supported additive schema changes
+after generation succeeds. Existing rows and IDs are preserved; unsupported changes
+leave storage unchanged and wait for corrected source. External databases require
+an explicit `npx hulla-db migrate`; use `--check` for a read-only preview.
+Development never resets incompatible data. To discard local data,
+stop development and explicitly remove `.hulla/`, then restart. A second managed
+development process is rejected by the project lock. After a crash, confirm the
+old processes have exited before removing a stale `.hulla/dev.lock` directory.
+PostgreSQL startup diagnostics are retained in `.hulla/postgres.log`, bounded to
+16 KiB. Ctrl-C stops the service and owned PostgreSQL while preserving storage.
 
 For startup from prepared artifacts, generate during your build step, then use
 `serve` in the runtime you choose:
 
 ```sh
-# Build step: Bun is required.
-bun --bun hulla-db generate db.config.ts
+# Build step: the CLI uses its packaged runtime and compiler.
+npx hulla-db generate db.config.ts
 
 # Runtime step: choose Node or Bun.
 node node_modules/@hulla/db/dist/cli.js serve db.config.ts
@@ -106,14 +128,10 @@ The auth verifier executes in the chosen Node or Bun process; handler declaratio
 execute in the same restricted native engine in either case.
 
 The npm package contains compiled JavaScript and native binaries for macOS arm64
-and Linux x64/glibc. Node services require Node 22.18+; generation and `dev` require
-Bun and the TypeScript 7.0.2 development dependency. Application database calls and
-`serve` contain no Bun runtime dependency, so a Node application can generate in
-a separate Bun build environment.
-
-The packaged `hulla-db` executable uses Node. Use `bun --bun hulla-db generate`
-and `bun --bun hulla-db dev` for build and development commands. Commands default
-to `db.config.ts` in the current directory.
+and Linux x64/glibc. Node services and the CLI require Node 22.18+; generation and
+`dev` use packaged development assets. Application database calls and `serve` do
+not load the compiler, development runtime or local PostgreSQL binaries. Production
+requires an explicit PostgreSQL URL. Commands default to `db.config.ts` in the current directory.
 
 `HULLADB_SERVICE`, `HULLADB_ENGINE` and `HULLADB_JS` optionally select separately
 installed compatible executables. Ordinary installations use the binaries bundled

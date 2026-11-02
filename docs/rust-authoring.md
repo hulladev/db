@@ -197,7 +197,8 @@ Cross-language generation from Rust function signatures and framework-specific
 authentication providers are separate work. TypeScript handlers can execute through
 the optional [transaction worker](typescript-functions.md).
 Typed native admin transactions and Node/Bun request adapters are described in
-[production operations](production-readiness.md). No compatibility versions or upgrade migrations are added.
+[production operations](production-readiness.md). Explicit additive application changes
+use `ManagedStore::plan_migration` and `apply_migration`; see [schema upgrades](schema-migrations.md).
 
 ## Serializable mutation registration
 

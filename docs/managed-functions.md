@@ -32,6 +32,8 @@ Initialization, and serving-only `verify`, check an existing contract, including
 generators, references, and uniqueness semantics. It never alters or resets
 incompatible storage. This equality check is not schema generation/versioning or
 an upgrade migration. Recreate incompatible development fixtures explicitly.
+Supported application changes use the separate explicit [schema migration](schema-migrations.md)
+workflow; initialization and serving retain their strict equality check.
 Physical catalog edits and external SQL are outside the managed write boundary.
 PostgreSQL text cannot store NUL; managed string writes/predicates reject it.
 

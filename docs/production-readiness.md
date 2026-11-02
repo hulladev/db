@@ -4,8 +4,8 @@ The registered-function runtime now has separate operator/runtime/backup/worker 
 roles, durable scope quotas, per-principal host admission budgets, typed native
 admin transactions, Node/Bun request integration and a self-hosted container
 starter. These are deployment primitives and an application example, not a
-managed cloud control plane. Publication compatibility and upgrade migrations
-remain deliberately deferred.
+managed cloud control plane. Explicit additive [application schema upgrades](schema-migrations.md)
+preserve existing data within the published storage baseline.
 
 ## Database roles and transport
 
@@ -240,10 +240,16 @@ for the development backup drill, or another explicitly chosen privileged URL.
 The drill creates/removes only its own unique fixture namespace and restore database. Broader managed runtime and HTTP
 integration checks remain `make db-test sdk-adapters-test`.
 
+Hosted CI additionally runs `make ci-postgres` against PostgreSQL 18, including
+schema migration and Node/Bun consumer cases. A separate container step runs the
+backup/restore drill with matching PostgreSQL tools. Run `make schema-migration-test`
+and `make backup-test` locally for those focused gates.
+
 Before operating a real deployment, choose the TLS proxy and authentication
 provider, off-host encrypted backup schedule, monitoring and alert thresholds,
 receipt retention policy, capacity envelope and incident ownership. Exercise the
 drill with representative data and record RPO/RTO. The starter is single-region;
 shared admission limiting, failover/PITR and managed-cloud provisioning are separate
-operator/platform integrations. Schema/protocol/file-format compatibility and
-migrations are added at publication, never by silent fixture reset.
+operator/platform integrations. Protocol/file-format changes need their own
+publication upgrade plan; application schema changes use the explicit additive
+migration workflow and never reset fixtures silently.

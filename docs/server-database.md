@@ -20,7 +20,7 @@ import { defineConfig } from '@hulla/db/config'
 
 export default defineConfig({
   database: { server: {
-    url: process.env.DATABASE_URL!,
+    // Omit url for CLI-managed local development; set DATABASE_URL to use your database.
   } },
 })
 ```
@@ -50,26 +50,34 @@ Install the SDK in your application and generate from the directory containing
 
 ```sh
 npm install @hulla/db@0.1.0
-npm install --save-dev typescript@7.0.2
-bun --bun hulla-db generate db.config.ts
-bun --bun hulla-db init db.config.ts
+npx hulla-db dev db.config.ts
 ```
 
 The npm package includes compiled JavaScript, declarations and native executables
 for macOS arm64 and Linux x64/glibc. It does not compile Rust or download executables
 during installation. See [deployment](deployment.md) for supported hosts.
-The generated database runs in Node 22.18+ or Bun; using Bun for generation does
-not select the application runtime.
+The generated database runs in Node 22.18+ or Bun. The CLI's private development
+runtime and compiler do not require Bun or TypeScript to be installed separately.
+Managed local PostgreSQL runs only while `dev` is running; the generated server
+finds its connection relative to the config, including from a separate app process.
+Production requires an explicit URL or `DATABASE_URL`.
 
 Generation produces `_generated/server`, `functions`, `types`, `tables` and `client` beside
 the schema. No listener or database connection starts during generation or import.
 Server connection settings and handler implementations are excluded from generated
 browser bindings.
 
-Initialization is explicit. Repeating it verifies matching storage and preserves
-existing data. An incompatible schema produces an error; initialization never
+For an existing PostgreSQL instance, set `database.server.url` or `DATABASE_URL`,
+then run `npx hulla-db generate` and `npx hulla-db init` explicitly before `dev`.
+Managed local development initializes its own storage automatically. Repeating
+initialization verifies matching storage and preserves existing data. An incompatible schema produces an error; initialization never
 silently resets it or applies an upgrade migration. Use an appropriate provisioning
 credential for this command and application credentials for normal access.
+
+For an existing application, `npx hulla-db migrate` applies supported additive
+changes directly; add `--check` for a read-only preview. Owned local development
+applies supported changes automatically on save. See [schema upgrades](schema-migrations.md)
+for data preservation, maintenance windows, supported changes and rollback.
 
 ## Read and write
 

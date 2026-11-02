@@ -1,4 +1,4 @@
-# Hulla DB
+# `@hulla/db`
 
 A Rust database platform with PostgreSQL as its authoritative backend and initial
 Rust and TypeScript SDKs (`hulladb` and `@hulla/db`). Runtime responsiveness,
@@ -46,6 +46,8 @@ The [transactional outbox](docs/outbox.md) commits external jobs with mutations,
 with leased workers, bounded retries, dead letters and stable idempotency keys.
 [Operational visibility](docs/operations-visibility.md) adds host counters, scope
 diagnostics and bounded receipt compaction that preserves request identities.
+The optional [`@hulla/db-studio`](docs/studio.md) provides a relationship map and searchable
+schema catalog, plus table filtering, pagination, managed editing and bulk deletion.
 Local browser table replicas remain future work. The
 [production operations starter](docs/production-readiness.md) supplies role provisioning,
 durable quotas, framework request scopes, typed admin transactions, backup/restore
@@ -66,7 +68,6 @@ Install the core SDK and the binding for your application:
 
 ```sh
 npm install @hulla/db@0.1.0 @hulla/db-react@0.1.0 zod
-npm install --save-dev typescript@7.0.2
 ```
 
 Use `@hulla/db-vue`, `@hulla/db-svelte` or `@hulla/db-solid` for other UI
@@ -81,8 +82,11 @@ cargo add hulladb@0.1.1
 ```
 
 The npm SDK includes macOS arm64 and Linux x64/glibc native executables. Server
-access requires Node 22.18+ or Bun; generation and the development watcher require
-Bun and TypeScript. Browser bindings do not launch native executables.
+access requires Node 22.18+ or Bun. `npx hulla-db dev` uses a private bundled runtime
+and compiler, with local PostgreSQL when `database.server.url` and `DATABASE_URL`
+are omitted. Users do not need Bun, PostgreSQL or Docker installed. Local data
+persists in `.hulla`; explicit connections keep using your own database. See
+[development setup](docs/browser-service.md). Browser bindings do not launch native executables.
 
 ## Development
 
@@ -97,6 +101,8 @@ make client-test            # Native HTTP/SSE and TLS regressions.
 make db-test server-test     # Managed PostgreSQL functions and HTTP/SSE integration.
 make remote-functions-check  # Client-only Rust bindings and durable cache/recovery.
 make production-test        # Role/quota/admin database checks and backup drill.
+make schema-migration-test # Additive upgrades with populated PostgreSQL and Node/Bun CLI.
+make ci-postgres           # Selected real-database CI gate; requires HULLADB_TEST_URL.
 make rust-authoring-test   # Rust derives, callables and typed transactions.
 make sdk-adapters-test     # Generated TypeScript calls against HTTP/SSE/PostgreSQL.
 make typescript-functions-test # Authored TypeScript handlers through managed transactions.
@@ -148,10 +154,11 @@ limit enforced at checkpoints. Lagging slots may expire; this is not an exact
 instantaneous disk cap. Startup waits for readiness and preserves the data volume.
 `db-down` removes the container/network while retaining that volume.
 
-Initialization creates the current development schema and a stable source identity.
-Until Cargo/npm publication, incompatible schemas and local fixtures are recreated
-explicitly; no upgrade migrations or protocol-version compatibility are maintained.
-Initialization never resets existing data. See the [managed runtime](docs/managed-functions.md)
+Initialization creates the current schema and a stable source identity.
+Explicit [application schema upgrades](docs/schema-migrations.md) add tables or
+nullable/defaulted fields while preserving existing data. Unsupported development
+fixtures still require explicit recreation; initialization never resets existing
+data or migrates implicitly. See the [managed runtime](docs/managed-functions.md)
 and [restore procedure](docs/production-readiness.md). Database tests use owned
 schemas/publications/slots and temporary SQLite files. Successful runs clean
 up their fixtures; failed runs can leave diagnostic resources. Never reset an
