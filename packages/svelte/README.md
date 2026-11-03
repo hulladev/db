@@ -69,10 +69,10 @@ For a complete server-rendered application, see the
 
 ## AI agent guidance
 
-Install the [hulla-db skill](https://github.com/hulladev/skills/tree/main/skills/hulla-db) for package-specific guidance on generated functions, subscription lifecycles, authentication scopes, and framework bindings:
+Install the [@hulla/db skill](https://github.com/hulladev/skills/tree/main/skills/db) for package-specific guidance on generated functions, subscription lifecycles, authentication scopes, and framework bindings:
 
 ```sh
-npx skills add hulladev/skills --skill hulla-db
+npx skills add hulladev/skills --skill db
 ```
 
 Choose your coding agent in the installer. See [installation and version compatibility](https://hulla.dev/docs/cli/agent-skills) before adding or updating skills in your application.

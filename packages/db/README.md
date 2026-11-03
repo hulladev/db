@@ -36,10 +36,10 @@ See [dependency boundaries](../../docs/dependencies.md) for the native component
 
 ## AI agent guidance
 
-Install the [hulla-db skill](https://github.com/hulladev/skills/tree/main/skills/hulla-db) for package-specific guidance on schemas, server transactions, restricted handlers, and generated live clients:
+Install the [@hulla/db skill](https://github.com/hulladev/skills/tree/main/skills/db) for package-specific guidance on schemas, server transactions, restricted handlers, and generated live clients:
 
 ```sh
-npx skills add hulladev/skills --skill hulla-db
+npx skills add hulladev/skills --skill db
 ```
 
 Choose your coding agent in the installer. See [installation and version compatibility](https://hulla.dev/docs/cli/agent-skills) before adding or updating skills in your application.

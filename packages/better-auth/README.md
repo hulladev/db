@@ -29,10 +29,10 @@ Better Auth owns authentication; the application owns routes and authorization.
 
 ## AI agent guidance
 
-Install the [hulla-db skill](https://github.com/hulladev/skills/tree/main/skills/hulla-db) for package-specific guidance on database schemas, server authorization, and generated client authentication scopes:
+Install the [@hulla/db skill](https://github.com/hulladev/skills/tree/main/skills/db) for package-specific guidance on database schemas, server authorization, and generated client authentication scopes:
 
 ```sh
-npx skills add hulladev/skills --skill hulla-db
+npx skills add hulladev/skills --skill db
 ```
 
 Choose your coding agent in the installer. See [installation and version compatibility](https://hulla.dev/docs/cli/agent-skills) before adding or updating skills in your application.
