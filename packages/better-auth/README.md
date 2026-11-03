@@ -26,3 +26,13 @@ options to the schema helper and Better Auth when using plugins or custom fields
 See the [complete setup](../../docs/better-auth.md) for schema bootstrap, generated
 static schemas, session verification, browser auth changes and supported limits.
 Better Auth owns authentication; the application owns routes and authorization.
+
+## AI agent guidance
+
+Install the [hulla-db skill](https://github.com/hulladev/skills/tree/main/skills/hulla-db) for package-specific guidance on database schemas, server authorization, and generated client authentication scopes:
+
+```sh
+npx skills add hulladev/skills --skill hulla-db
+```
+
+Choose your coding agent in the installer. See [installation and version compatibility](https://hulla.dev/docs/cli/agent-skills) before adding or updating skills in your application.

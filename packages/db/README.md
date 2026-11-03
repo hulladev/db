@@ -34,6 +34,16 @@ are separate assets and are not loaded by production or browser entrypoints.
 There are no required npm runtime dependencies. See [deployment and packaging](../../docs/deployment.md).
 See [dependency boundaries](../../docs/dependencies.md) for the native components.
 
+## AI agent guidance
+
+Install the [hulla-db skill](https://github.com/hulladev/skills/tree/main/skills/hulla-db) for package-specific guidance on schemas, server transactions, restricted handlers, and generated live clients:
+
+```sh
+npx skills add hulladev/skills --skill hulla-db
+```
+
+Choose your coding agent in the installer. See [installation and version compatibility](https://hulla.dev/docs/cli/agent-skills) before adding or updating skills in your application.
+
 ## Install
 
 ```sh

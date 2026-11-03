@@ -88,6 +88,16 @@ are omitted. Users do not need Bun, PostgreSQL or Docker installed. Local data
 persists in `.hulla`; explicit connections keep using your own database. See
 [development setup](docs/browser-service.md). Browser bindings do not launch native executables.
 
+## AI agent guidance
+
+Install the [hulla-db skill](https://github.com/hulladev/skills/tree/main/skills/hulla-db) for package-specific guidance on TypeScript schemas, server transactions, restricted handlers, and generated live clients:
+
+```sh
+npx skills add hulladev/skills --skill hulla-db
+```
+
+Choose your coding agent in the installer. See [installation and version compatibility](https://hulla.dev/docs/cli/agent-skills) before adding or updating skills in your application.
+
 ## Development
 
 Install the pinned Rust 1.98.1 toolchain, Make and Python 3.9+. Docker Compose v2

@@ -4,7 +4,7 @@
 npm install @hulla/db@0.1.0 @hulla/db-solid@0.1.0 solid-js
 ```
 
-Solid bindings for generated Hulla functions. Install alongside `@hulla/db` and
+Solid bindings for generated `@hulla/db` functions. Install alongside `@hulla/db` and
 `solid-js`, then set `database.client` before generation.
 
 ```tsx
@@ -56,3 +56,13 @@ and the ordinary error-retention option. See the
 
 For a complete server-rendered application, see the
 [SolidStart recipe](../../docs/frameworks/solidstart.md).
+
+## AI agent guidance
+
+Install the [hulla-db skill](https://github.com/hulladev/skills/tree/main/skills/hulla-db) for package-specific guidance on generated functions, subscription lifecycles, authentication scopes, and framework bindings:
+
+```sh
+npx skills add hulladev/skills --skill hulla-db
+```
+
+Choose your coding agent in the installer. See [installation and version compatibility](https://hulla.dev/docs/cli/agent-skills) before adding or updating skills in your application.

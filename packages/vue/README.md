@@ -4,7 +4,7 @@
 npm install @hulla/db@0.1.0 @hulla/db-vue@0.1.0 vue
 ```
 
-Vue 3 bindings for generated Hulla functions. Install alongside `@hulla/db` and
+Vue 3 bindings for generated `@hulla/db` functions. Install alongside `@hulla/db` and
 `vue`, then set `database.client` before generating your app.
 The bindings use the core runtime's cache, authorization and subscriptions.
 
@@ -61,3 +61,13 @@ and the ordinary error-retention option. See the
 
 For a complete server-rendered application, see the
 [Nuxt recipe](../../docs/frameworks/nuxt.md).
+
+## AI agent guidance
+
+Install the [hulla-db skill](https://github.com/hulladev/skills/tree/main/skills/hulla-db) for package-specific guidance on generated functions, subscription lifecycles, authentication scopes, and framework bindings:
+
+```sh
+npx skills add hulladev/skills --skill hulla-db
+```
+
+Choose your coding agent in the installer. See [installation and version compatibility](https://hulla.dev/docs/cli/agent-skills) before adding or updating skills in your application.
