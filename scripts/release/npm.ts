@@ -32,7 +32,7 @@ try {
     await Bun.write(join(stage, "README.md"), readme);
     await Bun.write(join(stage, "LICENSE"), Bun.file(join(root, "LICENSE")));
     if (directory === "db") {
-      await cp(join(source, "development"), join(stage, "development"), { recursive: true });
+      await cp(join(source, "development"), join(stage, "development"), { recursive: true, dereference: true });
       for (const platform of platforms) {
         for (const executable of executables) await verifyNative(join(source, "native", platform, executable), platform);
         await verifyDevelopment(source, platform);
