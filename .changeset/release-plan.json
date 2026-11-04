@@ -1,0 +1,42 @@
+{
+  "repository": "hulladev/db",
+  "version": "0.1.3",
+  "tag": "v0.1.3",
+  "packages": [
+    {
+      "name": "@hulla/db",
+      "version": "0.1.3",
+      "directory": "packages/db"
+    },
+    {
+      "name": "@hulla/db-better-auth",
+      "version": "0.1.3",
+      "directory": "packages/better-auth"
+    },
+    {
+      "name": "@hulla/db-react",
+      "version": "0.1.3",
+      "directory": "packages/react"
+    },
+    {
+      "name": "@hulla/db-solid",
+      "version": "0.1.3",
+      "directory": "packages/solid"
+    },
+    {
+      "name": "@hulla/db-studio",
+      "version": "0.1.3",
+      "directory": "packages/studio"
+    },
+    {
+      "name": "@hulla/db-svelte",
+      "version": "0.1.3",
+      "directory": "packages/svelte"
+    },
+    {
+      "name": "@hulla/db-vue",
+      "version": "0.1.3",
+      "directory": "packages/vue"
+    }
+  ]
+}
