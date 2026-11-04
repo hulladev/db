@@ -97,7 +97,7 @@ export function hullaAdapter<S extends SchemaDefinition>(db: Database<S>): Adapt
             });
           },
           async updateMany({ model, where, update }) {
-            return (await database.update(model, update).where(filter(where))).length;
+            return atomic(async tx => (await tx.update(model, update).where(filter(where))).length);
           },
           async delete({ model, where }) {
             await atomic(async tx => {
@@ -105,7 +105,7 @@ export function hullaAdapter<S extends SchemaDefinition>(db: Database<S>): Adapt
               if (row) await tx.delete(model).where({ id: row.id });
             });
           },
-          async deleteMany({ model, where }) { return (await database.delete(model).where(filter(where))).length; },
+          async deleteMany({ model, where }) { return atomic(async tx => (await tx.delete(model).where(filter(where))).length); },
           async consumeOne<T>({ model, where }: Parameters<NonNullable<CustomAdapter["consumeOne"]>>[0]) {
             return atomic(async tx => {
               const row = await first(tx, model, where);
