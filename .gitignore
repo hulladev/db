@@ -17,3 +17,6 @@ node_modules/
 /packages/db/*.tgz
 
 /output/releases/
+
+# Release workflow artifacts
+/.release/

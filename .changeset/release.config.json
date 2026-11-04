@@ -1,0 +1,17 @@
+{
+  "repository": "hulladev/db",
+  "title": "@hulla/db",
+  "packageManager": "bun",
+  "packages": [
+    "packages/better-auth",
+    "packages/db",
+    "packages/react",
+    "packages/solid",
+    "packages/studio",
+    "packages/svelte",
+    "packages/vue"
+  ],
+  "smokeImports": ["@hulla/db/bindings", "@hulla/db/schema"],
+  "smokeDependencies": [],
+  "stagedArchives": "output/releases"
+}

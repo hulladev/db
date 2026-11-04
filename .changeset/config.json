@@ -1,0 +1,24 @@
+{
+  "changelog": "@changesets/cli/changelog",
+  "commit": false,
+  "linked": [],
+  "access": "public",
+  "updateInternalDependencies": "patch",
+  "ignore": [],
+  "fixed": [
+    [
+      "@hulla/db-better-auth",
+      "@hulla/db",
+      "@hulla/db-react",
+      "@hulla/db-solid",
+      "@hulla/db-studio",
+      "@hulla/db-svelte",
+      "@hulla/db-vue"
+    ]
+  ],
+  "baseBranch": "main",
+  "privatePackages": {
+    "version": false,
+    "tag": false
+  }
+}

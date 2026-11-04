@@ -1,10 +1,10 @@
 {
   "name": "@hulla/db-workspace",
   "private": true,
-  "type": "module",
   "workspaces": [
     "packages/*"
   ],
+  "type": "module",
   "scripts": {
     "build": "bun run --cwd packages/db build && bun run --cwd packages/studio build && bun run --cwd packages/react build && bun run --cwd packages/vue build && bun run --cwd packages/svelte build && bun run --cwd packages/solid build && bun run --cwd packages/better-auth build",
     "test:bindings": "bun --conditions=hulladb-source test packages/db/tests/bindings.test.ts && bun run --cwd packages/react test && bun run --cwd packages/vue test && bun run --cwd packages/svelte test && bun run --cwd packages/solid test",
@@ -15,6 +15,18 @@
     "release:prepare": "bun run release:npm && bun run release:cargo && bun run release:manifest",
     "release:prepare:cargo": "bun run release:cargo && bun run release:manifest --cargo-only",
     "release:check:cargo": "bun scripts/release/verify-cargo.ts",
-    "release:check": "bun scripts/release/verify-npm.ts && bun scripts/release/dry-run.ts && bun scripts/release/verify-cargo.ts"
-  }
+    "release:check": "bun scripts/release/verify-npm.ts && bun scripts/release/dry-run.ts && bun scripts/release/verify-cargo.ts",
+    "changeset": "changeset",
+    "version:packages": "changeset version && node scripts/release.mjs prepare && bun install --lockfile-only --ignore-scripts",
+    "test:release": "node --test scripts/release-checks.mjs",
+    "release:pack": "node scripts/release.mjs pack",
+    "release:publish": "node scripts/release.mjs publish",
+    "release:verify": "node scripts/release.mjs verify",
+    "release": "node scripts/release.mjs publish",
+    "release:check:npm": "bun run --cwd packages/db check && bun run test:bindings && bun run test:auth && bun run release:npm && bun run --cwd packages/studio test && bun scripts/release/verify-npm.ts && bun scripts/release/dry-run.ts && bun run test:release"
+  },
+  "devDependencies": {
+    "@changesets/cli": "3.0.3"
+  },
+  "packageManager": "bun@1.4.4"
 }

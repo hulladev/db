@@ -1,9 +1,19 @@
 {
   "name": "@hulla/db-studio",
   "version": "0.1.2",
-  "type": "module",
   "description": "Optional local database workbench for @hulla/db",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hulladev/db.git",
+    "directory": "packages/studio"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "type": "module",
   "exports": {
     ".": {
       "hulladb-source": "./src/index.ts",
@@ -11,14 +21,14 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist", "README.md", "LICENSE"],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "scripts": {
     "build": "bun scripts/build.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun --conditions=hulladb-source test tests/*.test.ts"
-  },
-  "peerDependencies": {
-    "@hulla/db": "^0.1.2"
   },
   "devDependencies": {
     "@fontsource-variable/schibsted-grotesk": "5.3.0",
@@ -30,16 +40,10 @@
     "highlight.js": "11.12.0",
     "typescript": "7.0.2"
   },
+  "peerDependencies": {
+    "@hulla/db": "^0.1.2"
+  },
   "engines": {
     "node": ">=22.18.0"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/hulladev/db.git",
-    "directory": "packages/studio"
-  },
-  "publishConfig": {
-    "access": "public",
-    "registry": "https://registry.npmjs.org/"
   }
 }
