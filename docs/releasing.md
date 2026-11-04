@@ -3,7 +3,7 @@
 The current npm release is `0.1.2`, under MIT, from
 [the hulladev/db repository](https://github.com/hulladev/db). Applications install
 `@hulla/db@0.1.2` and the matching framework/auth packages from npm, or
-`hulladb = "0.1.1"` from crates.io. The steps below are for maintainers.
+`hulladb = "0.1.1"` from crates.io. The steps below are for maintainers. npm version preparation and OIDC publication now use the [automated npm release workflow](npm-releases.md); this guide retains native artifact preparation and the separate Cargo release process.
 The Rust packages use version `0.1.1`. The Rust implementation preserves
 public crate paths, features and formats. The npm packages include local development,
 application schema upgrades and the optional `@hulla/db-studio` workbench.

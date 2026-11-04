@@ -180,23 +180,23 @@ Changing PostgreSQL major versions requires a database upgrade.
 
 ## Codebase
 
-| Path | Responsibility |
-| --- | --- |
-| `packages/db` | Schema authoring/types, Rust contract emission, generated callables and browser HTTP/SSE recovery |
-| `packages/react`, `vue`, `svelte`, `solid` | Separate UI bindings, live pagination and SSR initial data |
-| `packages/better-auth` | Optional Better Auth PostgreSQL storage and schema support |
-| `crates/hulladb` | Rust derives, typed contexts, direct calls, embedded and remote runtimes, HTTP client |
-| `crates/hulladb_macros` | Table/input derives and query/mutation registration/call generation |
-| `crates/hulladb_schema` | Shared schema, validation, function protocol and lossless record contracts |
-| `crates/hulladb_postgres` | Managed PostgreSQL functions/CRUD, receipts and optional HTTP/SSE hosting |
-| `crates/hulladb_js` | Restricted JavaScript worker in a separate process |
-| `crates/hulladb_protocol`, `hulladb_wire`, `hulladb_client`, `hulladb_server` | Compatibility reexports for the published 0.1.0 paths; native executable entrypoints |
-| `crates/hulladb_cdc` | Optional diagnostic PostgreSQL capture/log |
-| `docs/architecture.md` | Requirements, selected boundaries and implementation gates |
-| `docs/query-coverage.md` | Entity projections and exact function-result coverage |
-| `docs/benchmarks.md` | Current workloads, comparison rules and baseline policy |
-| `scripts/bench.py` | Reproducible release benchmarks and comparison safeguards |
-| `Makefile`, `compose.yaml` | Local checks and PostgreSQL development service |
+| Path                                                                          | Responsibility                                                                                    |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `packages/db`                                                                 | Schema authoring/types, Rust contract emission, generated callables and browser HTTP/SSE recovery |
+| `packages/react`, `vue`, `svelte`, `solid`                                    | Separate UI bindings, live pagination and SSR initial data                                        |
+| `packages/better-auth`                                                        | Optional Better Auth PostgreSQL storage and schema support                                        |
+| `crates/hulladb`                                                              | Rust derives, typed contexts, direct calls, embedded and remote runtimes, HTTP client             |
+| `crates/hulladb_macros`                                                       | Table/input derives and query/mutation registration/call generation                               |
+| `crates/hulladb_schema`                                                       | Shared schema, validation, function protocol and lossless record contracts                        |
+| `crates/hulladb_postgres`                                                     | Managed PostgreSQL functions/CRUD, receipts and optional HTTP/SSE hosting                         |
+| `crates/hulladb_js`                                                           | Restricted JavaScript worker in a separate process                                                |
+| `crates/hulladb_protocol`, `hulladb_wire`, `hulladb_client`, `hulladb_server` | Compatibility reexports for the published 0.1.0 paths; native executable entrypoints              |
+| `crates/hulladb_cdc`                                                          | Optional diagnostic PostgreSQL capture/log                                                        |
+| `docs/architecture.md`                                                        | Requirements, selected boundaries and implementation gates                                        |
+| `docs/query-coverage.md`                                                      | Entity projections and exact function-result coverage                                             |
+| `docs/benchmarks.md`                                                          | Current workloads, comparison rules and baseline policy                                           |
+| `scripts/bench.py`                                                            | Reproducible release benchmarks and comparison safeguards                                         |
+| `Makefile`, `compose.yaml`                                                    | Local checks and PostgreSQL development service                                                   |
 
 The optional diagnostic bootstrap imports a slot-exported snapshot and rejects
 unsupported schemas/publication shapes. Raw CDC logs and diagnostic mirrors are
@@ -212,3 +212,7 @@ can use `hulladb::protocol`, `hulladb::wire`, `hulladb::http` (feature `http` or
 `remote`), and `hulladb::hosting` (feature `hosting`). Existing crate imports,
 features and native executable names remain supported. npm packages remain at
 `0.1.0`; the storage and transport formats are unchanged.
+
+## Publishing
+
+See [the release workflow](docs/npm-releases.md) for changesets, version preparation, coordinated releases and npm trusted publishing.
