@@ -5,13 +5,15 @@
   "packages": [
     "packages/better-auth",
     "packages/db",
+    "packages/db-postgres",
+    "packages/db-sqlite",
     "packages/react",
     "packages/solid",
     "packages/studio",
     "packages/svelte",
     "packages/vue"
   ],
-  "smokeImports": ["@hulla/db/bindings", "@hulla/db/schema"],
+  "smokeImports": ["@hulla/db/bindings", "@hulla/db/schema", "@hulla/db/build", "@hulla/db-postgres", "@hulla/db-sqlite/browser"],
   "smokeDependencies": [],
   "stagedArchives": "output/releases"
 }

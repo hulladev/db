@@ -42,6 +42,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: cargo build -p hulladb_js --locked
       - run: make sdk-check
+      - run: bun run --cwd packages/db-sqlite test
       - run: bun run test:bindings
       - run: bun run test:auth
       - name: Check framework and auth types
@@ -87,6 +88,7 @@ jobs:
           bun run --cwd packages/db build:postgres
           bun run --cwd packages/db build:development
           bun run --cwd packages/db build
+          bun run --cwd packages/db-postgres build
           bun packages/db/tests/development.integration.ts
       - name: Exercise backup and restore with matching PostgreSQL tools
         env:

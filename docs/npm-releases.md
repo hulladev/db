@@ -72,6 +72,8 @@ Package settings to configure:
 
 - `@hulla/db-better-auth`
 - `@hulla/db`
+- `@hulla/db-postgres`
+- `@hulla/db-sqlite`
 - `@hulla/db-react`
 - `@hulla/db-solid`
 - `@hulla/db-studio`
