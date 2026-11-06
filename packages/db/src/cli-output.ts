@@ -31,18 +31,19 @@ export function createCLIOutput(stream: OutputStream, env: NodeJS.ProcessEnv = p
     heading(command: string, configPath: string) {
       if (!interactive) return;
       line(`\n  ${style("1;36", "hulla/db")} ${style("2", command)}`);
-      line(`  ${style("2", "Config")}  ${link(pathToFileURL(configPath).href, configPath)}\n`);
+      line(`  ${style("2", "Source")}  ${link(pathToFileURL(configPath).href, configPath)}\n`);
     },
     listening(label: string, url: string) {
       status("✓", "32", `${style("1", label)} listening at ${link(url)}`);
     },
     help() {
-      line(`\n${style("1;36", "hulla/db")} — typed PostgreSQL tools\n`);
+      line(`\n${style("1;36", "hulla/db")} — typed database tools\n`);
       line(usage);
       line(`\n${style("1", "Commands")}`);
       for (const [command, description] of [
         ["dev", "Generate, start the service, and watch for changes"],
         ["generate", "Generate typed database and function entrypoints"],
+        ["setup", "Add generated output to an explicitly selected ignore file"],
         ["init", "Initialize the database and verify its schema"],
         ["migrate", "Apply supported schema changes; use --check to preview"],
         ["serve", "Start the service from generated artifacts"],
@@ -50,8 +51,9 @@ export function createCLIOutput(stream: OutputStream, env: NodeJS.ProcessEnv = p
       ] as const) line(`  ${style("36", command.padEnd(12))}${description}`);
       line(`\n${style("1", "Options")}`);
       for (const [option, description] of [
-        ["db.config.ts", "Config path (default: ./db.config.ts)"],
+        ["entrypoint or config", "Generate from db/server.ts, or use db.config.ts (default)"],
         ["--check", "Preview schema changes without applying them"],
+        ["--ignore-file <path>", "Setup only: gitignore-syntax file used by your tools"],
         ["--studio", "Start Studio alongside dev"],
         ["--studio-port <port>", "Studio port (default: 4983; 0 picks a free port)"],
         ["--read-only", "Disable writes in Studio (default in production)"],
@@ -61,7 +63,8 @@ export function createCLIOutput(stream: OutputStream, env: NodeJS.ProcessEnv = p
       line(`\n${style("1", "Examples")}`);
       line("  hulla-db dev --studio");
       line("  hulla-db studio --read-only");
-      line("  hulla-db generate ./app/db.config.ts\n");
+      line("  hulla-db setup --ignore-file '<ignore-file-path>'");
+      line("  hulla-db generate ./db/server.ts\n");
     },
   };
 }

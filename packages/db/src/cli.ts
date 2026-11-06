@@ -7,13 +7,17 @@ import { startCLIListener, StartupCancelled } from "./cli-address.ts";
 async function main() {
   const args = process.argv.slice(2);
   if (!args.length || args.includes("--help") || args.includes("-h")) { cliOutput.help(); return; }
-  const { command, config, studio, check } = parseCLI(args, process.env.NODE_ENV === "production");
+  const { command, config, studio, check, ignoreFile } = parseCLI(args, process.env.NODE_ENV === "production");
   const configPath = resolve(config);
-  if (command === "generate" || command === "dev") {
+  if (command === "generate" || command === "dev" || command === "setup") {
     if (typeof Bun === "undefined") return (await import("./development-runtime.ts")).runDevelopmentCLI();
   }
   cliOutput.heading(command, configPath);
-  if (command === "generate") {
+  if (command === "setup") {
+    const { setupGeneratedIgnore } = await import("./setup-ignore.ts");
+    const result = await setupGeneratedIgnore(configPath, ignoreFile!);
+    cliOutput.success(`${result.changed ? "Added" : "Already configured"} ${result.pattern} in ${result.path}`);
+  } else if (command === "generate") {
     const { generateProject } = await import("./project-codegen.ts");
     await generateProject(configPath);
     cliOutput.success("Generated database entrypoints.");
