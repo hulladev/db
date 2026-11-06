@@ -170,7 +170,7 @@ Disposal stops local work; reload fetches fresh server state. Neither operation
 cancels a submitted server transaction. Automatic confirmation is bounded to the
 lifetime of the original in-memory handle.
 
-Use mutation.withOptimistic(...targets) for pure immutable query-cache updates.
+Use mutation.optimistic(...targets) for pure immutable query-cache updates.
 Missing results are skipped; failures remove that invocation's layers without
 preventing server execution. Interruption removes prediction immediately. See
 [optimistic results](concurrency-and-optimism.md) for visibility and rebase behavior.

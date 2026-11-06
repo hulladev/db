@@ -66,7 +66,7 @@ published. Host/client admission and request deadlines apply independently.
 
 ## TypeScript optimistic updates
 
-Generated mutations expose `.withOptimistic(...targets)`. Each descriptor supplies
+Generated mutations expose `.optimistic(...targets)`. Each descriptor supplies
 `query` and a pure `update(current, mutationInput, queryInput)` returning a
 replacement result. No-input queries need no input mapping. For a query with input,
 provide an `input(mutationInput)` mapper for one exact input, or a

@@ -26,7 +26,7 @@ Each mutation call returns its original awaitable handle. The binding's state
 starts as `idle`, then follows the most recently started invocation through the
 core pending/recovering/success/error states. Overlapping writes keep independent
 outcomes. Unmounting stops UI observation; it does not cancel a submitted write.
-Optimistic mutation exports created with `.withOptimistic(...)` work unchanged.
+Optimistic mutation exports created with `.optimistic(...)` work unchanged.
 
 ## Load more pages in a component
 

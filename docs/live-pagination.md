@@ -65,7 +65,7 @@ loading-more state. A failed append preserves successful pages; the next call
 retries from the last successful page. Existing pages keep refreshing while
 another page loads.
 
-Existing `withOptimistic` query targets also reach matching loaded pages, including
+Existing `optimistic` query targets also reach matching loaded pages, including
 separate lists with the same input. Their updater receives the query's `Page<Row>`
 result; the list flattens the updated rows. Predictions cannot change the confirmed
 continuation cursor or range boundaries. The updater still decides which rows to

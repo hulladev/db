@@ -1,5 +1,11 @@
 # Dependency boundaries
 
+Updated 6 November 2026. The first sections describe assets/features present in the
+checkout. The [architecture](architecture.md#packages-and-development-tooling) gives
+the intended engine-neutral package boundaries; extraction and delivery changes
+remain unfinished. Current packaging is not a requirement to bundle every engine
+or development executable permanently.
+
 The SDK has no required npm runtime dependencies. Browser bindings and production
 Node/Bun entrypoints use platform APIs. Generation and `dev` use a privately packaged
 Bun runtime and TypeScript 7.0.2 compiler, rather than an application peer dependency.
@@ -11,7 +17,14 @@ Valibot and `@types/*` remain development fixtures/tooling. Prepared `serve` doe
 compiler. Native executables are built before packaging, without install scripts
 or installation-time downloads.
 
-Local PostgreSQL is built from the official 18.6 source archive with its pinned
+The optional `@hulla/db-sqlite` package adds no required npm dependency. Its
+Node and Bun drivers use their runtime SQLite implementations through separate
+entrypoints. Browser and Expo adapters accept application-owned connections from
+official SQLite WASM and `expo-sqlite`; neither engine is imported or bundled by
+the core package. Platforms without Web Crypto supply their maintained CSPRNG
+through `randomBytes`, for example `expo-crypto.getRandomBytes`.
+
+The currently packaged local PostgreSQL is built from the official 18.6 source archive with its pinned
 SHA-256. The build disables optional ICU, readline, compression and TLS libraries;
 it listens on loopback with PostgreSQL's SCRAM authentication. Original PostgreSQL,
 TypeScript and bundled Bun notices accompany the assets. The October 26 check of
@@ -28,7 +41,31 @@ core database gains no framework or authentication dependency. The October 20
 integration update passed `bun audit` against 101 resolved packages; this is an
 npm advisory check, not a new Rust workspace audit.
 
-## Rust components
+## Adapter and tooling direction
+
+`@hulla/db` owns shared TypeScript declarations and contracts. The optional
+`@hulla/db-postgres` and `@hulla/db-sqlite` adapters own engine integration.
+PostgreSQL bridge/hosting code still resides partly in core; asset extraction is
+incomplete. A PostgreSQL connection needs its driver/bridge, not a PostgreSQL server
+executable on the application host. SQLite-only consumers should not receive those
+server assets or development compilers merely by installing core.
+
+A small isolated CLI entrypoint can remain with the SDK without entering runtime
+bundles. Delegation from the existing `hulla` CLI is under review; no additional
+mandatory tooling package or new command routing has been implemented. The current
+Bun-only development implementation does not rule out Node/Bun CLI support or
+standalone distribution. Automatic local provisioning and npm binary inclusion are
+separate choices; managed engine-aware development and first-run asset delivery
+still need review.
+
+The Rust public direction is `hulladb` plus optional `hulladb_postgres` and
+`hulladb_sqlite`, usable by client/server applications. The current SDK still defaults
+to its PostgreSQL `server` feature and shared execution types remain coupled to that
+adapter. SQLite remote-client caching is not a native SQLite database driver.
+Do not infer that the planned driver split has already landed or introduce another
+mandatory public runtime crate to achieve it.
+
+## Current Rust components
 
 | Component | Necessary dependencies | Excluded from its production graph |
 | --- | --- | --- |
@@ -57,7 +94,7 @@ In 0.1.1, enabling it forwards to `hulladb/http`; new consumers use that SDK fea
 directly. `hulladb/remote` also enables SQLite, while `hulladb/hosting` enables the
 backend's optional HTTP server stack.
 
-Five crates own the Rust implementation: `hulladb`, `hulladb_schema`,
+The current implementation is concentrated in five crates: `hulladb`, `hulladb_schema`,
 `hulladb_postgres`, `hulladb_macros` and the separate `hulladb_js` worker.
 The shared schema crate owns function protocol and tagged record encoding too.
 The four other published names remain thin compatibility entrypoints; they are

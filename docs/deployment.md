@@ -1,5 +1,12 @@
 # Deploy an application with @hulla/db
 
+Scope: the existing PostgreSQL managed service and `defineConfig` workflow.
+Engine-neutral application instances use the [schema/SQLite API](sqlite.md).
+SQLite managed HTTP hosting and native/package extraction are unfinished; the
+packaged development assets below describe current implementation, not the target
+footprint for every adapter. CLI routing and local asset delivery remain under
+[architecture review](architecture.md#packages-and-development-tooling).
+
 Deploy your application using its ordinary framework workflow. Server routes use
 the generated database directly; browser queries and mutations connect to a
 persistent `@hulla/db` service. Both use the same PostgreSQL database and namespace.

@@ -1,5 +1,11 @@
 # Serve reactive queries and mutations
 
+Scope: the existing PostgreSQL managed service and generated configuration.
+The [current instance API](sqlite.md) uses inert schemas, adapter initialization
+and explicit source bindings. SQLite managed hosting remains unfinished. Automatic
+PostgreSQL development startup below describes today's launcher, not a permanent
+requirement for every engine or SDK installation.
+
 Declare database functions, start the supplied service, then import the generated
 browser callables. The service owns function routes, credential verification,
 transactions, subscriptions and mutation confirmation. You do not write a route for
