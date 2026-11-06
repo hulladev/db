@@ -1,8 +1,8 @@
 use hulladb_schema::{
-    CheckOperand, KeyGeneration, ReferenceOnDelete, ScalarType, SchemaContract, TableContract,
-    UniqueNullPolicy, Value,
+    CheckOperand, ReferenceOnDelete, ScalarType, SchemaContract, TableContract, UniqueNullPolicy,
+    Value,
 };
-use serde_json::{Value as Json, json};
+use serde_json::Value as Json;
 
 use super::Error;
 
@@ -211,32 +211,7 @@ impl ManagedSchema {
     /// Full contract equality guard; this is not a schema generation or upgrade
     /// version. Ordinal layout and runtime defaults must agree on reconnect.
     pub(super) fn descriptor(&self) -> Json {
-        json!({
-            "uuid_default": format!("{:?}", self.contract.default_uuid_generation()),
-            "tables": self.contract.tables().iter().map(|table| json!({
-                "name": table.name(),
-                "key": table.primary_key().name,
-                "generation": match table.key_generation() {
-                    KeyGeneration::Custom { handler, output_type } => json!({"custom": handler, "output": format!("{output_type:?}")}),
-                    other => json!(format!("{other:?}")),
-                },
-                "insert_policy": format!("{:?}", table.insert_key_policy()),
-                "fields": table.fields().iter().map(|f| { let mut field = json!({
-                    "name": f.name, "scalar": format!("{:?}", f.scalar_type), "nullable": f.nullable,
-                    "default": f.default.as_ref().map(describe_value),
-                    "constraints": describe_constraints(&f.constraints),
-                }); if let Some(precision) = f.precision { field["precision"] = json!(precision); }
-                if let Some(shape) = &f.json_shape { field["jsonShape"] = json!(shape); } field }).collect::<Vec<_>>(),
-                "indexes": table.indexes().iter().map(|index| json!({"name":index.name,"fields":index.fields})).collect::<Vec<_>>(),
-                "checks": table.checks().iter().map(|check| json!({"name":check.name,"parts":check.parts,"operands":check.operands.iter().map(|operand|match operand { CheckOperand::Field(field)=>json!({"field":field}),CheckOperand::Value(value)=>json!({"value":describe_value(value)}) }).collect::<Vec<_>>() })).collect::<Vec<_>>(),
-                "unique": table.unique_constraints().iter().map(|u| json!({
-                    "name": u.name(), "fields": u.fields(), "nulls": format!("{:?}", u.null_policy()),
-                })).collect::<Vec<_>>(),
-            })).collect::<Vec<_>>(),
-            "references": self.contract.references().iter().map(|r| json!({
-                "table": r.table(), "field": r.field(), "target": r.target_table(), "key": r.target_field(), "onDelete":format!("{:?}",r.on_delete()),
-            })).collect::<Vec<_>>(),
-        })
+        self.contract.descriptor()
     }
 }
 
@@ -319,33 +294,6 @@ pub(super) fn column_definition(
     Ok(sql)
 }
 
-fn describe_value(value: &Value) -> Json {
-    match value {
-        Value::Json(value) => json!(["json", value]),
-        Value::Float64(value) => json!(["float64", value]),
-        Value::Null => json!(["null"]),
-        Value::String(value) => json!(["string", value]),
-        Value::Date(value) => json!(["date", value]),
-        Value::Timestamp(value) => json!(["timestamp", value]),
-        Value::LocalTimestamp(value) => json!(["localTimestamp", value]),
-        Value::Boolean(value) => json!(["boolean", value]),
-        Value::Int64(value) => json!(["int64", value.to_string()]),
-        Value::Uuid(value) => json!(["uuid", uuid::Uuid::from_bytes(*value).to_string()]),
-    }
-}
-
-fn describe_constraints(constraints: &hulladb_schema::FieldConstraints) -> Json {
-    let mut result =
-        json!({"oneOf":constraints.one_of.iter().map(describe_value).collect::<Vec<_>>()});
-    if let Some(min) = &constraints.min {
-        result["min"] = describe_value(min);
-    }
-    if let Some(max) = &constraints.max {
-        result["max"] = describe_value(max);
-    }
-    result
-}
-
 pub(super) fn sql_literal(value: &Value) -> Result<String, Error> {
     let quoted = |s: &str| -> Result<String, Error> {
         if s.contains('\0') {
@@ -371,44 +319,4 @@ pub(super) fn sql_literal(value: &Value) -> Result<String, Error> {
     })
 }
 
-/// JSON preserves integer-vs-float syntax, but Float64 has one storage meaning.
-/// Keep all other values strict, particularly arbitrary JSON and int64 text.
-pub(super) fn descriptor_equal(left: &Json, right: &Json) -> bool {
-    match (left, right) {
-        (Json::Array(left), Json::Array(right))
-            if left.first().is_some_and(|tag| tag == "json")
-                && right.first().is_some_and(|tag| tag == "json") =>
-        {
-            left == right
-        }
-        (Json::Array(left), Json::Array(right))
-            if left.len() == 2
-                && right.len() == 2
-                && left[0] == "float64"
-                && right[0] == "float64"
-                && left[1].is_number()
-                && right[1].is_number() =>
-        {
-            left[1]
-                .as_f64()
-                .zip(right[1].as_f64())
-                .is_some_and(|(left, right)| left == right)
-        }
-        (Json::Array(left), Json::Array(right)) => {
-            left.len() == right.len()
-                && left
-                    .iter()
-                    .zip(right)
-                    .all(|(left, right)| descriptor_equal(left, right))
-        }
-        (Json::Object(left), Json::Object(right)) => {
-            left.len() == right.len()
-                && left.iter().all(|(key, left)| {
-                    right
-                        .get(key)
-                        .is_some_and(|right| descriptor_equal(left, right))
-                })
-        }
-        _ => left == right,
-    }
-}
+pub(super) use hulladb_schema::descriptor::descriptor_equal;
