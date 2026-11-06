@@ -10,7 +10,9 @@ import type { RuntimeScope } from "./runtime.ts";
 import type { FunctionCodecs } from "./codec.ts";
 import { DatabaseError } from "./error.ts";
 import type { Predictor } from "./optimistic.ts";
+import type { OfflineResolver } from "./offline.ts";
 import { MutationOperation, QueryOperation, queryListener, querySnapshot, subscriptionOptions } from "./handles.ts";
+import { captureInput } from "./function-input.ts";
 
 type CallArguments<I, Options> = [I] extends [undefined]
   ? [options?: Options]
@@ -27,6 +29,7 @@ export interface BindingInfo {
   readonly kind: "query" | "mutation";
   readonly hasInput: boolean;
   readonly codecs?: FunctionCodecs;
+  readonly rebind: (scope: RuntimeScope) => unknown;
 }
 /** Shared adapter boundary; never executes the callable or imports its handler. */
 export function bindingInfo(reference: unknown): BindingInfo {
@@ -46,7 +49,8 @@ export type OptimisticTarget<I, Q extends QueryReference> = {
   readonly update: (current: ReadonlyResult<ResultOf<DefinitionOf<Q>>>, input: I, queryInput: Input<DefinitionOf<Q>>) => ReadonlyResult<ResultOf<DefinitionOf<Q>>>;
 } & OptimisticSelection<I, Input<DefinitionOf<Q>>>;
 export type MutationCallable<D extends FunctionSignature> = ((...args: [Input<D>] extends [undefined] ? [] : [input: Input<D>]) => MutationHandle<ResultOf<D>>) & FunctionReference<D> & {
-  withOptimistic<const Q extends readonly [QueryReference, ...QueryReference[]]>(...targets: { [K in keyof Q]: OptimisticTarget<Input<D>, Q[K]> }): MutationCallable<D>;
+  optimistic<const Q extends readonly [QueryReference, ...QueryReference[]]>(...targets: { [K in keyof Q]: OptimisticTarget<Input<D>, Q[K]> }): MutationCallable<D>;
+  offline(resolveConflict: OfflineResolver<Input<D>>): MutationCallable<D>;
 };
 export type QueryCallable<D extends FunctionSignature> = ((...args: CallArguments<Input<D>, QueryOptions>) => QueryHandle<ResultOf<D>>) & FunctionReference<D> & {
   subscribe(...args: SubscribeArguments<Input<D>, ResultOf<D>>): () => void;
@@ -67,7 +71,7 @@ function invocation(scope: RuntimeScope, name: string, kind: Operation["kind"], 
   configuration.signal?.throwIfAborted();
   return {
     runtime: scope.current(),
-    operation: { name, kind, input: hasInput ? args[0] : undefined, ...(codecs ? { codecs } : {}) },
+    operation: { name, kind, input: hasInput ? captureInput(args[0]) : undefined, ...(codecs ? { codecs } : {}) },
     configuration,
   };
 }
@@ -75,8 +79,10 @@ function invocation(scope: RuntimeScope, name: string, kind: Operation["kind"], 
 /** Used by generated modules; input/output types come from a type-only import. */
 export function mutationBinding<D extends FunctionSignature & { readonly kind: "mutation" }>(
   scope: RuntimeScope, name: string, hasInput: boolean, codecs?: FunctionCodecs,
+  initialPredictors: readonly Predictor[] = [], initialResolver?: OfflineResolver<Input<D>>,
 ): MutationCallable<D> {
-  const bind = (predictors: readonly Predictor[]): MutationCallable<D> => {
+  if (initialResolver) scope.registerOfflineResolver(name, initialResolver as OfflineResolver<unknown>);
+  const bind = (predictors: readonly Predictor[], resolveConflict?: OfflineResolver<Input<D>>): MutationCallable<D> => {
     const call = (...args: unknown[]) => {
       let context: ReturnType<typeof invocation> | undefined;
       let identityEpoch: unknown;
@@ -84,16 +90,17 @@ export function mutationBinding<D extends FunctionSignature & { readonly kind: "
       return new MutationOperation<ResultOf<D>>((onStatus) => {
         context = invocation(scope, name, "mutation", hasInput, args, codecs);
         const { runtime, operation, configuration } = context;
+        if (resolveConflict && !runtime.registerOfflineResolver) throw new DatabaseError({ code: "offline_unavailable", message: "Offline calls require a client runtime with durable storage" });
         identityEpoch = runtime.identityEpoch;
         identitySignal = runtime.identitySignal;
         const optimistic: Predictor = (input, context) => { for (const predictor of predictors) predictor(input, context); };
-        return runtime.call(operation, predictors.length ? { ...configuration, optimistic } : configuration, onStatus);
+        return runtime.call(operation, { ...configuration, ...(predictors.length ? { optimistic } : {}), ...(resolveConflict ? { offline: resolveConflict as OfflineResolver<unknown> } : {}) }, onStatus);
       }, codecs, () => {
         if (context && context.runtime.identityEpoch !== identityEpoch) throw new DatabaseError({ code: "context_changed", message: "Mutation authorization scope changed; the write may have committed" });
       }, () => identitySignal);
     };
-    const withOptimistic = (...targets: readonly OptimisticTarget<Input<D>, QueryReference>[]) => {
-      if (!targets.length) throw new TypeError("withOptimistic needs at least one query target");
+    const optimistic = (...targets: readonly OptimisticTarget<Input<D>, QueryReference>[]) => {
+      if (!targets.length) throw new TypeError("optimistic needs at least one query target");
       const additions: Predictor[] = targets.map(target => {
         const metadata = (target.query as QueryReference & { [bindingMetadata]?: BindingInfo })[bindingMetadata];
         if (!metadata || metadata.scope !== scope || metadata.kind !== "query" || (target.input !== undefined && typeof target.input !== "function") || typeof target.update !== "function" || (target.match !== undefined && typeof target.match !== "function")) {
@@ -125,17 +132,23 @@ export function mutationBinding<D extends FunctionSignature & { readonly kind: "
           }
         };
       });
-      return bind([...predictors, ...additions]);
+      return bind([...predictors, ...additions], resolveConflict);
     };
-    return Object.assign(call, { withOptimistic, [bindingMetadata]: { name, scope, kind: "mutation", hasInput, ...(codecs ? { codecs } : {}) } }) as MutationCallable<D>;
+    const offline = (resolver: OfflineResolver<Input<D>>) => {
+      if (typeof resolver !== "function") throw new TypeError("offline requires an explicit conflict resolver");
+      scope.registerOfflineResolver(name, resolver as OfflineResolver<unknown>);
+      return bind(predictors, resolver);
+    };
+    return Object.assign(call, { optimistic, offline, [bindingMetadata]: { name, scope, kind: "mutation", hasInput, ...(codecs ? { codecs } : {}), rebind: (next: RuntimeScope) => mutationBinding(next, name, hasInput, codecs, predictors, resolveConflict) } }) as MutationCallable<D>;
   };
-  return bind([]);
+  return bind(initialPredictors, initialResolver);
 }
 
 export function queryBinding<D extends FunctionSignature & { readonly kind: "query" }>(
   scope: RuntimeScope, name: string, hasInput: boolean, codecs?: FunctionCodecs, paginated = false,
 ): QueryCallable<D> {
   const call = (...args: unknown[]) => {
+    let indicators = { isStale: false, isOptimistic: false };
     let context: ReturnType<typeof invocation> | undefined;
     let identityEpoch: unknown;
     let identitySignal: AbortSignal | undefined;
@@ -143,7 +156,7 @@ export function queryBinding<D extends FunctionSignature & { readonly kind: "que
       context = invocation(scope, name, "query", hasInput, args, codecs);
       identityEpoch = context.runtime.identityEpoch;
       identitySignal = context.runtime.identitySignal;
-      return context.runtime.call(context.operation, context.configuration);
+      return context.runtime.call(context.operation, { ...context.configuration, onQueryState: state => { indicators = state; } });
     }, (listener) => {
       if (!context) throw new Error("Cannot observe an invalid query invocation");
       const { runtime, operation, configuration } = context;
@@ -152,11 +165,11 @@ export function queryBinding<D extends FunctionSignature & { readonly kind: "que
         stagedObserver(state => listener(querySnapshot<ResultOf<D>>(state, codecs))), configuration);
     }, codecs, () => {
       if (context && context.runtime.identityEpoch !== identityEpoch) throw new DatabaseError({ code: "context_changed", message: "Query authorization scope changed" });
-    }, () => context?.configuration.signal, () => identitySignal);
+    }, () => context?.configuration.signal, () => identitySignal, () => indicators);
   };
   const subscribe = (...args: unknown[]) => {
     if (args.length > (hasInput ? 3 : 2)) throw new TypeError("Too many subscription arguments");
-    const input = hasInput ? args[0] : undefined;
+    const input = hasInput ? captureInput(args[0]) : undefined;
     const listener = args[hasInput ? 1 : 0];
     if (typeof listener !== "function") throw new TypeError("A query subscription needs a listener");
     const configuration = subscriptionOptions(args[hasInput ? 2 : 1]);
@@ -168,5 +181,5 @@ export function queryBinding<D extends FunctionSignature & { readonly kind: "que
       state => deliver(querySnapshot<ResultOf<D>>(state, codecs)),
       configuration.signal ? { signal: configuration.signal } : {});
   };
-  return Object.assign(call, { subscribe, ...(paginated ? { paginate: (mapper: (cursor: string | null) => Input<D>) => new PaginationOperation(scope.current(), name, mapper, codecs) } : {}), [bindingMetadata]: { name, scope, kind: "query", hasInput, ...(codecs ? { codecs } : {}) } }) as unknown as QueryCallable<D>;
+  return Object.assign(call, { subscribe, ...(paginated ? { paginate: (mapper: (cursor: string | null) => Input<D>) => new PaginationOperation(scope.current(), name, mapper, codecs) } : {}), [bindingMetadata]: { name, scope, kind: "query", hasInput, ...(codecs ? { codecs } : {}), rebind: (next: RuntimeScope) => queryBinding(next, name, hasInput, codecs, paginated) } }) as unknown as QueryCallable<D>;
 }

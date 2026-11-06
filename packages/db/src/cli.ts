@@ -1,6 +1,5 @@
 #!/usr/bin/env node
-import { resolve, dirname } from "node:path";
-import { pathToFileURL } from "node:url";
+import { resolve } from "node:path";
 import { parseCLI, usage } from "./cli-options.ts";
 import { cliError, cliOutput } from "./cli-output.ts";
 import { startCLIListener, StartupCancelled } from "./cli-address.ts";
@@ -31,8 +30,8 @@ async function main() {
         service = (await startCLIListener("Hulla Studio", { host: "127.0.0.1", port: studio!.port },
           address => startStudio(configPath, { ...studio!, port: address.port }), { signal: startup.signal, fixedHost: true })).listener;
       } else {
-        const { defineConfig } = await import("./config.ts");
-        const config = defineConfig((await import(pathToFileURL(configPath).href)).default);
+        const { loadHostConfiguration } = await import("./host-configuration.ts");
+        const { config } = await loadHostConfiguration(configPath);
         const { startService } = await import("./service.ts");
         service = (await startCLIListener("Database service", { host: config.service?.host ?? "127.0.0.1", port: config.service?.port ?? 3001 },
           address => startService(configPath, address), { signal: startup.signal })).listener;
@@ -47,12 +46,10 @@ async function main() {
       await service?.close();
     }
   } else {
-    const { defineConfig } = await import("./config.ts");
+    const { loadHostConfiguration } = await import("./host-configuration.ts");
     const { initializeDatabase, migrateDatabase } = await import("./server-database.ts");
     const { resolveDatabaseConnection } = await import("./local-connection.ts");
-    const config = defineConfig((await import(pathToFileURL(configPath).href)).default);
-    const schemaPath = resolve(dirname(configPath), config.schema ?? "db/schema.ts");
-    const schema = (await import(pathToFileURL(schemaPath).href)).default;
+    const { config, schema } = await loadHostConfiguration(configPath);
     const connection = resolveDatabaseConnection(config.database.server, configPath);
     if (command === "migrate") {
       const plan = await migrateDatabase(schema, connection, { check: check ?? false });

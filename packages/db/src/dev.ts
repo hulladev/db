@@ -2,7 +2,7 @@ import { lstatSync, watch, type FSWatcher } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { runtimeExportConditions } from "./runtime-conditions.ts";
 import type { StudioFlags } from "./cli-options.ts";
-import { startLocalPostgres, type LocalPostgres } from "./local-postgres.ts";
+import type { LocalPostgres } from "./local-postgres.ts";
 import { cliError, cliOutput } from "./cli-output.ts";
 import type { DevelopmentAddresses } from "./cli-address.ts";
 
@@ -106,7 +106,7 @@ export async function startDevelopment(configPath: string, studio?: StudioFlags)
             return;
           }
           if ("database" in message && message.database === true) {
-            database ??= startLocalPostgres(config, databaseAbort.signal).then(local => {
+            database ??= import('./local-postgres.ts').then(({ startLocalPostgres }) => startLocalPostgres(config, databaseAbort.signal)).then(local => {
               void local.closed.catch(error => {
                 if (!stopped) { terminalError = error; void handle.close().catch(() => {}); }
               });

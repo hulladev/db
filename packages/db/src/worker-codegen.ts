@@ -1,5 +1,6 @@
 import { builtinModules } from "node:module";
 import { runtimeExportConditions } from "./runtime-conditions.ts";
+import { dirname, resolve } from "node:path";
 
 export const workerBundleHeader = "// Generated restricted worker by @hulla/db. Do not edit.\n";
 
@@ -10,13 +11,18 @@ function unsupportedImport(path: string, importer: string): Error {
 }
 
 /** Build trusted source into one portable script. The execution engine has no loader. */
-export async function compileWorker(entrypoint: string): Promise<string> {
+export type FunctionImportCheck = (importer: string, specifier: string) => Promise<boolean>;
+export async function compileWorker(entrypoint: string, contents?: string, functionImports: ReadonlySet<string> | FunctionImportCheck = new Set()): Promise<string> {
   const build = await Bun.build({
-    conditions: runtimeExportConditions(),
-    entrypoints: [entrypoint], target: "browser", format: "iife", throw: false, metafile: true,
+    conditions: ["hulladb-worker", ...runtimeExportConditions()],
+    entrypoints: [contents === undefined ? entrypoint : "__hulla_virtual_worker__"], target: "browser", format: "iife", throw: false, metafile: true,
     plugins: [{
       name: "hulla-declaration-capabilities",
       setup(builder) {
+        if (contents !== undefined) {
+          builder.onResolve({ filter: /^__hulla_virtual_worker__$/ }, () => ({ path: entrypoint, namespace: "hulla-worker" }));
+          builder.onLoad({ filter: /.*/, namespace: "hulla-worker" }, () => ({ contents, loader: "ts", resolveDir: dirname(entrypoint) }));
+        }
         // Leave ordinary resolution to Bun. A wildcard onResolve callback can
         // corrupt reexported namespace bindings in Bun 1.4, including Zod's.
         builder.onResolve({ filter: forbiddenImports }, args => {
@@ -34,6 +40,8 @@ export async function compileWorker(entrypoint: string): Promise<string> {
   for (const [importer, input] of Object.entries(build.metafile.inputs)) {
     for (const dependency of input.imports) {
       if (dependency.kind === "dynamic-import") {
+        const specifier = dependency.original ?? dependency.path;
+        if (typeof functionImports === "function" ? await functionImports(resolve(importer), specifier) : functionImports.has(JSON.stringify([resolve(importer), specifier]))) continue;
         throw unsupportedImport(dependency.original ?? dependency.path, importer);
       }
     }

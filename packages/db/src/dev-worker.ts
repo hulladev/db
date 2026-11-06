@@ -1,5 +1,4 @@
 import { dirname, resolve } from "node:path";
-import { defineConfig } from "./config.ts";
 import { generateProject } from "./project-codegen.ts";
 import { startService } from "./service.ts";
 import { startStudio, type StudioService } from "./studio.ts";
@@ -8,6 +7,7 @@ import { initializeDatabase, migrateDatabase } from "./server-database.ts";
 import { DatabaseError } from "./error.ts";
 import { resolveDatabaseConnection } from "./local-connection.ts";
 import { cliError, cliOutput } from "./cli-output.ts";
+import { loadHostConfiguration } from "./host-configuration.ts";
 import { AddressConflict, addressURL, startCLIListener, StartupCancelled, type DevelopmentAddresses, type ListenAddress } from "./cli-address.ts";
 
 let stopping = false;
@@ -37,10 +37,16 @@ const stop = () => {
 process.on("SIGINT", stop); process.on("SIGTERM", stop);
 try {
   const path = resolve(process.argv[2]!);
-  const config = defineConfig((await import(Bun.pathToFileURL(path).href)).default);
-  const schema = resolve(dirname(path), config.schema ?? "db/schema.ts");
-  process.send?.({ watch: [dirname(schema), ...(config.functions ? [resolve(dirname(path), config.functions)] : [])] });
-  const managed = config.database.server.url === undefined && !process.env.DATABASE_URL;
+  await generateProject(path, config => {
+    const schema = resolve(dirname(path), config.schema ?? 'db/schema.ts');
+    process.send?.({ watch: [dirname(schema), ...(config.functions ? [resolve(dirname(path), config.functions)] : [])] });
+    const initial = remembered("service", { host: config.service?.host ?? "127.0.0.1", port: config.service?.port ?? 3001 });
+    return initial.port ? { url: developmentURL(initial) } : undefined;
+  });
+  const { config, schemaPath, schema: definition } = await loadHostConfiguration(path);
+  startup.signal.throwIfAborted();
+  process.send?.({ watch: [dirname(schemaPath), ...(config.functions ? [resolve(dirname(path), config.functions)] : [])] });
+  const managed = config.database.server.url === undefined && process.env.DATABASE_URL === undefined;
   if (managed) {
     process.env.DATABASE_URL = await new Promise<string>((resolve, reject) => {
       const finish = (url?: string, error?: Error) => {
@@ -59,10 +65,8 @@ try {
   }
   const requested = { host: config.service?.host ?? "127.0.0.1", port: config.service?.port ?? 3001 };
   const initial = remembered("service", requested);
-  await generateProject(path, initial.port ? { url: developmentURL(initial) } : undefined);
   cliOutput.success("Generated database entrypoints.");
   if (managed && !stopping) {
-    const definition = (await import(Bun.pathToFileURL(schema).href)).default;
     const connection = resolveDatabaseConnection(config.database.server, path);
     try { await initializeDatabase(definition, connection); }
     catch (error) {

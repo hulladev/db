@@ -32,7 +32,7 @@ const transport = (async (url: string | URL | Request, options?: RequestInit) =>
   return response;
 }) as typeof fetch;
 const adapter = new HttpRuntime({ baseUrl: settings.baseUrl, auth: { key: "alice" }, headers: { authorization: `Bearer ${settings.alice.bearer}` }, contracts, fetch: transport, reconnectDelayMs: 10, operationTimeoutMs: 2000, confirmationTimeoutMs: 1500 });
-const optimisticCreate = create.withOptimistic({
+const optimisticCreate = create.optimistic({
   query: list,
   input: () => undefined,
   update: (rows, input) => [...rows, { id: "optimistic-fixture-row" as Awaited<ReturnType<typeof create>>["id"], title: input.title, ordinal: input.ordinal, owner: "alice" }],

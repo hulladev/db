@@ -44,13 +44,13 @@ test("configuration snapshots validated connection settings without leaking secr
   expect(() => defineConfig({ database: { server: { url } }, limits: { unknown: 1 } } as never)).toThrow("limits");
 });
 
-async function project(schemaDirectory = "db", functionsDirectory = schemaDirectory) {
+async function project(schemaDirectory = "db", functionsDirectory = schemaDirectory, moduleRoot?: string) {
   const root = await mkdtemp(new URL("./config-project-", import.meta.url).pathname);
   const config = resolve(root, "db.config.ts");
   const schema = resolve(root, schemaDirectory, "schema.ts");
   await mkdir(resolve(root, functionsDirectory), { recursive: true });
   await mkdir(resolve(root, schemaDirectory), { recursive: true });
-  await writeFile(config, `import { defineConfig } from '@hulla/db/config'\nexport default defineConfig(${JSON.stringify({ database: { server: { url }, client: { url: "http://localhost:9000", credentials: "include" } }, ...(schemaDirectory === "db" ? {} : { schema: `${schemaDirectory}/schema.ts` }), ...(functionsDirectory === schemaDirectory ? {} : { functions: functionsDirectory }) })})\n`);
+  await writeFile(config, `import { defineConfig } from '@hulla/db/config'\nexport default defineConfig(${JSON.stringify({ database: { server: { url }, client: { url: "http://localhost:9000", credentials: "include" } }, ...(schemaDirectory === "db" ? {} : { schema: `${schemaDirectory}/schema.ts` }), ...(functionsDirectory === schemaDirectory ? {} : { functions: functionsDirectory }), ...(moduleRoot === undefined ? {} : { moduleRoot }) })})\n`);
   await writeFile(schema, `import { defineSchema, defineTable, v } from '@hulla/db/schema'\nexport default defineSchema({ tasks: defineTable({ title: v.string() }) })\n`);
   const functionsImport = functionsDirectory === schemaDirectory ? "./_generated/functions.ts" : `../${schemaDirectory}/_generated/functions.ts`;
   await writeFile(resolve(root, functionsDirectory, "tasks.ts"), `import { query } from ${JSON.stringify(functionsImport)}\nexport const greeting = query(() => 'hello')\n`);
@@ -146,11 +146,15 @@ export const greeting = query((ctx) => {
 }, 30000);
 
 test("project paths resolve relative to config and generation preserves authored files and symlinks", async () => {
-  const { root, config, output } = await project("data", "endpoints");
+  const { root, config, output } = await project("data", "endpoints", ".");
   try {
     await generateProject(config);
-    expect(await readFile(resolve(output, "client/tasks.ts"), "utf8")).toContain("tasks.greeting");
+    const manifest = await Bun.file(resolve(output, "client/functions.json")).json();
+    expect(Object.keys(manifest.functions)).toEqual(["endpoints/tasks.greeting"]);
+    const calls = await import(pathToFileURL(resolve(output, "client/endpoints/tasks.ts")).href);
+    expect(typeof calls.greeting).toBe("function");
     expect(await readFile(resolve(output, "worker.ts"), "utf8")).toContain('"../../endpoints/tasks.ts"');
+    expect(await readFile(resolve(output, "worker.ts"), "utf8")).toContain('"endpoints/tasks": module0');
     const bundle = await readFile(resolve(output, "worker.js"), "utf8");
     await writeFile(resolve(output, "worker.js"), "// authored bundle\n");
     await expectCompilerError(generateProject(config), "Refusing to overwrite");

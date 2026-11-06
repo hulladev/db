@@ -1,0 +1,103 @@
+{
+  "name": "@hulla/db-sqlite",
+  "version": "0.1.4",
+  "type": "module",
+  "description": "SQLite application instances and platform adapters for Hulla schemas",
+  "exports": {
+    ".": {
+      "hulladb-worker": {
+        "hulladb-source": "./src/worker.ts",
+        "types": "./dist/worker.d.ts",
+        "default": "./dist/worker.js"
+      },
+      "browser": {
+        "hulladb-source": "./src/browser.ts",
+        "types": "./dist/browser.d.ts",
+        "default": "./dist/browser.js"
+      },
+      "hulladb-source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./node": {
+      "hulladb-worker": {
+        "hulladb-source": "./src/worker.ts",
+        "types": "./dist/worker.d.ts",
+        "default": "./dist/worker.js"
+      },
+      "hulladb-source": "./src/node.ts",
+      "types": "./dist/node.d.ts",
+      "default": "./dist/node.js"
+    },
+    "./bun": {
+      "hulladb-worker": {
+        "hulladb-source": "./src/worker.ts",
+        "types": "./dist/worker.d.ts",
+        "default": "./dist/worker.js"
+      },
+      "hulladb-source": "./src/bun.ts",
+      "types": "./dist/bun.d.ts",
+      "default": "./dist/bun.js"
+    },
+    "./browser": {
+      "hulladb-worker": {
+        "hulladb-source": "./src/worker.ts",
+        "types": "./dist/worker.d.ts",
+        "default": "./dist/worker.js"
+      },
+      "hulladb-source": "./src/browser.ts",
+      "types": "./dist/browser.d.ts",
+      "default": "./dist/browser.js"
+    },
+    "./expo": {
+      "hulladb-worker": {
+        "hulladb-source": "./src/worker.ts",
+        "types": "./dist/worker.d.ts",
+        "default": "./dist/worker.js"
+      },
+      "hulladb-source": "./src/expo.ts",
+      "types": "./dist/expo.d.ts",
+      "default": "./dist/expo.js"
+    }
+  },
+  "scripts": {
+    "build": "bun ../db/scripts/build-binding.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun --conditions=hulladb-source test tests/*.test.ts"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "peerDependencies": {
+    "@hulla/db": "^0.1.4"
+  },
+  "devDependencies": {
+    "@hulla/db": "workspace:*",
+    "@types/bun": "1.4.2",
+    "@types/node": "26.2.0",
+    "typescript": "7.0.2"
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "Samuel Hulla",
+    "url": "https://hulla.dev"
+  },
+  "homepage": "https://github.com/hulladev/db#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hulladev/db.git",
+    "directory": "packages/db-sqlite"
+  },
+  "bugs": {
+    "url": "https://github.com/hulladev/db/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "name": "@hulla/db-postgres",
+  "version": "0.1.4",
+  "type": "module",
+  "description": "PostgreSQL application instances for Hulla schemas and functions",
+  "exports": {
+    ".": {
+      "hulladb-worker": {
+        "hulladb-source": "./src/worker.ts",
+        "types": "./dist/worker.d.ts",
+        "default": "./dist/worker.js"
+      },
+      "browser": {
+        "hulladb-source": "./src/worker.ts",
+        "types": "./dist/worker.d.ts",
+        "default": "./dist/worker.js"
+      },
+      "hulladb-source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "bun ../db/scripts/build-binding.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "peerDependencies": {
+    "@hulla/db": "^0.1.4"
+  },
+  "devDependencies": {
+    "@hulla/db": "workspace:*",
+    "@types/bun": "1.4.2",
+    "@types/node": "26.2.0",
+    "typescript": "7.0.2"
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "Samuel Hulla",
+    "url": "https://hulla.dev"
+  },
+  "homepage": "https://github.com/hulladev/db#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hulladev/db.git",
+    "directory": "packages/db-postgres"
+  },
+  "bugs": {
+    "url": "https://github.com/hulladev/db/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}

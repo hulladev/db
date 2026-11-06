@@ -4,10 +4,12 @@ import { executeDefinition, isFunctionDefinition } from "./declarations.ts";
 import type { SchemaDefinition } from "./schema.ts";
 import { schemaDescriptor } from "./schema-contract.ts";
 import { DatabaseError } from "./error.ts";
+import { functionDatabases, type DatabaseIdentity } from "./database-metadata.ts";
 
 export interface WorkerApplication {
   readonly schema: SchemaDefinition;
   readonly modules: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+  readonly database?: DatabaseIdentity;
 }
 
 type NativeRequest = (operation: string) => Promise<string>;
@@ -61,6 +63,7 @@ export function installWorker(application: WorkerApplication): void {
       const module = Object.hasOwn(application.modules, moduleName) ? application.modules[moduleName] : undefined;
       const definition = module && Object.hasOwn(module, exportName) ? module[exportName] : undefined;
       if (!isFunctionDefinition(definition) || definition.kind !== invocation.kind) throw new TypeError("Function kind/name mismatch");
+      if (application.database && functionDatabases.get(definition) !== application.database) throw new TypeError("Function belongs to a different database");
       const argument = valueCodec(invocation.input_shape as ValueShape).decode(invocation.input);
       const db = transactionDatabase(application.schema, definition.kind === "mutation", request);
       const result = await executeDefinition(definition, Object.freeze({ db, identity: invocation.identity }), argument);

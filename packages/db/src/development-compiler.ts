@@ -11,7 +11,12 @@ export class API extends compiler.API {
   }
 }
 export const { SymbolFlags, TypeFlags } = compiler;
-export type { Checker, Type } from "typescript/unstable/async";
+const ast: typeof import("typescript/unstable/ast") = await import(source ? "typescript/unstable/ast"
+  : new URL("../development/compiler/dist/ast/index.js", import.meta.url).href);
+export const { SyntaxKind, isExportSpecifier, isImportSpecifier, isExportDeclaration, isImportDeclaration, isImportClause } = ast;
+export const { isVariableDeclaration, isExportAssignment, isCallExpression, isIdentifier, isObjectLiteralExpression, isPropertyAssignment, isArrowFunction, isFunctionExpression, isStringLiteral, isParenthesizedExpression, isAsExpression, isSatisfiesExpression, isNonNullExpression, isBlock, isReturnStatement } = ast;
+export const { isShorthandPropertyAssignment } = ast;
+export type { Checker, Type, Project, Snapshot, Symbol } from "typescript/unstable/async";
 
 export function isDateLibrary(path: string): boolean {
   return /\/(?:node_modules\/(?:typescript|@typescript\/typescript-[^/]+)|native\/[^/]+\/compiler)\/lib\/lib\.[^/]+\.d\.ts$/i.test(path);

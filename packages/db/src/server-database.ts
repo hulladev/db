@@ -6,6 +6,8 @@ import { transactionDatabase, type WriteDatabase } from "./database.ts";
 import { DatabaseError } from "./error.ts";
 import { schemaDescriptor } from "./schema-contract.ts";
 import type { SchemaDefinition } from "./schema.ts";
+import { registerStorageExecution, type StorageExecution } from "./storage-execution.ts";
+export { resolvePostgresConnection } from "./local-connection.ts";
 
 export interface TransactionOptions { readonly retries?: number }
 export interface Database<S extends SchemaDefinition> extends WriteDatabase<S> {
@@ -253,9 +255,10 @@ export function createDatabase<S extends SchemaDefinition>(schema: S, connection
       throw error;
     } finally { clearTimeout(deadline); active = false; await release(session); }
   }
-  const root = transactionDatabase(schema, true, (operation, validate) =>
-    execute(!["select", "paginate", "aggregate"].includes(operation.method as string), (_tx, request) => request(operation, validate), false)) as WriteDatabase<S>;
-  return Object.freeze({
+  const request: StorageExecution = (operation, validate) =>
+    execute(!["select", "paginate", "aggregate"].includes(operation.method as string), (_tx, request) => request(operation, validate), false);
+  const root = transactionDatabase(schema, true, request) as WriteDatabase<S>;
+  const database = Object.freeze({
     ...root,
     async transaction<T>(handler: (tx: WriteDatabase<S>) => T | PromiseLike<T>, options: TransactionOptions = {}): Promise<T> {
       assertRoot();
@@ -283,6 +286,8 @@ export function createDatabase<S extends SchemaDefinition>(schema: S, connection
       await Promise.all(exiting);
     },
   });
+  registerStorageExecution(database, request);
+  return database;
 }
 
 

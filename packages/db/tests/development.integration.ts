@@ -21,8 +21,8 @@ function command(args: string[], cwd: string, environment?: Record<string, strin
   assert.equal(result.exitCode, 0, `${args[0]} failed:\n${result.stdout}\n${result.stderr}`);
   return result.stdout.toString().trim();
 }
-function start(root = project, databaseURL?: string): Session {
-  const child = Bun.spawn([node, cli, "dev", resolve(root, "db.config.ts")], { cwd: scratch, env: { ...env, ...(databaseURL ? { DATABASE_URL: databaseURL } : {}) }, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+function start(root = project, databaseURL?: string, entry = 'db.config.ts'): Session {
+  const child = Bun.spawn([node, cli, "dev", resolve(root, entry)], { cwd: scratch, env: { ...env, ...(databaseURL === undefined ? {} : { DATABASE_URL: databaseURL }) }, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
   const session: Session = { child, exited: child.exited, output: "", expectedExit: 0 };
   async function capture(stream: ReadableStream<Uint8Array>) {
     const decoder = new TextDecoder();
@@ -47,7 +47,7 @@ async function stop(session: ReturnType<typeof start>) {
   assert.equal(await session.exited, session.expectedExit, session.output);
 }
 const imports = (root: string, path: string) => JSON.stringify(Bun.pathToFileURL(resolve(root, path)).href);
-function app(script: string) { return command([node, "--input-type=module", "-e", script], scratch, env); }
+function app(script: string, databaseURL?: string) { return command([node, "--input-type=module", "-e", script], scratch, { ...env, ...(databaseURL === undefined ? {} : { DATABASE_URL: databaseURL }) }); }
 const source = `import {query} from './_generated/functions';
 export const list = query(ctx => ctx.db.select('notes'));
 export const epoch = query(() => new Date(0));
@@ -64,6 +64,11 @@ try {
   const archive = resolve(scratch, "package.tgz");
   command([process.execPath, "pm", "pack", "--ignore-scripts", "--filename", archive], packageRoot);
   command(["tar", "-xzf", archive, "--strip-components=1", "-C", installed], scratch);
+  const adapter = resolve(project, 'node_modules/@hulla/db-postgres');
+  await mkdir(adapter);
+  const adapterArchive = resolve(scratch, 'postgres-adapter.tgz');
+  command([process.execPath, 'pm', 'pack', '--ignore-scripts', '--filename', adapterArchive], resolve(packageRoot, '../db-postgres'));
+  command(['tar', '-xzf', adapterArchive, '--strip-components=1', '-C', adapter], scratch);
   await assert.rejects(access(resolve(project, "node_modules/typescript")));
   await mkdir(resolve(project, "db"));
   await Bun.write(resolve(project, "package.json"), JSON.stringify({ type: "module", dependencies: { "@hulla/db": "0.1.0" } }));
@@ -152,6 +157,75 @@ try {
   await assert.rejects(access(resolve(external, ".hulla")));
   await stop(fromEnvironment);
 
+  // Explicit failures (including an empty environment value) must not select
+  // local provisioning or reuse a different configured/environment connection.
+  await Bun.write(resolve(external, 'db.config.ts'), `export default {database:{server:{url:'postgres://app:private-secret@127.0.0.1:1/app'}},service:{port:0}}`);
+  const unreachable = start(external, url);
+  await until(unreachable, () => unreachable.output.includes('Waiting for source changes'));
+  assert.equal(readyCount(unreachable), 0);
+  assert(!unreachable.output.includes('private-secret'));
+  await assert.rejects(access(resolve(external, '.hulla')));
+  await stop(unreachable);
+  await Bun.write(resolve(external, 'db.config.ts'), `export default {database:{server:{}},service:{port:0}}`);
+  const emptyConnection = start(external, '');
+  await until(emptyConnection, () => emptyConnection.output.includes('Waiting for source changes'));
+  await assert.rejects(access(resolve(external, '.hulla')));
+  await stop(emptyConnection);
+
+  // The adapter initializer is the dev entrypoint: no separate database config.
+  const direct = resolve(scratch, 'direct');
+  await mkdir(resolve(direct, 'db'), { recursive: true });
+  await mkdir(resolve(direct, 'node_modules/@hulla'), { recursive: true });
+  await symlink(installed, resolve(direct, 'node_modules/@hulla/db'));
+  await symlink(adapter, resolve(direct, 'node_modules/@hulla/db-postgres'));
+  await Bun.write(resolve(direct, 'package.json'), '{"type":"module"}');
+  await Bun.write(resolve(direct, 'db/schema.ts'), `import {defineSchema,defineTable,v} from '@hulla/db';export const schema=defineSchema({notes:defineTable({title:v.string()})});`);
+  await Bun.write(resolve(direct, 'db/functions.ts'), `import {schema} from './schema';export const list=schema.query(({db})=>db.select('notes'));export const create=schema.mutation(({db})=>db.insert('notes',{title:'adapter entrypoint'}));`);
+  const initializer = (connection = '') => `import {postgres} from '@hulla/db-postgres';import {schema} from './schema';export const db=postgres({schema,functions:()=>import('./functions'),${connection}});`;
+  const entry = resolve(direct, 'db/server.ts');
+  await Bun.write(entry, initializer());
+  const directClient = (session: Session, write: boolean) => {
+    const baseUrl = [...session.output.matchAll(/Database service listening at (http:\/\/127\.0\.0\.1:\d+)/g)].at(-1)![1];
+    return JSON.parse(app(`import {HttpRuntime} from ${imports(project, 'node_modules/@hulla/db/dist/http.js')};
+import {contracts,runtime} from ${imports(direct, 'db/_generated/server/runtime.ts')};
+import {list,create} from ${imports(direct, 'db/_generated/server/functions.ts')};
+const transport=new HttpRuntime({baseUrl:${JSON.stringify(baseUrl)},contracts});const stop=runtime.configure(()=>transport);
+try{${write ? 'await create();' : ''}console.log(JSON.stringify(await list()));}finally{stop();await transport.dispose();}`));
+  };
+  const adapterManaged = start(direct, undefined, 'db/server.ts');
+  await until(adapterManaged, () => readyCount(adapterManaged) === 1);
+  const adapterState = resolve(direct, 'db/.hulla/local.json');
+  assert.equal(typeof (await Bun.file(adapterState).json()).url, 'string');
+  const adapterPID = Number((await Bun.file(resolve(direct, 'db/.hulla/postgres/postmaster.pid')).text()).split('\n')[0]);
+  assert.equal(directClient(adapterManaged, true)[0].title, 'adapter entrypoint');
+  await stop(adapterManaged);
+  assert.throws(() => process.kill(adapterPID, 0), { code: 'ESRCH' });
+  const adapterRestarted = start(direct, undefined, 'db/server.ts');
+  await until(adapterRestarted, () => readyCount(adapterRestarted) === 1);
+  assert.equal(directClient(adapterRestarted, false)[0].title, 'adapter entrypoint');
+  await stop(adapterRestarted);
+  // Using an external endpoint still starts the service, but never initializes
+  // that namespace until the explicit init command is run.
+  await Bun.write(entry, initializer(`url:${JSON.stringify(url)},namespace:'adapter_external'`));
+  const adapterExternal = start(direct, undefined, 'db/server.ts');
+  await until(adapterExternal, () => adapterExternal.output.includes('Waiting for source changes'));
+  assert.equal(readyCount(adapterExternal), 0);
+  command([node, cli, 'init', entry], scratch, env);
+  await Bun.write(entry, initializer(`url:${JSON.stringify(url)},namespace:'adapter_external'`) + '\n// initialized');
+  await until(adapterExternal, () => readyCount(adapterExternal) === 1);
+  assert.equal(directClient(adapterExternal, true)[0].title, 'adapter entrypoint');
+  const adapterRows = JSON.parse(app(`import {postgres} from ${imports(project, 'node_modules/@hulla/db-postgres/dist/index.js')};
+import {schema} from ${imports(direct, 'db/schema.ts')};
+const db=postgres({schema,namespace:'adapter_external'});
+try{await db.ready();console.log(JSON.stringify(await db.select('notes')));}finally{await db.close();}`, url));
+  assert.equal(adapterRows[0].title, 'adapter entrypoint');
+  const missingURL = app(`import {postgres} from ${imports(project, 'node_modules/@hulla/db-postgres/dist/index.js')};
+import {schema} from ${imports(direct, 'db/schema.ts')};
+const db=postgres({schema});try{await db.ready();throw new Error('Unexpected connection');}catch(error){if(!error.message.includes('No PostgreSQL connection'))throw error;console.log('missing URL rejected');}finally{await db.close();}`);
+  assert.equal(missingURL, 'missing URL rejected');
+  assert.throws(() => process.kill(adapterPID, 0), { code: 'ESRCH' });
+  await stop(adapterExternal);
+
   // A schema mismatch must stop the attempt without replacing local storage.
   const beforeMismatch = readyCount(first);
   const beforeMismatchFailures = first.output.split("Waiting for source changes").length;
@@ -202,7 +276,7 @@ try {
   await stop(early);
   for (const pid of owned) assert.throws(() => process.kill(pid, 0), { code: "ESRCH" });
   await assert.rejects(access(resolve(interrupted, ".hulla/dev.lock")));
-  console.log("Installed Node CLI: generation, schema hot reload, preserved backfills, external migration checks, local persistence, schema mismatch and PostgreSQL cleanup passed without Bun/PostgreSQL on PATH.");
+  console.log("Installed Node CLI: adapter/config entrypoints, managed and external PostgreSQL, environment URLs, explicit initialization/migration, failed-connection fencing, hot reload, persistence and process cleanup passed without Bun/PostgreSQL on PATH.");
 } finally {
   for (const session of sessions) await stop(session);
   await rm(scratch, { recursive: true, force: true });

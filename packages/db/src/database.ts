@@ -1,8 +1,11 @@
 import type { Page, PageOptions } from "./page.ts";
 import {
   compileSchema, prepareInsert,
-  type SchemaDefinition, type Row, type StorageRow, type StorageIdentity, type Insert, type Patch,
+  type SchemaDefinition, type Row, type StorageRow, type StorageIdentity, type Insert, type Patch, type TableFields, type TableShape,
 } from "./schema.ts";
+import { tableBindings } from "./database-metadata.ts";
+import { selectionResults } from "./selection-metadata.ts";
+import type { BoundTableShape, BoundName, ReplicaTable } from "./table-binding.ts";
 import { tableName, fieldPath, type TableReference, type FieldReference } from "./fields.ts";
 import { predicateParser, type Expressions, type Predicate, type Field, type FieldValue, type Paths } from "./filters.ts";
 import { DatabaseError } from "./error.ts";
@@ -14,11 +17,13 @@ import { aggregatePlan, type Aggregates, type AggregateSelection, type Aggregate
 export type { Aggregates, AggregateValue, AggregateResult, GroupedQuery, GroupedAggregate } from "./aggregate.ts";
 
 type Tables<S extends SchemaDefinition> = Extract<keyof S["tables"], string>;
+type WritableTables<S extends SchemaDefinition> = { [T in Tables<S>]: S["tables"][T] extends ReplicaTable<TableShape> ? never : T }[Tables<S>];
 export interface DatabaseOperation<T> extends PromiseLike<T> {
   catch<TResult = never>(onRejected: (reason: unknown) => TResult | PromiseLike<TResult>): Promise<T | TResult>;
   finally(onFinally: () => void): Promise<T>;
 }
-type TableInput<S extends SchemaDefinition, T extends Tables<S>> = T | TableReference<S, T>;
+type TableInput<S extends SchemaDefinition, T extends Tables<S>> = T | TableReference<S, T> | BoundTableShape<S, T>;
+type BoundRow<S extends SchemaDefinition, B extends BoundTableShape<S> & TableShape> = Pick<Row<S, Extract<BoundName<B>, keyof S["tables"]>>, Extract<keyof TableFields<B>, keyof Row<S, Extract<BoundName<B>, keyof S["tables"]>>>>;
 type LiteralTextOperator =
   | "contains" | "not contains" | "startsWith" | "not startsWith"
   | "endsWith" | "not endsWith";
@@ -74,22 +79,23 @@ export interface InsertQuery<R, Bulk extends boolean = false, O = R, Targets ext
   expectRows(expectation: RowExpectation): InsertQuery<R, Bulk, O, Targets, P, Skip, B, Stored>;
 }
 export interface ReadDatabase<S extends SchemaDefinition> {
+  select<B extends BoundTableShape<S> & TableShape>(table: B): SelectQuery<Row<S, Extract<BoundName<B>, keyof S["tables"]>>, Extract<BoundName<B>, string>, BoundRow<S, B>, StorageRow<S, Extract<BoundName<B>, keyof S["tables"]>>>;
   select<T extends Tables<S>>(table: TableInput<S, T>): SelectQuery<Row<S, T>, T, Row<S, T>, StorageRow<S, T>>;
   select<T extends Tables<S>, const P extends Projection<Row<S, NoInfer<T>>>>(
     table: TableInput<S, T>, projection: P & ValidProjection<Row<S, NoInfer<T>>, P>,
   ): SelectQuery<Row<S, T>, T, Projected<Row<S, T>, P>, StorageRow<S, T>>;
 }
 export interface WriteDatabase<S extends SchemaDefinition> extends ReadDatabase<S> {
-  insert<T extends Tables<S>>(
+  insert<T extends WritableTables<S>>(
     table: TableInput<S, T>, input: Insert<S, NoInfer<T>>,
   ): InsertQuery<Row<S, T>, false, Row<S, T>, ConflictTargets<S["tables"][T]>, Patch<S, T>, false, StorageRow<S, T>, StorageIdentity<S, T>>;
-  insert<T extends Tables<S>>(
+  insert<T extends WritableTables<S>>(
     table: TableInput<S, T>, input: readonly Insert<S, NoInfer<T>>[],
   ): InsertQuery<Row<S, T>, true, Row<S, T>, ConflictTargets<S["tables"][T]>, Patch<S, T>, false, StorageRow<S, T>, StorageIdentity<S, T>>;
-  update<T extends Tables<S>>(
+  update<T extends WritableTables<S>>(
     table: TableInput<S, T>, patch: UpdateInput<Row<S, NoInfer<T>>, Patch<S, NoInfer<T>>, StorageRow<S, NoInfer<T>>, StorageIdentity<S, NoInfer<T>>>,
   ): PendingWrite<Row<S, T>, T, Row<S, T>, StorageRow<S, T>>;
-  delete<T extends Tables<S>>(table: TableInput<S, T>): PendingWrite<Row<S, T>, T, Row<S, T>, StorageRow<S, T>>;
+  delete<T extends WritableTables<S>>(table: TableInput<S, T>): PendingWrite<Row<S, T>, T, Row<S, T>, StorageRow<S, T>>;
 }
 export interface QueryContext<S extends SchemaDefinition, I = unknown> {
   readonly db: ReadDatabase<S>;
@@ -142,9 +148,12 @@ export function transactionDatabase<S extends SchemaDefinition>(
   }
   const read: ReadDatabase<S> = {
     select(input: TableInput<S, Tables<S>>, inputProjection?: unknown) {
-      const name = tableName(input);
+      const binding = typeof input === "object" ? tableBindings.get(input) : undefined;
+      if (binding && binding.database.schema !== schema) throw new TypeError("Table belongs to a different database schema");
+      const name = binding?.name ?? tableName(input);
       table(name);
-      const selected = inputProjection === undefined ? undefined : projection(name, inputProjection);
+      const selected = inputProjection === undefined ? binding?.columns : projection(name, inputProjection);
+      if (binding && selected?.some(column => !binding.columns.includes(column))) throw new TypeError("Selection exceeds the bound table projection");
       const projected = selected ? { projection: selected } : {};
       return selection(args => filter(name, args), async (filters, limit, unique, order) => {
         const result = rows(name, await request({ method: "select", table: name, filters, limit, order, ...projected }), selected);
@@ -152,6 +161,18 @@ export function transactionDatabase<S extends SchemaDefinition>(
           if (result.length > 1) throw new DatabaseError({ code: "not_unique", message: "Expected at most one matching row" });
           return result[0] ?? null;
         }
+        // Only bound selections can supply replica rows. Ordinary name/reference
+        // reads retain their existing decode-only behavior and cost.
+        if (!binding) return result;
+        const columns = Object.freeze([...(selected ?? Object.keys(table(name).fields))]);
+        const signature = () => JSON.stringify(result.map(row => {
+          if (!row || typeof row !== "object" || Object.keys(row).length !== columns.length || columns.some(column => !Object.hasOwn(row, column))) throw new TypeError("Replica query modified its selected rows");
+          return columns.map(column => table(name).fields[column]!.encode((row as Record<string, unknown>)[column]));
+        }), (_key, value: unknown) => typeof value === "bigint" ? { int64: value.toString() } : value);
+        const original = signature();
+        selectionResults.set(result, Object.freeze({ schema, table: name, columns, filters: Object.freeze([...filters]), order: Object.freeze([...order]), limit,
+          validate() { if (signature() !== original) throw new TypeError("Replica query modified its selected rows"); },
+        }));
         return result;
       }, field => {
         const pathValue = fieldPath(field, name);
@@ -167,7 +188,7 @@ export function transactionDatabase<S extends SchemaDefinition>(
         if ((page.cursor !== null && typeof page.cursor !== "string") || typeof page.range !== "string") throw new TypeError("Invalid database page result");
         return { page: rows(name, page.page, selected), cursor: page.cursor } as Page<Row<S, Tables<S>>>;
       }, (groups, select) => {
-        if (selected) throw new TypeError("Aggregates select their own output; omit the row projection");
+        if (selected && (!binding || selected.length !== Object.keys(table(name).fields).length)) throw new TypeError("Aggregates select their own output; omit the row projection");
         return aggregatePlan(table(name), groups, select);
       }, async (filters, plan, having, order, limit) => {
         return plan.decode(await request({
@@ -181,7 +202,7 @@ export function transactionDatabase<S extends SchemaDefinition>(
   return Object.freeze({
     ...read,
     insert(tableInput: TableInput<S, Tables<S>>, input: Insert<S, Tables<S>> | readonly Insert<S, Tables<S>>[]) {
-      const name = tableName(tableInput) as Tables<S>;
+      const name = resolveTable(tableInput) as Tables<S>;
       table(name);
       const bulk = Array.isArray(input);
       const inputs = bulk ? input : [input];
@@ -194,16 +215,22 @@ export function transactionDatabase<S extends SchemaDefinition>(
       });
     },
     update(input: Tables<S> | TableReference<S, Tables<S>>, patch: unknown) {
-      const name = tableName(input);
+      const name = resolveTable(input);
       const values = writeCompiler(table(name)).update(patch);
       return write(args => filter(name, args), input => projection(name, input), rowExpectation, async (filters, selected, check) => rows(name,
         await request({ method: "update", table: name, filters, values, ...(selected ? { projection: selected } : {}) }, check), selected));
     },
     delete(input: Tables<S> | TableReference<S, Tables<S>>) {
-      const name = tableName(input);
+      const name = resolveTable(input);
       table(name);
       return write(args => filter(name, args), input => projection(name, input), rowExpectation, async (filters, selected, check) => rows(name,
         await request({ method: "delete", table: name, filters, ...(selected ? { projection: selected } : {}) }, check), selected));
     },
   }) as unknown as WriteDatabase<S>;
+
+  function resolveTable(input: unknown): string {
+    const binding = typeof input === "object" && input !== null ? tableBindings.get(input) : undefined;
+    if (binding && binding.database.schema !== schema) throw new TypeError("Table belongs to a different database schema");
+    return binding?.name ?? tableName(input);
+  }
 }

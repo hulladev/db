@@ -1,13 +1,17 @@
 import { resolveLimits, clientConnection, type ClientConnection, type InvocationLimits } from "./config.ts";
 import { lstat, mkdir, readdir } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
-import { API, SymbolFlags } from "./development-compiler.ts";
+import { FunctionAnalysis } from "./function-analysis.ts";
 import { isFunctionDefinition } from "./declarations.ts";
 import { assertModuleName, validExportName } from "./names.ts";
 import { checkGeneratedDirectory } from "./schema-codegen.ts";
 import { compileFunctionShapes } from "./function-shapes.ts";
+import { functionDatabases, tableBindings } from "./database-metadata.ts";
+import type { DatabaseConfiguration } from "./database-configuration.ts";
+import { workerBundleHeader } from "./worker-codegen.ts";
 
 export { generateProject } from "./project-codegen.ts";
+export { generateDatabase } from "./database-codegen.ts";
 export { generateSchema, generateRustSchema } from "./schema-codegen.ts";
 export type { SchemaGenerationOptions } from "./schema-codegen.ts";
 
@@ -20,6 +24,12 @@ function importPath(from: string, target: string): string {
 }
 
 export interface GenerationOptions {
+  /** Only declarations bound to this database are included. */
+  readonly database?: DatabaseConfiguration;
+  /** Database export from the explicit, shared metadata entrypoint. */
+  readonly databaseExport?: string;
+  readonly databaseArtifacts?: { readonly worker: string; readonly bundle: string; readonly host: string };
+  readonly databaseSource?: { readonly wrapper: string; readonly bundle: string; readonly declaration: string };
   readonly client?: ClientConnection;
   readonly limits?: InvocationLimits;
   /** Low-level explicit source mapping. Normally omit this and use discovery. */
@@ -28,15 +38,18 @@ export interface GenerationOptions {
   readonly schema?: string;
   /** Optional discovery directory override. */
   readonly functions?: string;
+  /** Stable base for operation paths, independent of the discovery directory. Defaults beside the schema. */
+  readonly moduleRoot?: string;
   readonly outDir: string;
 }
 
 const excludedDirectories = new Set(["_generated", "node_modules", "tests", "test", "__tests__", "__mocks__"]);
 
 /** Find declarations without evaluating candidate modules or their dependencies. */
-export async function discoverFunctions(options: Pick<GenerationOptions, "schema" | "functions" | "outDir">): Promise<Readonly<Record<string, string>>> {
+export async function discoverFunctions(options: Pick<GenerationOptions, "schema" | "functions" | "moduleRoot" | "outDir">, sharedAnalysis?: FunctionAnalysis): Promise<Readonly<Record<string, string>>> {
   const schema = resolve(options.schema ?? "db/schema.ts");
   const root = resolve(options.functions ?? dirname(schema));
+  const moduleRoot = resolve(options.moduleRoot ?? dirname(schema));
   const outDir = resolve(options.outDir);
   const candidates: string[] = [];
   async function scan(directory: string): Promise<void> {
@@ -53,59 +66,25 @@ export async function discoverFunctions(options: Pick<GenerationOptions, "schema
   }
   await scan(root);
   if (!candidates.length) return {};
-  const api = new API();
+  const analysis = sharedAnalysis ?? new FunctionAnalysis();
   try {
-    const snapshot = await api.updateSnapshot({ openFiles: candidates });
-    try {
-      const modules: Record<string, string> = Object.create(null);
-      for (const source of candidates) {
-        const project = await snapshot.getDefaultProjectForFile(source);
-        if (!project) throw new TypeError(`No TypeScript project for ${source}`);
-        const syntax = await project.program.getSyntacticDiagnostics(source);
-        if (syntax.length) throw new TypeError(`Invalid function source ${source}: ${syntax[0]!.text} (TS${syntax[0]!.code})`);
-        const file = await project.program.getSourceFile(source);
-        if (!file) throw new TypeError(`Cannot read ${source}`);
-        const declarationFile = await project.program.getSourceFile(Bun.fileURLToPath(new URL(import.meta.url.endsWith(".ts") ? "./declarations.ts" : "./declarations.d.ts", import.meta.url)));
-        if (!declarationFile) continue;
-        const checker = project.checker;
-        const symbol = await checker.getSymbolAtLocation(file);
-        if (!symbol) continue;
-        let found = false;
-        for (const exported of await checker.getExportsOfModule(symbol)) {
-          if (exported.flags & SymbolFlags.Alias) {
-            let typeOnly = false;
-            for (const declaration of exported.declarations) {
-              let node = await declaration.resolve(project);
-              while (node && node !== file) {
-                if ("isTypeOnly" in node && node.isTypeOnly) typeOnly = true;
-                node = node.parent;
-              }
-            }
-            if (typeOnly) continue;
-          }
-          const target = exported.flags & SymbolFlags.Alias ? await checker.getAliasedSymbol(exported) : exported;
-          if (!(target.flags & SymbolFlags.Value)) continue;
-          const type = await checker.getTypeOfSymbol(target);
-          if (!type) continue;
-          // The private unique-symbol brand distinguishes actual declarations
-          // from helpers that happen to expose kind/$types metadata.
-          const branded = (await checker.getPropertiesOfType(type)).some(property =>
-            property.name.startsWith("__@definitionBrand@") && property.declarations.some(declaration =>
-              declaration.path === declarationFile.path));
-          if (branded) {
-            if (!validExportName(exported.name)) throw new Error(`Invalid function export name: ${exported.name}`);
-            found = true;
-          }
-        }
-        if (!found) continue;
-        const module = relative(root, source).split(sep).join("/").replace(/\.[cm]?tsx?$/, "");
-        assertModuleName(module);
-        if (modules[module]) throw new Error(`Duplicate discovered function module: ${module}`);
-        modules[module] = source;
-      }
-      return modules;
-    } finally { await snapshot.dispose(); }
-  } finally { await api.close(); }
+    await analysis.open(candidates);
+    const modules: Record<string, string> = Object.create(null);
+    for (const source of candidates) {
+      const project = await analysis.project(source);
+      const syntax = await project.program.getSyntacticDiagnostics(source);
+      if (syntax.length) throw new TypeError(`Invalid function source ${source}: ${syntax[0]!.text} (TS${syntax[0]!.code})`);
+      const exports = await analysis.functions(source);
+      if (!exports.length) continue;
+      for (const exported of exports) if (!validExportName(exported.name)) throw new Error(`Invalid function export name: ${exported.name}`);
+      const module = relative(moduleRoot, source).split(sep).join("/").replace(/\.[cm]?tsx?$/, "");
+      if (module.startsWith("../")) throw new Error(`Function source ${source} is outside moduleRoot ${moduleRoot}; set moduleRoot to a common project directory`);
+      assertModuleName(module);
+      if (modules[module]) throw new Error(`Duplicate discovered function module: ${module}`);
+      modules[module] = source;
+    }
+    return modules;
+  } finally { if (!sharedAnalysis) await analysis.close(); }
 }
 
 async function outputFiles(directory: string): Promise<string[]> {
@@ -138,39 +117,80 @@ async function checkOutputPath(directory: string, name: string): Promise<void> {
 }
 
 /** Discovery is static. Only selected declaration modules execute in the trusted build process. */
-export async function generateFunctions(options: GenerationOptions): Promise<void> {
+export async function generateFunctions(options: GenerationOptions, sharedAnalysis?: FunctionAnalysis): Promise<void> {
+  const analysis = sharedAnalysis ?? new FunctionAnalysis();
+  try { await generateWithAnalysis(options, analysis); }
+  finally { if (!sharedAnalysis) await analysis.close(); }
+}
+
+async function generateWithAnalysis(options: GenerationOptions, analysis: FunctionAnalysis): Promise<void> {
+  if (options.databaseExport !== undefined && (!options.database || !options.schema || options.client)) throw new TypeError("Database bindings require an explicit entrypoint and connect-time transport settings");
   const outDir = resolve(options.outDir);
   if (options.modules && options.functions) throw new Error("Use either explicit modules or a functions discovery directory");
   await checkGeneratedDirectory(outDir);
-  const moduleSources = options.modules ?? await discoverFunctions(options);
+  let moduleSources = options.modules ?? await discoverFunctions(options, analysis);
+  if (options.database) {
+    const selected: Record<string, string> = Object.create(null);
+    for (const [name, path] of Object.entries(moduleSources)) {
+      const exports: Record<string, unknown> = await import(Bun.pathToFileURL(resolve(path)).href);
+      if (Object.values(exports).some(value => isFunctionDefinition(value) && functionDatabases.get(value) === options.database!.identity)) selected[name] = path;
+    }
+    moduleSources = selected;
+  }
   const existing = await outputFiles(outDir);
   // Reject collisions before evaluating selected server modules or writing output.
   for (const module of Object.keys(moduleSources)) {
     assertModuleName(module);
-    if (module === "types" || module === "functions" || module === "tables") throw new Error(`Function module name conflicts with a generated schema output: ${module}.ts`);
+    if (module.split("/").at(-1) === "index") throw new Error("Function module index is reserved for generated namespace entrypoints");
+    if (options.databaseArtifacts && ["_worker", "_host"].includes(module)) throw new Error(`Function module ${module} is reserved for generated hosting`);
+    if (options.databaseSource && ["source", "_source"].includes(module)) throw new Error(`Function module ${module} is reserved for the shared source contract`);
+    if (!options.database && (module === "types" || module === "functions" || module === "tables")) throw new Error(`Function module name conflicts with a generated schema output: ${module}.ts`);
   }
-  for (const name of ["runtime.ts", "functions.json", ...Object.keys(moduleSources).map(module => `${module}.ts`)]) {
+  const namespaces = namespaceFiles(Object.keys(moduleSources));
+  for (const name of ["runtime.ts", "functions.json", ...(options.databaseArtifacts ? ["_worker.ts", "_worker.js", "_host.js"] : []), ...(options.databaseSource ? ["source.ts", "_source.js", "_source.d.ts"] : []), ...namespaces.keys(), ...Object.keys(moduleSources).map(module => `${module}.ts`)]) {
     await checkOutputPath(outDir, name);
     if (existing.includes(name) && !ownsOutput(name, await Bun.file(resolve(outDir, name)).text())) {
       throw new Error(`Refusing to overwrite an authored file: ${name}`);
     }
   }
   const sources = Object.fromEntries(Object.entries(moduleSources).map(([name, path]) => [name, resolve(path)]));
+  await analysis.open(Object.values(sources));
   const modules = new Map<string, Record<string, unknown>>();
   const declarations: Record<string, string[]> = Object.create(null);
+  const operations: { module: string; name: string; definition: object; original: boolean }[] = [];
   for (const [module, source] of Object.entries(sources)) {
     const fromOutput = relative(outDir, source);
     if (!fromOutput.startsWith(`..${sep}`) && !isAbsolute(fromOutput)) throw new Error("Function definitions must be outside the generated output directory");
-    const definitions: Record<string, unknown> = await import(Bun.pathToFileURL(source).href);
+    const exported: Record<string, unknown> = await import(Bun.pathToFileURL(source).href);
+    const definitions = Object.fromEntries(Object.entries(exported).filter(([, value]) => !isFunctionDefinition(value) || !options.database || functionDatabases.get(value) === options.database.identity));
     modules.set(module, definitions);
     declarations[module] = Object.entries(definitions).filter(([, value]) => isFunctionDefinition(value)).map(([name]) => {
       if (!validExportName(name)) throw new Error(`Invalid function export name: ${name}`);
       return name;
     });
+    const exports = await analysis.functions(source);
+    for (const name of declarations[module]!) {
+      const origin = exports.find(exported => exported.name === name);
+      operations.push({ module, name, definition: definitions[name] as object,
+        original: origin?.original ?? false });
+    }
     if (!declarations[module]!.length) throw new Error(`No query/mutation exports in ${source}`);
   }
-  const shapes = await compileFunctionShapes(sources, declarations);
+  // Reexports are import paths for the same callable, not new remote operations.
+  // Prefer the original exported declaration, independently of scan order.
+  const canonical = new Map<object, { module: string; name: string }>();
+  for (const operation of operations.sort((a, b) => Number(b.original) - Number(a.original)
+    || `${a.module}.${a.name}`.localeCompare(`${b.module}.${b.name}`))) {
+    if (!canonical.has(operation.definition)) canonical.set(operation.definition, operation);
+  }
+  const canonicalDeclarations: Record<string, string[]> = Object.create(null);
+  for (const [module] of Object.entries(sources)) canonicalDeclarations[module] = [];
+  for (const { module, name } of canonical.values()) canonicalDeclarations[module]!.push(name);
+  const shapes = await compileFunctionShapes(sources, canonicalDeclarations, analysis);
   const files = new Map<string, string>();
+  for (const [name, contents] of namespaces) files.set(name, contents);
+  if (options.databaseArtifacts) { files.set("_worker.ts", options.databaseArtifacts.worker); files.set("_worker.js", options.databaseArtifacts.bundle); files.set("_host.js", options.databaseArtifacts.host); }
+  if (options.databaseSource) { files.set("source.ts", options.databaseSource.wrapper); files.set("_source.js", options.databaseSource.bundle); files.set("_source.d.ts", options.databaseSource.declaration); }
   const contracts: string[] = [];
   const manifest: Record<string, unknown> = Object.create(null);
   const limits = resolveLimits(options.limits);
@@ -179,11 +199,15 @@ export async function generateFunctions(options: GenerationOptions): Promise<voi
     assertModuleName(module);
     const source = resolve(sourcePath);
     const definitions = modules.get(module)!;
+    const localNames = new Map(canonicalDeclarations[module]!.sort().map((name, index) => [name, `$function${index}`]));
     const lines = [
       header.trimEnd(),
-      `import type * as $definitions from ${JSON.stringify(importPath(dirname(resolve(outDir, `${module}.ts`)), source))}`,
-      `import { runtime as $runtime } from ${JSON.stringify(importPath(dirname(resolve(outDir, `${module}.ts`)), resolve(outDir, "runtime.ts")))}`,
       "",
+      ...(localNames.size ? [
+        `import type * as $definitions from ${JSON.stringify(importPath(dirname(resolve(outDir, `${module}.ts`)), source))}`,
+        `import { runtime as $runtime } from ${JSON.stringify(importPath(dirname(resolve(outDir, `${module}.ts`)), resolve(outDir, "runtime.ts")))}`,
+        "",
+      ] : []),
     ];
     const bindings = new Set<string>();
     bindings.add("valueCodec");
@@ -193,6 +217,13 @@ export async function generateFunctions(options: GenerationOptions): Promise<voi
     )) {
       if (!isFunctionDefinition(definition)) continue;
       if (!validExportName(name)) throw new Error(`Invalid function export name: ${name}`);
+      const target = canonical.get(definition)!;
+      if (target.module !== module || target.name !== name) {
+        lines.push(target.module === module
+          ? `export { ${localNames.get(target.name)} as ${name} }`
+          : `export { ${target.name} as ${name} } from ${JSON.stringify(importPath(dirname(resolve(outDir, `${module}.ts`)), resolve(outDir, `${target.module}.ts`)))}`);
+        continue;
+      }
       const binding = definition.kind === "query" ? "queryBinding" : "mutationBinding";
       bindings.add(binding);
       const shape = shapes.get(`${module}.${name}`);
@@ -200,16 +231,17 @@ export async function generateFunctions(options: GenerationOptions): Promise<voi
       if (shape.paginated && definition.kind !== "query") throw new TypeError(`Paginated results require a query: ${module}.${name}`);
       maxOutputBytes = Math.max(maxOutputBytes, definition.limits?.inputBytes ?? limits.inputBytes, definition.limits?.outputBytes ?? limits.outputBytes);
       manifest[`${module}.${name}`] = { kind: definition.kind, ...shape, ...(definition.limits ? { limits: definition.limits } : {}) };
-      contracts.push(`${JSON.stringify(`${module}.${name}`)}: { kind: ${JSON.stringify(definition.kind)}, input: valueCodec(${JSON.stringify(shape.input)}), result: valueCodec(${JSON.stringify(shape.result)}) }`);
+      const source = definition.replica ? tableBindings.get(definition.replica) : undefined;
+      const replica = source ? `, replica: ${JSON.stringify({ table: source.name, columns: source.columns })}` : "";
+      contracts.push(`${JSON.stringify(`${module}.${name}`)}: { kind: ${JSON.stringify(definition.kind)}, input: valueCodec(${JSON.stringify(shape.input)}), result: valueCodec(${JSON.stringify(shape.result)})${replica} }`);
       lines.push(
-        `const $function${count} = $${binding}<typeof $definitions.${name}>($runtime, ${JSON.stringify(`${module}.${name}`)}, ${definition.hasInput}, { input: $valueCodec(${JSON.stringify(shape.input)}), result: $valueCodec(${JSON.stringify(shape.result)}) }${shape.paginated ? ", true" : ""})`,
+        `const ${localNames.get(name)} = $${binding}<typeof $definitions.${name}>($runtime, ${JSON.stringify(`${module}.${name}`)}, ${definition.hasInput}, { input: $valueCodec(${JSON.stringify(shape.input)}), result: $valueCodec(${JSON.stringify(shape.result)}) }${shape.paginated ? ", true" : ""})`,
       );
-      lines.push(`export { $function${count} as ${name} }`);
+      lines.push(`export { ${localNames.get(name)} as ${name} }`);
       count++;
     }
-    if (count === 0) throw new Error(`No query/mutation exports in ${source}`);
-    lines.splice(
-      2,
+    if (count) lines.splice(
+      3,
       0,
       `import { ${[...bindings]
         .sort()
@@ -219,9 +251,11 @@ export async function generateFunctions(options: GenerationOptions): Promise<voi
     files.set(`${module}.ts`, `${lines.join("\n")}\n`);
   }
   const client = options.client === undefined ? undefined : clientConnection(options.client);
-  files.set("runtime.ts", `${header}import { ${client ? "createBrowserRuntime" : "createRuntimeScope"}, valueCodec } from '@hulla/db/internal/client'\n\nexport const contracts = {\n${contracts.join(",\n")}\n} as const\n${client
+  const binding = options.databaseSource ? "import { source as $database } from './source.ts'\n" : options.databaseExport === undefined ? "" : `import { ${validExportName(options.databaseExport) ? options.databaseExport : JSON.stringify(options.databaseExport)} as $database } from ${JSON.stringify(importPath(outDir, resolve(options.schema!)))}\n`;
+  const fingerprint = new Bun.CryptoHasher("sha256").update(contracts.join("\n")).digest("hex");
+  files.set("runtime.ts", `${header}\nimport { ${client ? "createBrowserRuntime" : "createRuntimeScope"}, valueCodec } from '@hulla/db/internal/client'\n${binding}\nexport const contracts = {\n${contracts.join(",\n")}\n} as const\n${client
     ? `const browser = createBrowserRuntime(contracts, ${JSON.stringify(client)}, { maxResponseBytes: ${maxOutputBytes + 2 * 1024 * 1024} })\nexport const { runtime, setAuth, setHeaders, dispose } = browser`
-    : `export const runtime = createRuntimeScope()\nexport const setAuth = runtime.setAuth.bind(runtime)`}\n`);
+    : `export const runtime = createRuntimeScope(${binding ? `contracts, $database, ${JSON.stringify(fingerprint)}` : ""})\nexport const setAuth = runtime.setAuth.bind(runtime)`}\n`);
   files.set("functions.json", JSON.stringify({ generatedBy: "@hulla/db", limits: resolveLimits(options.limits), functions: manifest }, null, 2) + "\n");
   // Validate ownership of every output before any write; never replace authored files.
   await mkdir(outDir, { recursive: true });
@@ -240,18 +274,44 @@ export async function generateFunctions(options: GenerationOptions): Promise<voi
   // Retire only generator-owned modules, not other files in the directory.
   for (const name of existing) {
     if (
-      name.endsWith(".ts") &&
+      (name.endsWith(".ts") || name === "_source.js" || name === "_worker.js" || name === "_host.js") &&
       !files.has(name) &&
       !(await lstat(resolve(outDir, name))).isSymbolicLink() &&
-      (await Bun.file(resolve(outDir, name)).text()).startsWith(header)
+      (await Bun.file(resolve(outDir, name)).text()).startsWith(name === "_worker.js" ? workerBundleHeader : header)
     ) {
       await Bun.file(resolve(outDir, name)).delete();
     }
   }
 }
 
+/** Static ESM reexports preserve callable identity and keep native/handler code out of clients. */
+function namespaceFiles(modules: readonly string[]): Map<string, string> {
+  const directories = new Map<string, Map<string, string>>([["", new Map()]]);
+  const add = (directory: string, name: string, target: string) => {
+    let entries = directories.get(directory);
+    if (!entries) directories.set(directory, entries = new Map());
+    const previous = entries.get(name);
+    if (previous && previous !== target) throw new Error(`Function module and directory conflict at ${directory}${name}`);
+    entries.set(name, target);
+  };
+  for (const module of [...modules].sort()) {
+    const parts = module.split("/");
+    let directory = "";
+    for (let index = 0; index < parts.length; index++) {
+      const name = parts[index]!;
+      add(directory, name, index === parts.length - 1 ? `./${name}.ts` : `./${name}/index.ts`);
+      if (index < parts.length - 1) directory += `${name}/`;
+    }
+  }
+  return new Map([...directories].map(([directory, entries]) => [
+    `${directory}index.ts`,
+    header + "\n" + [...entries].map(([name, target]) => `export * as ${validExportName(name) ? name : JSON.stringify(name)} from ${JSON.stringify(target)}`).join("\n") + "\n",
+  ]));
+}
+
 function ownsOutput(name: string, contents: string): boolean {
   if (contents.startsWith(schemaHeader)) throw new Error(`Function output conflicts with a generated schema file: ${name}`);
+  if (name === "_worker.js") return contents.startsWith(workerBundleHeader);
   if (name !== "functions.json") return contents.startsWith(header);
   try { return JSON.parse(contents).generatedBy === "@hulla/db"; }
   catch { return false; }

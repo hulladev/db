@@ -1,6 +1,6 @@
 import type { Operation } from "./contracts.ts";
 
-/** Internal cache bridge used by generated withOptimistic wrappers. */
+/** Internal cache bridge used by generated optimistic wrappers. */
 export interface PredictionQuery { readonly name: string; readonly input?: unknown }
 export interface PendingPrediction { readonly requestId: string; readonly name: string; readonly input: unknown }
 export interface PredictionContext {
