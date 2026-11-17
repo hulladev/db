@@ -11,6 +11,18 @@ function command(args: string[], cwd = consumer) {
   const p = Bun.spawnSync(args, { cwd, stdout: "pipe", stderr: "pipe" });
   assert.equal(p.exitCode, 0, `${args.join(" ")}\n${p.stdout}\n${p.stderr}`);
 }
+
+async function verifyExports(name: string, packageRoot: string, exports: unknown) {
+  if (typeof exports === "string") {
+    assert(await Bun.file(join(packageRoot, exports)).exists(), `${name}: ${exports}`);
+    return;
+  }
+  assert(exports && typeof exports === "object", `${name}: invalid export target`);
+  for (const [condition, target] of Object.entries(exports)) {
+    assert(condition !== "hulladb-source", `${name}: workspace export condition in archive`);
+    await verifyExports(name, packageRoot, target);
+  }
+}
 try {
   const dependencies: Record<string, string> = {
     typescript: "7.0.2", "@types/react": "^19.0.0", "@types/node": "26.2.0",
@@ -38,10 +50,7 @@ try {
     assert.equal(manifest.license, "MIT");
     assert.equal(manifest.publishConfig.access, "public");
     assert(await Bun.file(join(packageRoot, "LICENSE")).exists());
-    for (const conditions of Object.values(manifest.exports) as Record<string, string>[]) {
-      assert(!("hulladb-source" in conditions));
-      for (const path of Object.values(conditions)) assert(await Bun.file(join(packageRoot, path)).exists(), `${name}: ${path}`);
-    }
+    await verifyExports(name, packageRoot, manifest.exports);
   }
   const core = join(consumer, "node_modules/@hulla/db");
   const notices = await Bun.file(join(core, "THIRD_PARTY_NOTICES.md")).text();
