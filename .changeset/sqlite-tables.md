@@ -4,6 +4,10 @@
 "@hulla/db-sqlite": minor
 ---
 
+### Upgrading from 0.1.x
+
+Replace `mutation.withOptimistic(...)` with `mutation.optimistic(...)` in application code. Keep the same optimistic targets and regenerate client bindings with the new SDK. Upgrade the core and any adapters or framework bindings together.
+
 Add inert schema authoring with query/mutation helpers and PostgreSQL/SQLite instance constructors, immutable table extend/pick/omit composition, projected replica declarations and authorized query replica contracts. Generate per-database granular and namespace caller imports from explicit database entrypoints. Rename callable withOptimistic to optimistic. SQLite supports local-only application/server storage through Node/Bun drivers and portable WASM/Expo adapters. Typed source connections maintain authorized query coverage in read-only replicas and support durable queued server calls through mandatory device-side offline conflict callbacks, with account fences and receipt-only recovery of sent attempts. Native Rust SQLite database storage, SQLite managed HTTP hosting and full PostgreSQL native-package extraction remain separate work.
 
 Allow database function catalogues through lazy literal module imports or build-time globs, including CommonJS declarations. Generate shared source contracts that preserve field codecs and omit configured handlers and storage settings; use these contracts for replicas and explicit source URL connections.
