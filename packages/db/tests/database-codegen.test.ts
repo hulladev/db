@@ -21,6 +21,7 @@ test('prepared PostgreSQL hosting reads deployment settings without running eage
   const previous = process.env[key];
   try {
     const entry = join(directory, 'server.ts');
+    await Bun.write(join(directory, 'tsconfig.json'), JSON.stringify({ extends: '../../tsconfig.json', include: ['**/*'] }));
     await Bun.write(join(directory, 'schema.ts'), `import { defineSchema, defineTable, v } from '@hulla/db'
 export const schema = defineSchema({ drafts: defineTable({ title: v.string() }) })`);
     await Bun.write(join(directory, 'settings.ts'), `export const settings = { url: process.env.${key}, namespace: 'host_test' }`);
@@ -50,6 +51,7 @@ test("generated granular and namespace replica queries share callables, enforce 
   try {
     const serverSource = new URL("./fixtures/database-server.ts", import.meta.url).pathname;
     const functionSource = new URL("./fixtures/database-functions.ts", import.meta.url).pathname;
+    await Bun.write(join(directory, "tsconfig.json"), JSON.stringify({ extends: "../../tsconfig.json", include: ["**/*"] }));
     await Bun.write(join(directory, "server.ts"), `export { primary } from ${JSON.stringify(serverSource)}\n`);
     await Bun.write(join(directory, "tasks.ts"), `export { byWorkspace } from ${JSON.stringify(functionSource)}\nimport { defineSchema, defineTable, v } from ${JSON.stringify(new URL("../src/index.ts", import.meta.url).pathname)}\nconst other = defineSchema({ tasks: defineTable({ title: v.string() }) })\nexport const otherOperation = other.query(() => "OTHER_DATABASE")\n`);
     await db.insert("tasks", { workspace: "alice", title: "Public", internalNotes: "PRIVATE_COLUMN" });

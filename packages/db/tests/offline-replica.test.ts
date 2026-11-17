@@ -91,6 +91,7 @@ async function fixture() {
   try {
     const serverSource = new URL("./fixtures/database-server.ts", import.meta.url).pathname;
     const functionSource = new URL("./fixtures/database-functions.ts", import.meta.url).pathname;
+    await Bun.write(join(directory, "tsconfig.json"), JSON.stringify({ extends: "../../tsconfig.json", include: ["**/*"] }));
     await Bun.write(join(directory, "server.ts"), `export { primary } from ${JSON.stringify(serverSource)}\n`);
     await Bun.write(join(directory, "tasks.ts"), `export { byWorkspace, rename } from ${JSON.stringify(functionSource)}\n`);
     await generateDatabase(join(directory, "server.ts"));
