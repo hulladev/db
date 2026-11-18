@@ -80,6 +80,8 @@ export interface DatabaseConfig {
   readonly schema?: string;
   /** Optional discovery root. Defaults to the schema's directory. */
   readonly functions?: string;
+  /** Stable operation-path base, resolved relative to this config. Defaults to the functions directory. */
+  readonly moduleRoot?: string;
   /** Return null for anonymous access; throw for invalid/expired credentials. */
   readonly auth?: VerifyIdentity;
   readonly service?: ServiceOptions;
@@ -101,7 +103,7 @@ function record(value: unknown, keys: readonly string[], name: string): asserts 
 
 /** Validate configuration without opening connections, reading files, or starting a listener. */
 export function defineConfig<C extends DatabaseConfig>(config: C): Readonly<C & { readonly limits?: InvocationLimits }> {
-  record(config, ["database", "schema", "functions", "auth", "service", "limits"], "database");
+  record(config, ["database", "schema", "functions", "moduleRoot", "auth", "service", "limits"], "database");
   record(config.database, ["server", "client"], "database connection");
   record(config.database.server, ["url", "namespace"], "database.server");
   const { url, namespace } = config.database.server;
@@ -114,7 +116,7 @@ export function defineConfig<C extends DatabaseConfig>(config: C): Readonly<C & 
   }
   if (namespace !== undefined && (typeof namespace !== "string" || !/^[a-z_][a-z0-9_]{0,62}$/.test(namespace)))
     throw new TypeError("database.server.namespace must be a PostgreSQL identifier of at most 63 characters");
-  for (const key of ["schema", "functions"] as const)
+  for (const key of ["schema", "functions", "moduleRoot"] as const)
     if (config[key] !== undefined && (typeof config[key] !== "string" || !config[key].trim()))
       throw new TypeError(`${key} must be a nonempty path`);
   if (config.auth !== undefined && typeof config.auth !== "function") throw new TypeError("auth must verify credentials with a callback");
@@ -135,6 +137,7 @@ export function defineConfig<C extends DatabaseConfig>(config: C): Readonly<C & 
       ...(config.database.client === undefined ? {} : { client: clientConnection(config.database.client) }) }),
     ...(config.schema === undefined ? {} : { schema: config.schema }),
     ...(config.functions === undefined ? {} : { functions: config.functions }),
+    ...(config.moduleRoot === undefined ? {} : { moduleRoot: config.moduleRoot }),
     ...(config.auth === undefined ? {} : { auth: config.auth }),
     ...(config.service === undefined ? {} : { service: Object.freeze({ ...config.service,
       ...(config.service.origins === undefined ? {} : { origins: Object.freeze([...config.service.origins]) }),

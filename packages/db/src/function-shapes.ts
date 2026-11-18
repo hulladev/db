@@ -1,4 +1,5 @@
-import { API, TypeFlags, SymbolFlags, isDateLibrary, type Checker, type Type } from "./development-compiler.ts";
+import { TypeFlags, SymbolFlags, isDateLibrary, type Checker, type Type } from "./development-compiler.ts";
+import { FunctionAnalysis } from "./function-analysis.ts";
 import type { ValueShape } from "./codec.ts";
 
 const canonicalPath = (path: string) => {
@@ -76,43 +77,37 @@ async function shape(checker: Checker, type: Type | undefined, parents = new Set
 }
 
 /** TypeScript's checker provides inferred contracts; applications need no second result schema. */
-export async function compileFunctionShapes(modules: Readonly<Record<string, string>>, declarations: Readonly<Record<string, readonly string[]>>): Promise<Map<string, { input: ValueShape; result: ValueShape; paginated?: true }>> {
-  const api = new API();
+export async function compileFunctionShapes(modules: Readonly<Record<string, string>>, declarations: Readonly<Record<string, readonly string[]>>, sharedAnalysis?: FunctionAnalysis): Promise<Map<string, { input: ValueShape; result: ValueShape; paginated?: true }>> {
+  const analysis = sharedAnalysis ?? new FunctionAnalysis();
   try {
-    const snapshot = await api.updateSnapshot({ openFiles: Object.values(modules) });
-    try {
-      const shapes = new Map<string, { input: ValueShape; result: ValueShape; paginated?: true }>();
-      for (const [module, source] of Object.entries(modules)) {
-        const project = await snapshot.getDefaultProjectForFile(source);
-        if (!project) throw new TypeError(`No TypeScript project for ${source}`);
-        const file = await project.program.getSourceFile(source);
-        if (!file) throw new TypeError(`Cannot read ${source}`);
-        const checker = project.checker;
-        const symbol = await checker.getSymbolAtLocation(file);
-        if (!symbol) throw new TypeError(`No module exports in ${source}`);
-        const names = new Set(declarations[module]);
-        for (const exported of await checker.getExportsOfModule(symbol)) {
-          if (!names.has(exported.name)) continue;
-          const definition = await checker.getTypeOfSymbol(exported);
-          if (!definition) continue;
-          const types = await checker.getPropertyOfType(definition, "$types");
-          if (!types) continue;
-          let metadata = await checker.getTypeOfSymbol(types);
-          if (metadata?.isUnionType()) metadata = (await metadata.getTypes()).find(type => type.flags & TypeFlags.Object);
-          if (!metadata) throw new TypeError(`Cannot infer ${module}.${exported.name}`);
-          const input = await checker.getPropertyOfType(metadata, "input");
-          const output = await checker.getPropertyOfType(metadata, "output");
-          if (!input || !output) throw new TypeError("Missing function signature metadata");
-          const outputType = await checker.getTypeOfSymbol(output);
-          const paginated = outputType && await pageBrand(checker, outputType);
-          shapes.set(`${module}.${exported.name}`, {
-            ...(paginated ? { paginated: true as const } : {}),
-            input: await shape(checker, await checker.getTypeOfSymbol(input)),
-            result: await shape(checker, outputType),
-          });
-        }
+    await analysis.open(Object.values(modules));
+    const shapes = new Map<string, { input: ValueShape; result: ValueShape; paginated?: true }>();
+    for (const [module, source] of Object.entries(modules)) {
+      if (!declarations[module]?.length) continue;
+      const project = await analysis.project(source);
+      const checker = project.checker;
+      const names = new Set(declarations[module]);
+      for (const exported of await analysis.functions(source)) {
+        if (!names.has(exported.name)) continue;
+        const definition = await checker.getTypeOfSymbol(exported.symbol);
+        if (!definition) continue;
+        const types = await checker.getPropertyOfType(definition, "$types");
+        if (!types) continue;
+        let metadata = await checker.getTypeOfSymbol(types);
+        if (metadata?.isUnionType()) metadata = (await metadata.getTypes()).find(type => type.flags & TypeFlags.Object);
+        if (!metadata) throw new TypeError(`Cannot infer ${module}.${exported.name}`);
+        const input = await checker.getPropertyOfType(metadata, "input");
+        const output = await checker.getPropertyOfType(metadata, "output");
+        if (!input || !output) throw new TypeError("Missing function signature metadata");
+        const outputType = await checker.getTypeOfSymbol(output);
+        const paginated = outputType && await pageBrand(checker, outputType);
+        shapes.set(`${module}.${exported.name}`, {
+          ...(paginated ? { paginated: true as const } : {}),
+          input: await shape(checker, await checker.getTypeOfSymbol(input)),
+          result: await shape(checker, outputType),
+        });
       }
-      return shapes;
-    } finally { await snapshot.dispose(); }
-  } finally { await api.close(); }
+    }
+    return shapes;
+  } finally { if (!sharedAnalysis) await analysis.close(); }
 }

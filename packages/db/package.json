@@ -31,6 +31,11 @@
       "types": "./dist/server.d.ts",
       "default": "./dist/server.js"
     },
+    "./build": {
+      "hulladb-source": "./src/build.ts",
+      "types": "./dist/build.d.ts",
+      "default": "./dist/build.js"
+    },
     "./codegen": {
       "hulladb-source": "./src/codegen.ts",
       "types": "./dist/codegen.d.ts",
@@ -55,6 +60,31 @@
       "hulladb-source": "./src/internal/client.ts",
       "types": "./dist/internal/client.d.ts",
       "default": "./dist/internal/client.js"
+    },
+    "./engine": {
+      "hulladb-source": "./src/engine.ts",
+      "types": "./dist/engine.d.ts",
+      "default": "./dist/engine.js"
+    },
+    "./internal/engine": {
+      "hulladb-source": "./src/internal/engine.ts",
+      "types": "./dist/internal/engine.d.ts",
+      "default": "./dist/internal/engine.js"
+    },
+    "./internal/connect": {
+      "hulladb-worker": {
+        "hulladb-source": "./src/unavailable-connect.ts",
+        "types": "./dist/unavailable-connect.d.ts",
+        "default": "./dist/unavailable-connect.js"
+      },
+      "hulladb-source": "./src/database-connect.ts",
+      "types": "./dist/database-connect.d.ts",
+      "default": "./dist/database-connect.js"
+    },
+    "./internal/postgres": {
+      "hulladb-source": "./src/server-database.ts",
+      "types": "./dist/server-database.d.ts",
+      "default": "./dist/server-database.js"
     }
   },
   "scripts": {
@@ -69,12 +99,15 @@
     "prepack": "bun run build && bun scripts/check-package.ts"
   },
   "devDependencies": {
+    "acorn": "8.19.0",
     "@hulla/db-studio": "workspace:*",
     "@types/bun": "1.4.2",
     "@types/node": "26.2.0",
     "valibot": "1.5.0",
     "zod": "4.6.7",
-    "typescript": "7.0.2"
+    "typescript": "7.0.2",
+    "@hulla/db-postgres": "workspace:*",
+    "@hulla/db-sqlite": "workspace:*"
   },
   "files": [
     "dist",
@@ -94,7 +127,7 @@
       "optional": true
     }
   },
-  "description": "Typed PostgreSQL access and generated reactive function clients for Node, Bun and browsers",
+  "description": "Composable database schemas, typed queries and generated reactive clients for Node, Bun and browsers",
   "license": "MIT",
   "author": {
     "name": "Samuel Hulla",

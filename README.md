@@ -1,12 +1,15 @@
 # `@hulla/db`
 
-A Rust database platform with PostgreSQL as its authoritative backend and initial
-Rust and TypeScript SDKs (`hulladb` and `@hulla/db`). Runtime responsiveness,
+A reactive database platform with PostgreSQL and SQLite adapter choices and
+Rust and TypeScript SDKs (`hulladb` and `@hulla/db`). SQLite application storage,
+replicas and offline queues are available in TypeScript; native Rust SQLite database
+execution and SQLite managed HTTP hosting remain work. Runtime responsiveness,
 interactive queries/writes and client/server latency take priority over short
 builds. See [architecture](docs/architecture.md) and [schema authoring](docs/schema-authoring.md).
 
-PostgreSQL remains authoritative. Managed commands authorize, validate and commit
-business rows, synchronization revisions and recovery receipts in one transaction.
+In the managed service, PostgreSQL remains authoritative. Managed commands
+authorize, validate and commit business rows, synchronization revisions and
+recovery receipts in one transaction.
 The sync service polls durable revisions and reevaluates authorized queries; native
 clients store their authorized working sets in SQLite.
 
@@ -18,6 +21,15 @@ The serving path uses managed PostgreSQL functions and authorized result snapsho
 Source identities and scoped revisions correlate committed mutations with visible
 query results. Native clients cache function results and recover pending mutations
 in SQLite; browser clients maintain live results in memory.
+
+[Schema authoring and SQLite](docs/sqlite.md) add composable table schemas,
+optional engine entrypoints, SQLite storage and authorized replica-query contracts.
+Node/Bun drivers and browser WASM/Expo adapters are available. TypeScript device
+connections persist downloaded query rows and queue opt-in server calls with
+explicit conflict callbacks. Native Rust SQLite database storage and SQLite
+managed HTTP hosting remain separate work.
+The optional [application build integration](docs/build.md) compiles explicit
+function globs into static catalogues for Bun and Vite/Rollup builds.
 
 Implemented today: schema/value/projection contracts, lossless JSON codecs, managed
 PostgreSQL functions, authenticated HTTP/SSE and Rust/TypeScript SDKs.
@@ -48,7 +60,7 @@ with leased workers, bounded retries, dead letters and stable idempotency keys.
 diagnostics and bounded receipt compaction that preserves request identities.
 The optional [`@hulla/db-studio`](docs/studio.md) provides a relationship map and searchable
 schema catalog, plus table filtering, pagination, managed editing and bulk deletion.
-Local browser table replicas remain future work. The
+Opt-in TypeScript SQLite replicas use explicit authorized query coverage. The
 [production operations starter](docs/production-readiness.md) supplies role provisioning,
 durable quotas, framework request scopes, typed admin transactions, backup/restore
 and self-hosted containers. The [intended developer API](docs/backend-functions.md) describes

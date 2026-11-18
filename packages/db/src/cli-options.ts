@@ -1,20 +1,27 @@
 export interface StudioFlags { readonly port: number; readonly readOnly: boolean }
 export interface CLIOptions {
-  readonly command: "generate" | "init" | "migrate" | "serve" | "dev" | "studio";
+  readonly command: "setup" | "generate" | "init" | "migrate" | "serve" | "dev" | "studio";
+  readonly ignoreFile?: string;
   readonly config: string;
   readonly studio?: StudioFlags;
   readonly check?: boolean;
 }
 
-export const usage = "Usage: hulla-db <generate|init|migrate|serve|dev|studio> [db.config.ts] [--check] [--studio] [--studio-port <port>] [--read-only|--write]";
+export const usage = "Usage: hulla-db <setup|generate|init|migrate|serve|dev|studio> [entrypoint-or-db.config.ts] [--ignore-file <path>] [--check] [--studio] [--studio-port <port>] [--read-only|--write]";
 
 export function parseCLI(args: readonly string[], production = false): CLIOptions {
   const [command, ...rest] = args;
-  if (!["generate", "init", "migrate", "serve", "dev", "studio"].includes(command ?? "")) throw new Error(usage);
+  if (!["setup", "generate", "init", "migrate", "serve", "dev", "studio"].includes(command ?? "")) throw new Error(usage);
   let config: string | undefined, enabled = false, port: number | undefined, readOnly: boolean | undefined, check = false;
+  let ignoreFile: string | undefined;
   for (let i = 0; i < rest.length; i++) {
     const arg = rest[i]!;
-    if (arg === "--check" && command === "migrate" && !check) check = true;
+    if (arg === "--ignore-file" && command === "setup" && ignoreFile === undefined) {
+      const value = rest[++i];
+      if (!value || value.startsWith("-") || /[\r\n\0]/.test(value)) throw new Error("--ignore-file requires an explicit gitignore-syntax file path");
+      ignoreFile = value;
+    }
+    else if (arg === "--check" && command === "migrate" && !check) check = true;
     else if (arg === "--studio" && !enabled) enabled = true;
     else if (arg === "--studio-port" && port === undefined) {
       const value = rest[++i];
@@ -25,8 +32,10 @@ export function parseCLI(args: readonly string[], production = false): CLIOption
     else throw new Error(usage);
   }
   if ((enabled && command !== "dev") || ((port !== undefined || readOnly !== undefined) && command !== "studio" && !(command === "dev" && enabled))) throw new Error(usage);
+  if (command === "setup" && ignoreFile === undefined) throw new Error("setup requires --ignore-file <path>; choose the ignore file your tools use.");
   return {
     command: command as CLIOptions["command"], config: config ?? "db.config.ts",
+    ...(ignoreFile === undefined ? {} : { ignoreFile }),
     ...(command === "migrate" ? { check } : {}),
     ...(command === "studio" || enabled ? { studio: { port: port ?? 4983, readOnly: readOnly ?? production } } : {}),
   };

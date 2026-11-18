@@ -2,13 +2,13 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { access, readFile } from "node:fs/promises";
 import { constants } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
-import { defineConfig, type VerifyIdentity } from "./config.ts";
+import { resolve } from "node:path";
+import type { VerifyIdentity } from "./config.ts";
 import { resolveNativeExecutable } from "./native.ts";
 import { schemaDescriptor } from "./schema-contract.ts";
 import { resolveDatabaseConnection } from "./local-connection.ts";
 import type { ListenAddress } from "./cli-address.ts";
+import { loadHostConfiguration } from "./host-configuration.ts";
 
 class VerificationTimeout extends Error {}
 
@@ -52,15 +52,12 @@ export async function verifyServiceIdentity(verify: VerifyIdentity | undefined, 
 
 /** Runtime-only launcher. The native host owns HTTP/SSE, transactions and revalidation. */
 export async function startService(configPath: string, address?: ListenAddress): Promise<{ url: string; close(): Promise<void>; closed: Promise<void> }> {
-  const config = defineConfig((await import(pathToFileURL(resolve(configPath)).href)).default);
+  const { config, schema, directory: generated, prepared } = await loadHostConfiguration(configPath);
   const connection = resolveDatabaseConnection(config.database.server, resolve(configPath));
-  const schemaPath = resolve(dirname(resolve(configPath)), config.schema ?? "db/schema.ts");
-  const schema = (await import(pathToFileURL(schemaPath).href)).default;
-  const generated = resolve(dirname(schemaPath), "_generated");
-  const bundle = resolve(generated, "worker.js");
+  const bundle = resolve(generated, prepared ? "_worker.js" : "worker.js");
   let manifest: string;
   try {
-    manifest = await readFile(resolve(generated, "client/functions.json"), "utf8");
+    manifest = await readFile(resolve(generated, prepared ? "functions.json" : "client/functions.json"), "utf8");
     await access(bundle, constants.R_OK);
   } catch {
     throw new Error("Cannot read generated service artifacts; run hulla-db generate with Bun before serve and include the generated directory in your deployment");

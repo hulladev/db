@@ -11,6 +11,18 @@ function command(args: string[], cwd = consumer) {
   const p = Bun.spawnSync(args, { cwd, stdout: "pipe", stderr: "pipe" });
   assert.equal(p.exitCode, 0, `${args.join(" ")}\n${p.stdout}\n${p.stderr}`);
 }
+
+async function verifyExports(name: string, packageRoot: string, exports: unknown) {
+  if (typeof exports === "string") {
+    assert(await Bun.file(join(packageRoot, exports)).exists(), `${name}: ${exports}`);
+    return;
+  }
+  assert(exports && typeof exports === "object", `${name}: invalid export target`);
+  for (const [condition, target] of Object.entries(exports)) {
+    assert(condition !== "hulladb-source", `${name}: workspace export condition in archive`);
+    await verifyExports(name, packageRoot, target);
+  }
+}
 try {
   const dependencies: Record<string, string> = {
     typescript: "7.0.2", "@types/react": "^19.0.0", "@types/node": "26.2.0",
@@ -19,17 +31,18 @@ try {
     dependencies[name!] = (await Bun.file(join(root, "packages", directory!, "node_modules", name!, "package.json")).json()).version;
   }
   // Content-address local archives so caches cannot substitute an older build.
-  for (const directory of ["db", "studio", "react", "vue", "svelte", "solid", "better-auth"]) {
-    const name = directory === "db" ? "@hulla/db" : `@hulla/db-${directory}`;
+  const directories: string[] = (await Bun.file(join(root, '.changeset/release.config.json')).json()).packages;
+  for (const directory of directories) {
+    const name: string = (await Bun.file(join(root, directory, 'package.json')).json()).name;
     const file = Bun.file(join(archives, `${name.replace("@", "").replace("/", "-")}-${version}.tgz`));
     const hash = new Bun.CryptoHasher("sha256").update(await file.arrayBuffer()).digest("hex");
-    const filename = `${directory}-${hash}.tgz`;
+    const filename = `${name.replace('@', '').replace('/', '-')}-${hash}.tgz`;
     await Bun.write(join(consumer, filename), file);
     dependencies[name] = `file:./${filename}`;
   }
   await Bun.write(join(consumer, "package.json"), JSON.stringify({ private: true, type: "module", dependencies }));
   command(["npm", "install", "--ignore-scripts", "--no-audit", "--no-fund"]);
-  console.log("Installed all seven release archives outside the checkout.");
+  console.log(`Installed all ${directories.length} release archives outside the checkout.`);
   for (const name of Object.keys(dependencies).filter(name => name.startsWith("@hulla/"))) {
     const packageRoot = join(consumer, "node_modules", name);
     const manifest = await Bun.file(join(packageRoot, "package.json")).json();
@@ -37,10 +50,7 @@ try {
     assert.equal(manifest.license, "MIT");
     assert.equal(manifest.publishConfig.access, "public");
     assert(await Bun.file(join(packageRoot, "LICENSE")).exists());
-    for (const conditions of Object.values(manifest.exports) as Record<string, string>[]) {
-      assert(!("hulladb-source" in conditions));
-      for (const path of Object.values(conditions)) assert(await Bun.file(join(packageRoot, path)).exists(), `${name}: ${path}`);
-    }
+    await verifyExports(name, packageRoot, manifest.exports);
   }
   const core = join(consumer, "node_modules/@hulla/db");
   const notices = await Bun.file(join(core, "THIRD_PARTY_NOTICES.md")).text();

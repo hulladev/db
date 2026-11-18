@@ -91,7 +91,7 @@ export class QueryOperation<T> implements QueryHandle<T> {
   #signal: (() => AbortSignal | undefined) | undefined;
   #cancelled = false;
 
-  constructor(start: () => Promise<unknown>, watch?: (listener: (state: QueryState<T>) => void) => () => void, codecs?: FunctionCodecs, assertScope?: () => void, signal?: () => AbortSignal | undefined, scopeSignal?: () => AbortSignal | undefined) {
+  constructor(start: () => Promise<unknown>, watch?: (listener: (state: QueryState<T>) => void) => () => void, codecs?: FunctionCodecs, assertScope?: () => void, signal?: () => AbortSignal | undefined, scopeSignal?: () => AbortSignal | undefined, indicators?: () => { readonly isStale: boolean; readonly isOptimistic: boolean }) {
     this.#watch = watch;
     this.#assertScope = assertScope;
     this.#scopeSignal = scopeSignal;
@@ -104,7 +104,7 @@ export class QueryOperation<T> implements QueryHandle<T> {
         if (this.#retired) throw this.#scopeError;
         this.#signal?.()?.throwIfAborted();
         const data = readonly(codecs ? codecs.result.parse(result) : result) as ReadonlyResult<T>;
-        if (!this.#observed) this.#publish({ status: "success", data, isStale: false, isOptimistic: false });
+        if (!this.#observed) this.#publish({ status: "success", data, isStale: false, isOptimistic: false, ...indicators?.() });
         this.#checkScope();
         if (this.#retired) throw this.#scopeError;
         return data;

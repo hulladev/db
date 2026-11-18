@@ -5,7 +5,7 @@ import { executables, verifyNative } from "../../packages/db/scripts/native-arti
 import { verifyDevelopment } from "../../packages/db/scripts/development-artifacts.ts";
 
 const root = Bun.fileURLToPath(new URL("../../", import.meta.url));
-const directories = ["db", "studio", "react", "vue", "svelte", "solid", "better-auth"];
+const directories: string[] = (await Bun.file(join(root, '.changeset/release.config.json')).json()).packages;
 const platforms = ["darwin-arm64", "linux-x64"];
 function command(args: string[], cwd = root): string {
   const result = Bun.spawnSync(args, { cwd, stdout: "pipe", stderr: "pipe" });
@@ -19,19 +19,25 @@ await mkdir(output, { recursive: true });
 const staging = await mkdtemp(join(tmpdir(), "hulladb-npm-release-"));
 try {
   for (const directory of directories) {
-    const source = join(root, "packages", directory), stage = join(staging, directory);
-    await mkdir(stage);
+    const source = join(root, directory);
     const manifest = await Bun.file(join(source, "package.json")).json();
+    const stage = join(staging, manifest.name.replace('@', '').replace('/', '-'));
+    await mkdir(stage);
     if (manifest.version !== version || manifest.license !== "MIT") throw new Error(`Inconsistent release metadata: ${directory}`);
     // Source conditions and workspace build tooling are local development only.
     delete manifest.private; delete manifest.scripts; delete manifest.devDependencies;
-    for (const conditions of Object.values(manifest.exports) as Record<string, string>[]) delete conditions["hulladb-source"];
+    function stripSourceConditions(value: unknown): void {
+      if (!value || typeof value !== "object") return;
+      delete (value as Record<string, unknown>)["hulladb-source"];
+      for (const child of Object.values(value)) stripSourceConditions(child);
+    }
+    stripSourceConditions(manifest.exports);
     await cp(join(source, "dist"), join(stage, "dist"), { recursive: true });
     const readme = (await Bun.file(join(source, "README.md")).text()).replace(/\]\((\.\.\/[^)#]+)(#[^)]*)?\)/g,
       (_, path, fragment = "") => `](https://github.com/hulladev/db/blob/main/${relative(root, resolve(source, path))}${fragment})`);
     await Bun.write(join(stage, "README.md"), readme);
     await Bun.write(join(stage, "LICENSE"), Bun.file(join(root, "LICENSE")));
-    if (directory === "db") {
+    if (manifest.name === '@hulla/db') {
       await cp(join(source, "development"), join(stage, "development"), { recursive: true, dereference: true });
       for (const platform of platforms) {
         for (const executable of executables) await verifyNative(join(source, "native", platform, executable), platform);

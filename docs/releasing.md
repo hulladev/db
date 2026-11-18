@@ -82,7 +82,7 @@ It exercises generation, inferred Date codecs, hot reload, persistence, schema
 mismatch recovery, external database ownership and process cleanup with no Bun,
 compiler or PostgreSQL installation on the consumer's PATH.
 
-For a full release, artifacts are written under `output/releases/<rust-version>/`: seven npm tarballs, nine Cargo
+For a full release, artifacts are written under `output/releases/<rust-version>/`: the configured npm tarballs, nine Cargo
 archives, `manifest.json` and `SHA256SUMS`. The manifest records exact archive
 hashes, package sizes, source HEAD and whether the checkout was dirty. Treat a
 dirty candidate as review material: commit the reviewed source, rerun preparation
@@ -109,7 +109,7 @@ checkout. It uses npm to resolve the unpublished sibling tarballs, generates an
 application through the installed CLI, compiles all framework/Better Auth consumers,
 checks the browser bundle and license files, and runs the packaged native processes
 under Node without checkout/PATH fallbacks. It also runs npm publication dry runs
-for all seven archives without uploading them. The temporary consumer is removed
+for all configured archives without uploading them. The temporary consumer is removed
 whether checks pass or fail. It also extracts the nine Cargo archives outside the
 checkout and checks every target/feature against those extracted sibling packages,
 using cached registry dependencies. This is archive validation; it does not replace the
@@ -117,10 +117,12 @@ SDK or PostgreSQL behavior tests recorded in the implementation/deployment notes
 
 ## Publication order
 
-Publish npm core first, followed by Studio and the five framework/auth integrations:
+Publish npm core first, followed by the optional drivers, Studio and framework/auth integrations:
 
 ```text
 @hulla/db
+@hulla/db-postgres
+@hulla/db-sqlite
 @hulla/db-react
 @hulla/db-studio
 @hulla/db-vue

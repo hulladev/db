@@ -1,6 +1,12 @@
+import { captureInput as copySubmitted } from "./function-input.ts";
 import { validateLimits, type InvocationLimits } from "./config.ts";
 import type { FunctionKind, FunctionSignature } from "./contracts.ts";
 import { assertStandardSchema, validateSchema, type SchemaInput, type SchemaOutput, type StandardSchema } from "./validation.ts";
+import type { TableShape } from "./schema.ts";
+import type { BoundTableShape } from "./table-binding.ts";
+import { tableBindings, replicaSources, functionDatabases } from "./database-metadata.ts";
+import { selectionResults, type RowSelection } from "./selection-metadata.ts";
+import { scopeDatabase } from "./database-scope.ts";
 export type { StandardSchema } from "./validation.ts";
 
 const definitionBrand = Symbol("Hulla function definition");
@@ -15,6 +21,7 @@ export interface FunctionDefinition<K extends FunctionKind, I, O, C> extends Fun
   readonly input?: StandardSchema;
   readonly output?: StandardSchema;
   readonly handler: (context: unknown, input: unknown) => unknown;
+  readonly replica?: BoundTableShape & TableShape;
   readonly [definitionBrand]: true;
 }
 
@@ -32,8 +39,16 @@ type ValidExtension<C, E> = [E] extends [void] ? unknown
   : E extends object ? Extract<keyof E, keyof C | Reserved> extends never ? unknown : { readonly duplicateContextKeys: Extract<keyof E, keyof C | Reserved> }
   : { readonly extensionMustReturnContextProperties: never };
 type AddedContext<E> = [E] extends [void] ? unknown : E;
+type ReplicaRows<B> = B extends { readonly $inferSelect: infer R } ? R[] : never;
+type ReplicaOptions<K, B> = K extends "query" ? { readonly replica: B; readonly output?: never; readonly limits?: InvocationLimits } : never;
 
 export interface Declarer<K extends FunctionKind, C, I = undefined, P = undefined> {
+  <B extends BoundTableShape & TableShape, O extends ReplicaRows<B> | PromiseLike<ReplicaRows<B>>>(options: ReplicaOptions<K, B> & {
+    readonly input?: undefined; readonly handler: (context: C, input: P) => O;
+  }): FunctionDefinition<K, I, Awaited<O>, C>;
+  <B extends BoundTableShape & TableShape, S extends StandardSchema, O extends ReplicaRows<B> | PromiseLike<ReplicaRows<B>>>(options: ReplicaOptions<K, B> & {
+    readonly input: S; readonly handler: (context: C, input: Combine<P, SchemaOutput<S>>) => O;
+  } & DisjointInputs<P, SchemaOutput<S>>): FunctionDefinition<K, Combine<I, SchemaInput<S>>, Awaited<O>, C>;
   <O>(handler: (context: C, input: P) => O): FunctionDefinition<K, I, Awaited<O>, C>;
   <O>(options: { readonly limits?: InvocationLimits; readonly handler: (context: C, input: P) => O; readonly input?: undefined; readonly output?: undefined }): FunctionDefinition<K, I, Awaited<O>, C>;
   <S extends StandardSchema, O>(options: { readonly limits?: InvocationLimits;
@@ -59,22 +74,27 @@ export interface Declarer<K extends FunctionKind, C, I = undefined, P = undefine
   } & DisjointInputs<P, SchemaOutput<S>>): Declarer<K, C & AddedContext<Awaited<E>>, Combine<I, SchemaInput<S>>, Combine<P, SchemaOutput<S>>>;
 }
 
-function declarationOptions(value: unknown, extension: boolean): { input?: StandardSchema; output?: StandardSchema; limits?: InvocationLimits; handler: (context: unknown, input: unknown) => unknown } {
+function declarationOptions(value: unknown, extension: boolean, kind?: FunctionKind): { input?: StandardSchema; output?: StandardSchema; limits?: InvocationLimits; replica?: BoundTableShape & TableShape; handler: (context: unknown, input: unknown) => unknown } {
   if (typeof value === "function") return { handler: value as (context: unknown, input: unknown) => unknown };
   if (typeof value !== "object" || value === null || Array.isArray(value)) throw new TypeError("A function declaration needs an options object or handler");
-  const allowed = extension ? ["input", "handler"] : ["input", "output", "handler", "limits"];
+  const allowed = extension ? ["input", "handler"] : ["input", "output", "handler", "limits", ...(kind === "query" ? ["replica"] : [])];
   if (Reflect.ownKeys(value).some(key => typeof key !== "string" || !allowed.includes(key))) throw new TypeError("Unknown function declaration option");
-  const options = value as { input?: StandardSchema; output?: StandardSchema; limits?: InvocationLimits; handler: (context: unknown, input: unknown) => unknown };
+  const options = value as { input?: StandardSchema; output?: StandardSchema; limits?: InvocationLimits; replica?: BoundTableShape & TableShape; handler: (context: unknown, input: unknown) => unknown };
   if (typeof options.handler !== "function") throw new TypeError("A function declaration needs a handler");
   if (options.input !== undefined) assertStandardSchema(options.input);
   if (options.output !== undefined) assertStandardSchema(options.output);
-  return { ...(options.limits === undefined ? {} : { limits: validateLimits(options.limits) }), handler: options.handler, ...(options.input ? { input: options.input } : {}), ...(options.output ? { output: options.output } : {}) };
+  if (Object.hasOwn(options, "replica")) {
+    const source = options.replica && tableBindings.get(options.replica);
+    if (!source || replicaSources.has(source.definition)) throw new TypeError("Replica queries require an authoritative bound table or projection");
+    if (options.output !== undefined) throw new TypeError("Replica query outputs are determined by their table projection");
+  }
+  return { ...(options.limits === undefined ? {} : { limits: validateLimits(options.limits) }), handler: options.handler, ...(options.input ? { input: options.input } : {}), ...(options.output ? { output: options.output } : {}), ...(options.replica ? { replica: options.replica } : {}) };
 }
 
 function declarer<K extends FunctionKind, C>(kind: K, stages: readonly Stage[] = []): Declarer<K, C> {
   const declare = (...args: unknown[]) => {
     if (args.length !== 1) throw new TypeError("A function declaration takes one options object or handler");
-    const options = declarationOptions(args[0], false);
+    const options = declarationOptions(args[0], false, kind);
     return Object.freeze({ kind, hasInput: options.input !== undefined || stages.some(stage => stage.input !== undefined), stages, ...options, [definitionBrand]: true });
   };
   const extend = (...args: unknown[]) => {
@@ -108,39 +128,13 @@ function entries(value: unknown, label: string): readonly [string, unknown][] {
   });
 }
 
-/** A validator may transform or mutate its own copy, never another stage's submitted input. */
-function copySubmitted(value: unknown, ancestors = new Set<object>(), depth = 0): unknown {
-  if (depth > 128) throw new TypeError("Function input nesting exceeds budget");
-  if (value === null || value === undefined || ["string", "number", "bigint", "boolean"].includes(typeof value)) return value;
-  if (typeof value !== "object" || ancestors.has(value)) throw new TypeError("Function input must contain supported plain data");
-  if (value instanceof Date) {
-    const time = Date.prototype.getTime.call(value);
-    if (!Number.isFinite(time)) throw new TypeError("Function input dates must be valid");
-    return new Date(time);
-  }
-  const array = Array.isArray(value);
-  if (array ? Object.getPrototypeOf(value) !== Array.prototype : ![Object.prototype, null].includes(Object.getPrototypeOf(value))) throw new TypeError("Function input must contain supported plain data");
-  const result: unknown[] | Record<string, unknown> = array ? [] : Object.create(Object.getPrototypeOf(value));
-  const keys = Reflect.ownKeys(value);
-  if (array && keys.length !== value.length + 1) throw new TypeError("Function input arrays must be dense");
-  ancestors.add(value);
-  try {
-    for (const key of keys) {
-      if (array && key === "length") continue;
-      const property = Object.getOwnPropertyDescriptor(value, key)!;
-      if (typeof key !== "string" || !property.enumerable || !Object.hasOwn(property, "value")) throw new TypeError("Function input properties must be ordinary values");
-      if (array && (!/^(0|[1-9][0-9]*)$/.test(key) || Number(key) >= value.length)) throw new TypeError("Function input arrays must be dense");
-      Object.defineProperty(result, key, { value: copySubmitted(property.value, ancestors, depth + 1), enumerable: true, writable: true, configurable: true });
-    }
-    return result;
-  } finally { ancestors.delete(value); }
-}
-
 /** Validate and execute stages inside the provider's snapshot/transaction; output finishes before commit. */
 export async function executeDefinition(definition: UntypedDefinition, context: unknown, raw: unknown): Promise<unknown> {
   if (!definition.hasInput && raw !== undefined) throw new TypeError("This function takes no input");
   let currentContext: Record<string, unknown> = Object.create(null);
   for (const [key, value] of entries(context, "Context")) currentContext[key] = value;
+  const owner = functionDatabases.get(definition);
+  if (owner && currentContext.db && typeof currentContext.db === "object") currentContext.db = scopeDatabase(currentContext.db, owner);
   currentContext = Object.freeze(currentContext);
   const inputStages = definition.stages.filter(stage => stage.input).length + (definition.input ? 1 : 0);
   const submitted = definition.hasInput ? copySubmitted(raw) : undefined;
@@ -171,5 +165,18 @@ export async function executeDefinition(definition: UntypedDefinition, context: 
   }
   await validateInput(definition.input);
   const result = await definition.handler(currentContext, input);
+  if (definition.replica) replicaSelection(definition, result);
   return definition.output ? validateSchema(definition.output, result, "Output") : result;
+}
+
+/** Server-side selection contract for a replica query. Never infer source rows from arbitrary output. */
+export function replicaSelection(definition: UntypedDefinition, result: unknown): RowSelection {
+  const source = definition.replica && tableBindings.get(definition.replica);
+  const selection = result !== null && typeof result === "object" ? selectionResults.get(result) : undefined;
+  if (!source || !selection || selection.schema !== source.database.schema || selection.table !== source.name
+    || selection.columns.length !== source.columns.length || source.columns.some(name => !selection.columns.includes(name))) {
+    throw new TypeError("Replica query must return a row selection matching its declared source and columns");
+  }
+  selection.validate();
+  return selection;
 }

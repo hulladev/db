@@ -10,6 +10,10 @@ import {
 import { OptimisticResults } from "./optimistic.ts";
 import { sseEvents } from "./http/sse.ts";
 import { authState, isAuthPromise, sameAuth, type ClientAuthInput, type ClientAuthState } from "./auth.ts";
+import type { ClientStorage, FunctionContracts, ReplicaChange, QueuedMutation } from "./client-storage.ts";
+import { OfflineQueue } from "./offline-queue.ts";
+import type { OfflineResolution, OfflineResolver } from "./offline.ts";
+import { validateRemoteUrl } from './http/url.ts';
 
 export interface HttpRuntimeOptions {
   readonly baseUrl: string;
@@ -18,7 +22,9 @@ export interface HttpRuntimeOptions {
   /** Read current credentials for each request, independently of setAuth. */
   readonly headers?: HeadersInit | (() => HeadersInit | Promise<HeadersInit>);
   readonly credentials?: RequestCredentials;
-  readonly contracts: Readonly<Record<string, FunctionCodecs & { readonly kind: "query" | "mutation" }>>;
+  readonly contracts: FunctionContracts;
+  /** Supplied by the connected device engine. */
+  readonly storage?: ClientStorage;
   readonly fetch?: typeof globalThis.fetch;
   readonly operationTimeoutMs?: number;
   /** Overall deadline for one-shot reads, including connection recovery. */
@@ -103,11 +109,14 @@ export class HttpRuntime implements FunctionRuntime {
   #liveRevision = -1n;
   #streamController: AbortController | undefined;
   #rebuildQueued = false;
+  #storageReady: Promise<void> = Promise.resolve();
+  #offlineQueue: OfflineQueue | undefined;
+  readonly #offlineResolvers = new Map<string, OfflineResolver<unknown>>();
+  #cacheEpoch = 0;
+  readonly #releasing = new Map<string, object>();
 
   constructor(options: HttpRuntimeOptions) {
-    const url = new URL(options.baseUrl);
-    if (url.username || url.password || url.search || url.hash || !(url.protocol === "https:" || (url.protocol === "http:" && ["127.0.0.1", "[::1]", "localhost"].includes(url.hostname)))) throw new TypeError("Use HTTPS or loopback HTTP without URL credentials");
-    this.#baseUrl = url.href.replace(/\/$/, "");
+    this.#baseUrl = validateRemoteUrl(options.baseUrl);
     this.#options = { ...options, contracts: Object.freeze({ ...options.contracts }) };
     this.#optimism = new OptimisticResults(query => {
       const operation = this.#operation({ name: query.name, kind: "query", input: query.input });
@@ -125,6 +134,62 @@ export class HttpRuntime implements FunctionRuntime {
   }
 
   get identityEpoch(): number { this.#expireAuth(); return this.#epoch; }
+  #clientKey(): string { return JSON.stringify([this.#auth?.key ?? null]); }
+  async prepareStorage(): Promise<void> {
+    const epoch = this.#epoch;
+    this.#check(epoch);
+    await this.#storageReady;
+    await this.#options.storage?.activate(this.#clientKey());
+    this.#check(epoch);
+  }
+  #queue(): OfflineQueue {
+    if (!this.#options.storage) throw new DatabaseError({ code: "offline_unavailable", message: "Offline calls require connected durable device storage" });
+    return this.#offlineQueue ??= new OfflineQueue(this.#options.storage, {
+      context: () => { this.#check(this.#epoch); return { key: this.#clientKey(), signal: this.#lifetime.signal }; },
+      session: async () => {
+        const epoch = this.#epoch;
+        await this.prepareStorage();
+        // Verify connectivity and obtain fresh admission before marking an unsent
+        // queued intent as sent. Cached sessions alone do not prove connectivity.
+        try { return await this.#renew(epoch); }
+        catch (error) {
+          if (error instanceof DatabaseError && !isApplicationError(error) && ["unauthorized", "forbidden", "reset_required", "context_changed"].includes(error.code)) await this.#invalidate(error, epoch);
+          throw error;
+        }
+      },
+      contract: name => this.#contract({ name, kind: "mutation" }),
+      send: (intent, session, recovering, receipt, onStatus) => {
+        const pending: PendingMutation = { requestId: intent.requestId, name: intent.name, input: intent.input, source: intent.owner.source, ticket: intent.ticket! };
+        this.#pending.set(pending.requestId, pending);
+        return this.#track(this.#mutation(pending, this.#contract({ name: intent.name, kind: "mutation" }), session, this.#epoch, this.#lifetime.signal, onStatus, recovering, receipt));
+      },
+    });
+  }
+  registerOfflineResolver(name: string, resolver: OfflineResolver<unknown>): void {
+    this.#contract({ name, kind: "mutation" });
+    const previous = this.#offlineResolvers.get(name);
+    if (previous && previous !== resolver) throw new TypeError(`Conflicting offline resolvers for ${name}`);
+    this.#offlineResolvers.set(name, resolver);
+    if (this.#options.storage && !this.#authPending && !this.#authFailure && !this.#disposed) this.#queue().register(name, resolver);
+  }
+  async pendingMutations(): Promise<readonly QueuedMutation[]> { return this.#queue().pending(); }
+  async acknowledgeMutation(id: string): Promise<void> { await this.#queue().acknowledge(id); }
+  async resolveConflict(id: string, resolution: OfflineResolution<unknown>): Promise<void> { await this.#queue().resolve(id, resolution); }
+  async flush(): Promise<void> { await this.#queue().flush(); }
+  async forgetQuery(raw: Operation): Promise<void> {
+    const operation = this.#operation(raw), epoch = this.#epoch;
+    this.#check(epoch);
+    if (operation.kind !== "query" || !this.#options.storage || !this.#options.contracts[operation.name]?.replica) throw new TypeError("The query has no persistent replica coverage");
+    const key = operationKey(operation);
+    if (this.#watches.has(key)) throw new TypeError("Unsubscribe the active query before releasing its downloaded rows");
+    if (this.#releasing.has(key) || this.#releasing.size >= 128) throw new DatabaseError({ code: "capacity", message: "Query cache release is already in progress" });
+    const token = {}; this.#releasing.set(key, token); this.#cacheEpoch++;
+    try {
+      await this.#options.storage.forgetSnapshot(this.#clientKey(), key);
+      this.#check(epoch);
+      this.#results.delete(key); this.#idleResults.delete(key); this.#optimism.removeResult(key);
+    } finally { if (this.#releasing.get(key) === token) this.#releasing.delete(key); }
+  }
   get identitySignal(): AbortSignal { this.#expireAuth(); return this.#lifetime.signal; }
   get clientAuth() {
     this.#expireAuth();
@@ -239,13 +304,19 @@ export class HttpRuntime implements FunctionRuntime {
   }
   async #ensure(epoch: number): Promise<VerifiedSession> {
     this.#check(epoch);
+    await this.prepareStorage();
     if (this.#session && this.#session.expiresAt > Date.now()) {
       this.#scheduleRenewal(epoch);
       return this.#session;
     }
-    const session = await this.#renew(epoch);
-    this.#scheduleRenewal(epoch);
-    return session;
+    try {
+      const session = await this.#renew(epoch);
+      this.#scheduleRenewal(epoch);
+      return session;
+    } catch (error) {
+      if (error instanceof DatabaseError && !isApplicationError(error) && ["unauthorized", "forbidden", "reset_required", "context_changed"].includes(error.code)) await this.#invalidate(error, epoch);
+      throw error;
+    }
   }
   #scheduleRenewal(epoch: number): void {
     clearTimeout(this.#renewTimer);
@@ -255,7 +326,7 @@ export class HttpRuntime implements FunctionRuntime {
       void this.#renew(epoch).then(() => {
         if (epoch === this.#epoch && (this.#calls.size || this.#watches.size)) this.#scheduleRenewal(epoch);
       }).catch(error => {
-        if (error instanceof DatabaseError && !isApplicationError(error) && ["unauthorized", "forbidden", "reset_required"].includes(error.code)) void this.#invalidate(error, epoch);
+        if (error instanceof DatabaseError && !isApplicationError(error) && ["unauthorized", "forbidden", "reset_required", "context_changed"].includes(error.code)) void this.#invalidate(error, epoch);
       });
     }, Math.min(Math.max(1, this.#session.renewAfter - Date.now()), 2_147_483_647));
     this.#renewTimer.unref?.();
@@ -274,6 +345,13 @@ export class HttpRuntime implements FunctionRuntime {
         const session = { source: head.source, scope: head.scope, principal: head.principal, authorizationScope: head.authorization_scope,
           ticket: head.ticket.id, expiresAt: started + head.ticket.expires_in_ms, renewAfter: started + head.ticket.renew_after_ms };
         if (session.expiresAt <= Date.now()) throw new DatabaseError({ code: "unavailable", message: "Session ticket expired during setup" });
+        if (this.#options.storage) {
+          await this.#options.storage.bind(this.#clientKey(), session);
+          this.#check(epoch);
+          await this.#options.storage.activate(this.#clientKey());
+          this.#check(epoch);
+          this.#offlineQueue?.schedule(0);
+        }
         this.#source = head.source; this.#session = session;
         return session;
       })().finally(() => { if (epoch === this.#epoch) this.#handshake = undefined; });
@@ -364,6 +442,9 @@ export class HttpRuntime implements FunctionRuntime {
     this.#refreshPredictions();
   }
   #retire(error: DatabaseError): void {
+    this.#cacheEpoch++; this.#releasing.clear();
+    this.#options.storage?.deactivate();
+    this.#offlineQueue?.stop(); this.#offlineQueue = undefined;
     this.#epoch++;
     this.#liveRevision = -1n;
     this.#streamGeneration++; this.#streamController?.abort();
@@ -402,8 +483,18 @@ export class HttpRuntime implements FunctionRuntime {
     const operation = this.#operation(raw), epoch = this.#epoch;
     this.#check(epoch);
     if (operation.kind === "query" && options.optimistic !== undefined) throw new TypeError("Optimistic updates apply only to mutations");
+    if (operation.kind === "query" && options.offline !== undefined) throw new TypeError("Offline queuing applies only to mutations");
     if (operation.kind === "mutation" && options.signal !== undefined) throw new TypeError("Mutation cancellation is not supported");
-    if (operation.kind === "query") return this.#query(operation, epoch, options.signal);
+    if (operation.kind === "query") return this.#query(operation, epoch, options.signal, options.onQueryState);
+    if (options.offline) {
+      await this.prepareStorage();
+      this.#check(epoch);
+      return this.#queue().call(operation, options.offline, onStatus, options.optimistic ? (id, input) => {
+        try { this.#optimism.begin(id, operation.name, input, options.optimistic!); }
+        catch { this.#optimism.reject(id); }
+        this.#refreshPredictions();
+      } : undefined);
+    }
     const signal = options.signal ? AbortSignal.any([options.signal, this.#lifetime.signal]) : this.#lifetime.signal;
     let session: VerifiedSession;
     try { session = await abortable(this.#ensure(epoch), signal); }
@@ -434,7 +525,9 @@ export class HttpRuntime implements FunctionRuntime {
     return this.#mutation(pending, operation.codecs!, session, epoch, signal, onStatus);
   }
 
-  async #query(operation: Operation, epoch: number, caller?: AbortSignal): Promise<unknown> {
+  async #query(operation: Operation, epoch: number, caller?: AbortSignal, indicators?: CallOptions["onQueryState"]): Promise<unknown> {
+    const cacheEpoch = this.#cacheEpoch;
+    if (this.#releasing.has(operationKey(operation))) throw new DatabaseError({ code: "capacity", message: "This query's downloaded rows are being released" });
     const deadline = new AbortController();
     const timeout = new DatabaseError({ code: "query_timeout", message: "Query did not complete within its client deadline" });
     const timer = setTimeout(() => deadline.abort(timeout), this.#queryTimeout);
@@ -454,17 +547,41 @@ export class HttpRuntime implements FunctionRuntime {
           const data = operation.codecs!.result.decode(snapshot.result);
           if (operation.page && snapshot.page) operation.page.range = snapshot.page.range;
           const key = operationKey(operation);
+          const replica = this.#options.contracts[operation.name]?.replica;
+          this.#check(epoch);
           // One-shot reads cannot advance a member independently of its live round.
           if (!this.#watches.has(key)) {
+            if (replica && this.#options.storage && cacheEpoch === this.#cacheEpoch) {
+              try { await this.#options.storage.saveSnapshot(this.#clientKey(), key, snapshot, replica, data); }
+              catch (error) { this.#results.delete(key); this.#idleResults.delete(key); this.#optimism.removeResult(key); throw error; }
+              this.#check(epoch);
+            }
             await this.#correlate(snapshot, session, epoch, signal);
             this.#check(epoch);
-            if (!this.#watches.has(key)) this.#cache(key, snapshot, operation);
+            if (!this.#watches.has(key) && cacheEpoch === this.#cacheEpoch) this.#cache(key, snapshot, operation);
           }
           signal.throwIfAborted();
+          indicators?.({ isStale: false, isOptimistic: false });
           return data;
         } catch (error) {
           if (signal.aborted) throw signal.reason;
-          if (error instanceof DatabaseError && !isApplicationError(error) && ["unauthorized", "forbidden", "reset_required"].includes(error.code)) await this.#invalidate(error, epoch);
+          if (error instanceof DatabaseError && !transient(error)) {
+            const key = this.#clientKey();
+            if (!isApplicationError(error) && ["unauthorized", "forbidden", "reset_required", "context_changed"].includes(error.code)) await this.#invalidate(error, epoch);
+            if (this.#options.contracts[operation.name]?.replica) await this.#options.storage?.forgetSnapshot(key, operationKey(operation));
+          }
+          if (error instanceof TransportFailure && this.#options.storage && this.#options.contracts[operation.name]?.replica) {
+            const cached = await this.#options.storage.snapshot(this.#clientKey(), operationKey(operation));
+            const owner = await this.#options.storage.session(this.#clientKey());
+            this.#check(epoch);
+            if (cached && owner && cached.source === owner.source && cached.scope === owner.scope && cached.principal === owner.principal && cached.authorization_scope === owner.authorizationScope) {
+              const data = operation.codecs!.result.decode(cached.result);
+              this.#source ??= cached.source;
+              if (!this.#watches.has(operationKey(operation))) this.#cache(operationKey(operation), cached, operation);
+              indicators?.({ isStale: true, isOptimistic: false });
+              return data;
+            }
+          }
           if (!(error instanceof TransportFailure)) throw error;
           await pause(Math.min(this.#reconnect * 2 ** Math.min(failures++, 5), 30_000), signal);
         }
@@ -472,12 +589,12 @@ export class HttpRuntime implements FunctionRuntime {
     } finally { clearTimeout(timer); }
   }
 
-  async #mutation(pending: PendingMutation, codecs: FunctionCodecs, session: Session, epoch: number, lifetime: AbortSignal, onStatus?: (status: "recovering") => void): Promise<unknown> {
+  async #mutation(pending: PendingMutation, codecs: FunctionCodecs, session: Session, epoch: number, lifetime: AbortSignal, onStatus?: (status: "recovering") => void, initiallyRecovering = false, persistReceipt?: (receipt: Receipt) => Promise<void>): Promise<unknown> {
     const timeout = new DatabaseError({ code: "confirmation_timeout", message: "Mutation confirmation timed out; the write may have committed", details: { requestId: pending.requestId } });
     const deadline = new AbortController();
     const timer = setTimeout(() => deadline.abort(timeout), this.#confirmationTimeout);
     const signal = AbortSignal.any([lifetime, deadline.signal]);
-    let recovering = false, committed = false, failures = 0;
+    let recovering = initiallyRecovering, committed = false, failures = 0;
     try {
       while (true) {
         try {
@@ -491,6 +608,8 @@ export class HttpRuntime implements FunctionRuntime {
           if (raw !== null || !recovering) {
             const receipt = parseReceipt(raw, pending.requestId, session, pending.source);
             committed = true;
+            await persistReceipt?.(receipt);
+            this.#check(epoch); signal.throwIfAborted();
             let result: unknown;
             try { result = codecs.result.decode(receipt.result); }
             catch { throw new DatabaseError({ code: "invalid_result", message: "The mutation committed, but its result did not match its contract", details: { requestId: pending.requestId, committed: true } }); }
@@ -541,6 +660,7 @@ export class HttpRuntime implements FunctionRuntime {
     if (options.optimistic !== undefined) throw new TypeError("Optimistic updates are not a subscription option");
     const operation = this.#operation(raw) as Operation & { readonly kind: "query" };
     const epoch = this.#epoch, key = operationKey(operation);
+    if (this.#releasing.has(key)) throw new DatabaseError({ code: "capacity", message: "This query's downloaded rows are being released" });
     this.#check(epoch);
     this.#pruneCache();
     let watch = this.#watches.get(key);
@@ -559,7 +679,24 @@ export class HttpRuntime implements FunctionRuntime {
     options.signal?.addEventListener("abort", stop, { once: true });
     try { observer(entry.state.status === "success" ? { ...entry.state, data: copy(entry.state.data) } : entry.state); } catch { /* observer errors are application-owned */ }
     if (fresh && entry.observers.size && this.#watches.get(key) === entry) this.#scheduleStream();
+    if (fresh && this.#options.storage && this.#options.contracts[operation.name]?.replica) void this.#hydrate(entry, key, epoch).catch(() => {});
     return stop;
+  }
+
+  async #hydrate(watch: Watch, key: string, epoch: number): Promise<void> {
+    const storage = this.#options.storage!;
+    await this.prepareStorage();
+    const cached = await storage.snapshot(this.#clientKey(), key);
+    const owner = await storage.session(this.#clientKey());
+    this.#check(epoch);
+    if (!cached || !owner || this.#watches.get(key) !== watch || watch.controller.signal.aborted || (watch.state.status === "success" && !watch.state.isStale)) return;
+    if (cached.source !== owner.source || cached.scope !== owner.scope || cached.principal !== owner.principal || cached.authorization_scope !== owner.authorizationScope) return;
+    const newer = this.#results.get(key);
+    if (newer && BigInt(newer.revision) > BigInt(cached.revision)) return;
+    const data = watch.operation.codecs!.result.decode(cached.result);
+    this.#source ??= cached.source;
+    this.#cache(key, cached, watch.operation);
+    this.#publish(watch, { status: "success", data, isStale: true, isOptimistic: false });
   }
 
   #scheduleStream(): void {
@@ -638,6 +775,25 @@ export class HttpRuntime implements FunctionRuntime {
           if (BigInt(head.revision) < this.#liveRevision) throw new TypeError("Live round revision regressed");
           await this.#correlate({ ...head, result: null }, session, epoch, signal);
           if (!alive()) return;
+          if (this.#options.storage) {
+            const changes: ReplicaChange[] = staged.flatMap(member => {
+              const replica = this.#options.contracts[member.watch.operation.name]?.replica;
+              return replica ? [member.snapshot ? { query: member.key, snapshot: member.snapshot, replica, rows: member.data } : { query: member.key }] : [];
+            });
+            if (changes.length) {
+              try { await this.#options.storage.apply(this.#clientKey(), changes); }
+              catch (error) {
+                batchNotifications(() => {
+                  for (const member of staged) if (changes.some(change => change.query === member.key)) {
+                    this.#results.delete(member.key); this.#idleResults.delete(member.key); this.#optimism.removeResult(member.key);
+                    this.#publish(member.watch, { status: "error", error });
+                  }
+                });
+                throw error;
+              }
+            }
+            if (!alive()) return;
+          }
           subscription = id; last = next; this.#liveRevision = BigInt(head.revision);
           batchNotifications(() => {
             for (const member of staged) {
@@ -734,6 +890,11 @@ export class HttpRuntime implements FunctionRuntime {
     this.#authPending = false; this.#authFailure = undefined;
     // Refreshing/removing only the deadline preserves a still-valid cache scope.
     if (changed) this.#retire(new DatabaseError({ code: "context_changed", message: "Function auth scope changed" }));
+    if (this.#options.storage) {
+      this.#storageReady = this.#options.storage.activate(this.#clientKey());
+      void this.#storageReady.catch(() => {});
+      for (const [name, resolver] of this.#offlineResolvers) this.#queue().register(name, resolver);
+    }
     if (update === this.#authUpdate) this.#scheduleAuthExpiry();
   }
   async dispose(): Promise<void> {

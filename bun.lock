@@ -33,9 +33,12 @@
         "hulla-db": "./dist/cli.js",
       },
       "devDependencies": {
+        "@hulla/db-postgres": "workspace:*",
+        "@hulla/db-sqlite": "workspace:*",
         "@hulla/db-studio": "workspace:*",
         "@types/bun": "1.4.2",
         "@types/node": "26.2.0",
+        "acorn": "8.19.0",
         "typescript": "7.0.2",
         "valibot": "1.5.0",
         "zod": "4.6.7",
@@ -46,6 +49,32 @@
       "optionalPeers": [
         "zod",
       ],
+    },
+    "packages/db-postgres": {
+      "name": "@hulla/db-postgres",
+      "version": "0.1.4",
+      "devDependencies": {
+        "@hulla/db": "workspace:*",
+        "@types/bun": "1.4.2",
+        "@types/node": "26.2.0",
+        "typescript": "7.0.2",
+      },
+      "peerDependencies": {
+        "@hulla/db": "^0.1.4",
+      },
+    },
+    "packages/db-sqlite": {
+      "name": "@hulla/db-sqlite",
+      "version": "0.1.4",
+      "devDependencies": {
+        "@hulla/db": "workspace:*",
+        "@types/bun": "1.4.2",
+        "@types/node": "26.2.0",
+        "typescript": "7.0.2",
+      },
+      "peerDependencies": {
+        "@hulla/db": "^0.1.4",
+      },
     },
     "packages/react": {
       "name": "@hulla/db-react",
@@ -196,9 +225,13 @@
 
     "@hulla/db-better-auth": ["@hulla/db-better-auth@workspace:packages/better-auth"],
 
+    "@hulla/db-postgres": ["@hulla/db-postgres@workspace:packages/db-postgres"],
+
     "@hulla/db-react": ["@hulla/db-react@workspace:packages/react"],
 
     "@hulla/db-solid": ["@hulla/db-solid@workspace:packages/solid"],
+
+    "@hulla/db-sqlite": ["@hulla/db-sqlite@workspace:packages/db-sqlite"],
 
     "@hulla/db-studio": ["@hulla/db-studio@workspace:packages/studio"],
 

@@ -1,174 +1,163 @@
 # Agreed SDK architecture
 
-Status: target contract, consolidated 16 October 2026. This describes the replacement
-API, not features already available in the current implementation.
-
-Read this document before implementing a work packet in the
-[delivery plan](sdk-implementation-plan.md). It establishes the architecture and
-latest decisions. [backend-functions.md](backend-functions.md) retains detailed
-edge-case decisions and an inventory of the current foundation; historical examples
-there do not override this contract. If an uncovered detail affects observable
-behavior, record the proposal and resolve it before shipping that behavior.
+Updated 6 November 2026. This is the current API/correctness contract. The
+[architecture](architecture.md) records package and engine boundaries; the
+[delivery plan](sdk-implementation-plan.md) identifies unfinished work. The
+[schema/SQLite guide](sqlite.md) provides current examples. Detailed schema/query
+rules remain in [backend-functions.md](backend-functions.md), but its older service
+setup does not override this contract.
 
 ## Responsibility and execution boundaries
 
-`@hulla/db` provides database access, database transactions and reactive server
-queries. Application frameworks and servers own external services, jobs, endpoint
-orchestration and authentication flows.
+`@hulla/db` provides authoring, typed database access, transactions and reactive
+results. Applications own routing, external services, jobs and authentication flows.
+Rust and TypeScript can run on clients and servers. PostgreSQL and SQLite are
+explicit storage choices, with different current capability coverage.
 
-| Surface | Execution | Data access | Commit and replay |
+| Surface | Execution | Database access | Commit and replay |
 | --- | --- | --- | --- |
-| `query` | Server; browser calls its generated binding | `ReadDatabase`, one consistent snapshot | No writes; tracked for live invalidation |
-| `mutation` | Server; browser calls its generated binding | `WriteDatabase`, one transaction | Atomic commit; bounded OCC retries after confirmed rollback |
-| Direct server operations | Application server code | Generated `Database` | Operations commit independently unless grouped |
-| `db.transaction(callback, options?)` | Application server code | Scoped `WriteDatabase` passed as `tx` | One commit/rollback; callback runs once unless explicitly opted into retries |
+| Local declared query | Application instance | Readonly scoped `ctx.db` | No writes; local subscriptions track instance changes |
+| Local declared mutation | Application instance | Writable scoped `ctx.db` | One local transaction; no inferred server handler replay |
+| Remote declared query/mutation | Managed service | Read snapshot / managed transaction | Server authorization; bounded PostgreSQL OCC retry after confirmed rollback |
+| Direct database operations | Application runtime supported by the adapter | Instance database API | Independent operations unless grouped |
+| `db.transaction(callback, options?)` | Application runtime | Writable `tx` | One commit/rollback; callback runs once unless retries explicitly enabled |
 
-`WriteDatabase` extends `ReadDatabase`. `Database` is the full server capability,
-including transaction management, not a union type. Shared ordinary functions take
-the least capable database handle they require. Queries, mutations and server code
-reuse these helpers rather than invoking declarations through `db.run` or `tx.run`.
-The root database handle cannot execute inside its transaction callback; using it
-there fails before execution. This guard must follow the async scope without
-blocking unrelated concurrent requests. Closed handles reject further execution.
+`WriteDatabase` extends `ReadDatabase`; `Database` includes transaction management.
+Helpers take the least capability they require. They retain their caller's snapshot,
+transaction and restrictions. Root execution inside its own transaction callback
+must reject before executing; completed transaction handles reject further use.
+Scope guards must not block unrelated requests. Queries cannot obtain writes through
+a type cast or captured root connection. Applications initialize once and share the
+instance rather than creating/closing connections per query.
 
-Declared queries and mutations must enforce their restrictions across imported
-helpers, not merely hide APIs in TypeScript. External network effects and filesystem
-writes are unavailable; time, randomness and shared mutable state must not undermine
-safe replay or tracked reads. The [restricted native runtime](typescript-functions.md)
-now enforces this boundary; package compatibility and configured limits remain
-implementation constraints.
+Managed remote TypeScript declarations run in the restricted native worker. Ordinary
+computation and compatible bundled JavaScript dependencies are supported; arbitrary
+Node/Bun/native modules, network calls and filesystem effects are not. Restrictions
+cover imported helpers and validators. Local application handlers run in the host
+runtime, not this sandbox; they currently receive `identity: null`. Do not claim
+local handlers have remote worker isolation or automatic PostgreSQL retry behavior.
 
-Decision confirmed 17 October 2026: v1 declared queries/mutations run in a restricted
-JavaScript environment. Support ordinary computation, database capabilities and
-compatible bundled JavaScript dependencies, including validation and transforms.
-Do not promise arbitrary npm compatibility. Network/filesystem access, framework
-server APIs, Node/Bun-specific libraries and native dependencies belong in ordinary
-application server code. Imported helpers and validators have the same restrictions
-as the handler; async validation does not grant external I/O access. Detect unsupported
-imports during generation where possible and enforce capabilities at runtime.
-Shared helpers remain reusable when their dependencies fit this environment.
-Test and document representative validation/utility packages before claiming support;
-Zod proof coverage alone is not a universal compatibility guarantee. The engine is
-an implementation detail, and direct application server code keeps its host runtime.
+Restricted PostgreSQL mutations default to three conflict retries after the first
+attempt, with bounded backoff and a shared deadline. Direct transactions default to
+zero retries. Only eligible conflicts with confirmed rollback replay a callback;
+uncertain commits and business/application errors do not. External effects belong
+outside retried transactions. SQLite's transaction implementation and serialization
+must preserve its documented guarantees without pretending to implement PostgreSQL
+OCC internally. Separate remote mutations are concurrent, without inferred
+per-table ordering; the opt-in offline queue has its own FIFO submission contract.
 
-Separate mutations are dispatched concurrently. Sequential `await`s can express
-dependencies; already-started handles are still concurrent. There is no SDK queue
-or inferred per-table serialization. OCC guarantees serializable database behavior,
-not submission order or latest-click-wins semantics.
+## Declarations, instances and registration
 
-Declared mutations default to three conflict retries after the first attempt, with
-short randomized backoff and a shared execution deadline. Direct transactions use
-`db.transaction(callback, { retries: 3 })` for explicit opt-in; omission means zero.
-Global settings cannot silently enable replay for arbitrary server callbacks.
-Only eligible conflicts with confirmed rollback may replay the whole callback.
-Uncertain commits and arbitrary application errors never trigger this replay.
-External effects in application code belong after a retried transaction completes.
+Import `defineSchema`, `defineTable` and validators from `@hulla/db`. Schema keys
+name tables. Schema imports are inert and reusable across independent application
+instances. Standalone table `.extend()`, `.pick()` and `.omit()` create independent
+immutable definitions; bound table projections retain source ownership and keys.
+Explicit `.replica()` declares readonly replica tables.
 
-## Deployment contract
+`schema.query(...)` and `schema.mutation(...)` construct function declarations.
+Authors may destructure these helpers from the schema; no generated declarer import,
+`defineFunctions` or separate `defineDatabase` is needed. Functions do not register
+by being declared. An instance selects one barrel import loader or build-time glob;
+a barrel combines shared/app exports using normal module composition. Catalogue
+ownership rejects foreign-schema declarations before driver opening.
 
-Decision clarified 19 October 2026: support reasonable cloud environments through
-one provider-neutral deployment model. Application hosts may run frontend, SSR,
-API routes and framework server actions using generated direct `db` operations and
-`db.transaction`. Browser callables connect to a persistent `@hulla/db` service,
-which executes declared functions and maintains subscriptions. Both server paths
-connect to the same PostgreSQL database, self-hosted or managed.
+`sqlite({ schema, filename/open, functions?, sources? })` and
+`postgres({ schema, url, namespace?, functions? })` create eager application instances
+from the optional adapters. Operations wait for startup; `ready()` is an optional
+explicit wait. Observable state reports initializing/ready/error/closed, independently
+of network connectivity. `close()` is optional terminal shutdown. No public connect
+step or startup mode option is required.
 
-Direct database access and the service require Node/Bun with native subprocesses,
-matching executable assets and PostgreSQL connectivity. Containers, virtual machines
-and suitable function hosts use the same SDK. Next/Vercel is one compatibility
-fixture, not an exclusive target. Runtimes without native process support cannot
-host these server components; their browser applications can still use the service.
+Ordinary opening verifies existing storage. `.initialize(...)` explicitly provisions
+it; neither silently resets incompatible data or applies migrations. SQLite schema
+migrations remain work. The existing PostgreSQL additive migration workflow retains
+its explicit contract.
 
-Keep the same authoring API, transaction guarantees, auth boundaries and live
-invalidation across deployment layouts. Do not require a managed hosting product,
-provider selectors or a second database implementation. Credentials remain server-only.
-Deploy the persistent service separately from short-lived application invocations.
+Local calls use inferred `db.functions` from a barrel, or `db.bind(declaration)` and
+`db.bind(namespace)`. Binding does not register handlers. Local declarations must
+be in the instance's selected catalogue. Shared handlers use invocation `ctx.db`,
+not a captured instance. Applications with different schemas share ordinary helpers
+or factories producing appropriately owned declarations.
 
-Hosted support requires evidence for native asset loading, concurrent requests,
-connection/process lifecycle, interruption and live updates on the selected host
-and actual PostgreSQL endpoint. Local package/Node/Bun/Next tests are necessary but
-do not establish deployed compatibility or pooler support. See [deployment](deployment.md)
-for current packaging and lifecycle behavior.
+The [optional glob build integration](build.md) rewrites literal relative `functions`
+glob properties into module imports. Managed generation also compiles glob selectors.
+Direct browser apps perform no filesystem scanning. No generated database wrapper,
+second runtime or injected shutdown hook is necessary for this feature.
 
-## Authoring, generation and configuration
+## Generation and remote sources
 
-- Separate `defineSchema` and `defineConfig`. Schema object keys are database table
-  names. No table discovery or separate physical-name override is required.
-- Decision confirmed 17 October 2026: use `./db/schema.ts` by convention, with an
-  optional `schema` path override in `defineConfig`. Discover exported query/mutation
-  declarations recursively beside the resolved schema file by default. An optional
-  `functions` directory override changes that scope; no functions entrypoint or
-  registry is required. Recognize actual declarations, including `.extend`-derived
-  declarations, through static analysis rather than filename/export-name guesses
-  or importing every project module. Exclude schema/config files, generated output,
-  tests and dependencies from discovery roots. Ordinary imported helpers still
-  participate in dependency analysis and bundling but are not endpoints. There is
-  no `api.ts` registry or internal/exposure marking. Importing modules or running
-  generation does not start a network listener.
-- Decision confirmed 18 October 2026: running the supplied Hulla service serves
-  the discovered query/mutation declarations automatically. Declaring one already
-  expresses intent to make it remotely callable; no additional `browser` or `api`
-  enablement switch is required. Server-only applications can simply omit those
-  declarations and use direct database operations and ordinary helpers. Neither
-  helpers nor direct database access become public function endpoints. Do not
-  require handwritten routes, transport decoding, receipt handling or runtime
-  factories in starters.
-- Generate `_generated/functions` for schema-typed declaration constructors,
-  `_generated/client/...` for browser-safe callables, `_generated/server` for direct
-  database access, `_generated/tables` for query field references, and
-  `_generated/types` for reusable types. Never include server implementations or
-  credentials in browser output. Table definitions and generated table references
-  are separate objects; reserve `$meta` on generated references for metadata.
-- Decision confirmed 18 October 2026: retain explicit generated client imports.
-  Authors maintain one declaration; generation emits small remote-call bindings
-  and types, not duplicate handler implementations or a manual re-export registry.
-  Browser bundles contain the callable identity and shared SDK transport, excluding
-  the original handler and its server dependencies. Direct source imports requiring
-  a bundler transformation are not a v1 requirement.
-- Remote invocation is a typed RPC interface supplied by Hulla. The SDK/service
-  owns transport, verification, subscriptions and confirmation; applications do not
-  author per-function HTTP routes or select transports for ordinary calls. HTTP
-  requests and SSE remain the implementation direction; RPC does not require a
-  WebSocket rewrite. No browser service worker is required for online-only v1.
-- Service startup and client connection setup must work without a framework or
-  `@hulla/api`. The implemented development path uses `hulla-db serve`, config
-  `service` address/origin settings, a provider-owned `auth(headers)` verifier and
-  public `database.client` settings emitted into lazy browser bindings. See [the executable setup](browser-service.md).
-  No `createClient` or additional function-exposure flag is required.
+Generation statically inspects an application entrypoint such as `db/server.ts`
+and emits `_generated/server` beside it. It imports the separate inert exported
+schema and selected declarations without executing the eager initializer.
+Generated modules allow both granular imports and namespace calls. Remote references
+are unbound until `db.bind(...)`; browser output has contracts and type-only handler
+imports, excluding server implementations, credentials and driver openers.
 
-Application imports expose the supported errors, result/handle types and inference
-helpers. Keep schema and configuration authoring on their separate `/schema` and
-`/config` entrypoints instead of consolidating them at the root. Generated
-transport, binding, declaration and worker setup use internal
-entrypoints; application code does not construct those pieces. The superseded
-server request adapter is removed. Query snapshots expose status/data/error and
-stale/optimistic indicators, without transport connectivity or prediction IDs.
+Generated `source` contracts carry schema/source ownership, not deployment URLs.
+A device instance supplies typed `sources: [{ database: source, url, ...auth }]`.
+Every replica owner must be provided; missing, extra, duplicate and mismatched
+sources reject before storage opens. Multiple upstream databases are supported.
+Storage connection URLs and service endpoints remain separate configuration.
+
+Server queries declare their replica projection and authorize row membership through
+the same query handler/context API. They return a real source selection; arbitrary
+mapped or forged arrays cannot establish replica coverage. `.pick()`/`.omit()`
+retain the primary key. Replica tables reject direct local writes; local-only tables
+have no implicit upstream relationship. Devices read the union of downloaded
+coverage, not an assumed whole server table.
+
+Managed serving owns RPC routes, validation, identity verification, transactions,
+subscriptions and receipts. Registration on a local instance does not mount an HTTP
+service. Clients need no per-function forwarding routes or separate runtime factory.
+HTTP/SSE remains the transport; browser service workers are not required.
+
+## Deployment and tooling boundaries
+
+PostgreSQL managed hosting is implemented with native executables and Node/Bun
+subprocess support. SQLite local application storage is implemented, but SQLite
+managed HTTP hosting and the native Rust SQLite database adapter remain unfinished.
+Do not apply the PostgreSQL host/process requirements to every SQLite application.
+Production topology and runtime claims require adapter-specific validation.
+
+Applications can use direct storage without remote declarations. Remote applications
+need a persistent service for subscriptions; short-lived framework invocations need
+not own that service. Authentication/business authorization stay at the appropriate
+application and managed handler boundaries. Server credentials never enter browser
+output.
+
+DB CLI/codegen is kept out of runtime import graphs. The current executable is
+`hulla-db`; delegation from the existing `hulla` CLI to project-installed SDK tooling
+is a recommendation under review. PostgreSQL dev accepts initializer entrypoints:
+omitted URLs use managed local storage, while explicit URLs use external storage
+without fallback or automatic provisioning. Generation prepares server-only settings
+that read environment values at hosting time, without opening an eager instance.
+Native asset extraction and managed SQLite hosting remain incomplete. CLI JavaScript inclusion does not require
+bundling compilers or PostgreSQL servers for every consumer. See
+[package and development decisions](architecture.md#packages-and-development-tooling).
+
+The older `defineConfig` and generated `/server` setup still supports the existing
+PostgreSQL service/deployment workflow. Its guides describe that implemented path,
+not the new engine-neutral authoring direction. Operational settings still consumed
+there must move with a reviewed replacement, rather than disappearing from docs
+before the implementation exists.
+
+## Function contracts and errors
 
 Declarations use `query({ input?, output?, handler, ...options })` and the equivalent
-`mutation(...)`. `query(handler)` and `mutation(handler)` are callback shorthands.
-Handlers take `(ctx, input)` in that order. Constructors are generated to bind the
-schema without application-level factories or global type registration.
+`mutation(...)`, with callback shorthands. Handlers take `(ctx, input)`. Use `v` for
+database fields and Standard Schema for function inputs/outputs. No implicit coercion
+is added. Explicit transformations run before commit and determine the public output.
 
-Use `v` for database declarations and Standard Schema for function input/output.
-Input has no implicit coercion. Explicit validator transformations are supported.
-Output validation/transformation runs before mutation commit, determines the public
-output type and cannot transform thrown errors.
+`.extend({ input?, handler })` and `.extend(handler)` derive declarers. Stages run
+sequentially in the same snapshot/transaction. Each input schema validates the
+original submitted object; disjoint parsed properties accumulate into input and
+computed properties onto ctx. Duplicate/reserved keys reject. Strict schemas cannot
+transparently share unrelated flat input properties. Limits belong on final
+functions, not extension stages.
 
-`.extend({ input?, handler })` and `.extend(handler)` return derived declarers.
-Extensions run sequentially in declaration order, inside the same snapshot or
-transaction. Each input schema validates the original submitted object immediately
-before its stage executes. Disjoint parsed properties accumulate into `input`;
-computed handler properties accumulate directly on `ctx`. Reject duplicate keys and
-reserved context names statically where possible and at runtime. There is no
-`locals` object or automatic Standard Schema field routing. Strict validators that
-reject unrelated fields cannot transparently share a flat input payload; document
-that limitation. Limits belong on final declarations, not on extensions.
-
-One public error class is `DatabaseError({ code, message, details? })`. Intentional
-instances expose their declared information; unexpected errors are sanitized.
-Driver details, stack traces and credentials do not become public error fields.
-Do not add `.public`, separate application-error classes or error-transform hooks.
-Error codes must distinguish confirmed execution failure from confirmation failure.
+`DatabaseError({ code, message, details? })` exposes intentional application errors;
+unexpected errors are sanitized. Driver details, credentials and stack traces remain
+private. Confirmed failure and confirmation uncertainty have distinct codes.
 
 ## Authentication and authorization
 
@@ -178,7 +167,9 @@ expired credentials produce an authentication error rather than anonymous fallba
 Handlers and extensions enforce authorization in ordinary code. Permission reads
 participate in the same snapshot/transaction and live dependency tracking.
 
-The browser calls `setAuth` with `{ key, expiresAt? }` or `null` from its existing
+For source-bound instances, use `db.setAuth(source, valueOrPromise)`. The existing
+remote runtime exposes the same auth lifecycle through its own `setAuth`. The caller
+supplies `{ key, expiresAt? }` or `null` from its existing
 auth subscription, or a promise resolving to either. The payload implies state;
 there is no caller-supplied status field. Credential transport is configured
 separately, with no `getToken` inside `setAuth`. Browser metadata never establishes
@@ -306,11 +297,14 @@ Query results are recursively readonly ordinary objects/arrays, including awaite
 results. Updates require copies; development mutation checks must not promise that
 freezing properties makes Date internals immutable.
 
-Cache identity includes query, validated invocation identity and auth scope. Fresh
-page loads wait for server results. Live results are shared; idle subscription grace
-defaults to five minutes with bounded retention. After subscription loss, reactivation
-requires validation. No browser SQLite, persisted results, IndexedDB recovery,
-offline mutation queue or cross-reload mutation recovery in v1.
+Cache identity includes query, validated invocation identity, source and auth scope.
+Ordinary cold remote reads wait for the server. Live results are shared; idle
+subscription grace defaults to five minutes with bounded retention. After
+subscription loss, reactivation requires validation. Explicit SQLite replica storage
+and offline mutations have durable persistence and scope fencing; these are opt-in
+capabilities rather than a change to every remote query's cache policy. Replica
+query reads cover downloaded authorized rows, including offline; missing coverage
+is not evidence that no matching server rows exist.
 
 Coordinate actively observed queries within one runtime, database source and auth
 scope. Successful current results published together must describe one database
@@ -366,7 +360,7 @@ This refresh-overflow policy does not change append-failure semantics above.
 
 ## Optimism and mutation confirmation
 
-`.withOptimistic(...targetDescriptors)` is the only optimistic wrapper. Each target
+`.optimistic(...targetDescriptors)` is the optimistic wrapper. Each target
 identifies a query and supplies a pure immutable cache updater. No-input queries
 need no input mapper. Input-bearing queries require an exact input mapper or a
 match predicate selecting existing cached variants; matching needs no mapper. Separate exports
@@ -380,8 +374,8 @@ immediately while confirmation continues; recovery never reapplies it. Updater
 failure removes all that invocation's targets, leaves server execution alone, and
 emits a minimal development diagnostic. No logging subsystem.
 
-After interrupted confirmation, a mutation enters recovering and automatically looks
-up its original authoritative receipt. It never resubmits the payload, replaces the
+For ordinary online calls, interrupted confirmation enters recovering and automatically
+looks up the original authoritative receipt. It never resubmits the payload, replaces the
 request identity or requires a manual recovery call. Checks continue across connection
 failures with bounded backoff within a configurable 30-second total deadline measured
 from initial submission. Success/failure settles the original handle; expiry produces
@@ -437,13 +431,38 @@ retention and 30-second cleanup grace. Accepted windows are frozen per request.
 These defaults still need loaded deployment measurement. Tickets are SDK internals,
 not an application authoring API.
 
+## Opt-in offline mutation behavior
+
+A device-bound remote mutation opts in with `.offline(resolveConflict)`, optionally
+alongside `.optimistic(...)`. This queues the server call without executing its
+handler locally or permitting local writes to a replica. The device callback chooses
+retry with revised input, rejection, or deferral to application UI; no default merge
+policy or built-in conflict UI is supplied. Server business/concurrency guards and
+authorization still apply. Register the resolver on a reopened instance before
+recovering its queued calls.
+
+Durable queues are FIFO per source/account. Unsent calls may be submitted when
+connectivity returns; sent attempts use receipt lookup with their original identity
+and ticket, never automatic POST resubmission. Unknown outcomes can block later
+intents. Terminal evidence persists until explicit acknowledgement; cache eviction
+must not remove it. Bounded capacity rejects excess work rather than silently
+losing requests. Account/source changes fence recovery and protected rows.
+
+The instance supplies `pendingMutations`, `resolveConflict`, `acknowledgeMutation`,
+`flush`, source-specific `setAuth` and `forgetQuery`. Full examples and current
+budgets are in [the SQLite guide](sqlite.md#explicit-offline-calls). Local readiness,
+remote connectivity, stale results and optimistic feedback are separate concepts;
+per-source observable connectivity is still work.
+
 ## Limits, integrations and release boundaries
 
 Input and output defaults are independently 16 MiB of uncompressed encoded bytes.
 Input is checked before validation/execution; output after transformation and before
-commit. `defineConfig` supplies defaults, final declarations can override, and
-extensions cannot. Server execution time excludes network transfer. Numeric read,
-execution and operation budgets need measured defaults; do not confuse earlier
+commit. The existing managed service configuration supplies defaults; final
+declarations can override and extensions cannot. Migration of those operational
+settings to the new instance/hosting setup remains explicit work. Server execution
+time excludes network transfer. Numeric read, execution and operation budgets need
+measured defaults; do not confuse earlier
 proposals with settled release values. Warn concisely near limits in development.
 
 UI bindings ship separately as `@hulla/db-react`, `@hulla/db-vue`,
@@ -463,7 +482,9 @@ request. Test deployment topology and SSR request isolation explicitly.
 
 Remove superseded implementations, public exports, fixtures and guides as their
 replacement lands. Preserve reusable internals and meaningful failure tests, not
-legacy API aliases or a parallel implementation. No pre-publication schema/protocol
-version layers or upgrade migrations. Recreate incompatible development fixtures
-explicitly; never silently reset data. Runtime revisions, source identities and row
-concurrency versions remain correctness mechanisms.
+aliases retained solely to archive an unreleased proposal or a parallel implementation.
+Published setup paths still in use need an explicit migration before removal.
+Do not invent compatibility/version layers for unreleased proposals. Application
+schema upgrades follow the explicit migration workflow; incompatible development
+fixtures may be recreated explicitly, never reset silently. Runtime revisions,
+source identities and row concurrency versions remain correctness mechanisms.

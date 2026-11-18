@@ -2,15 +2,17 @@
 
 Define tables once in `db/schema.ts` to share database types, constraints and
 optional runtime validation schemas. `defineSchema` registers their database
-names; generation supplies schema-bound query/mutation constructors and direct
-server database access. Schema generation does not change storage: initialization
-is an explicit operation.
+names and exposes schema-owned query/mutation helpers. Optional adapter constructors
+initialize application instances separately; generation produces safe remote contracts.
+See [application initialization](sqlite.md) for the current API. The existing
+PostgreSQL service workflow also retains generated constructors. Schema generation
+does not change storage: provisioning is explicit.
 
 ## Authoring
 
 ```ts
 // db/schema.ts
-import { defineSchema, defineTable, v } from '@hulla/db/schema'
+import { defineSchema, defineTable, v } from '@hulla/db'
 
 const publications = defineTable({
   slug: v.string(),

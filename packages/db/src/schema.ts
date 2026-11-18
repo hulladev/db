@@ -1,6 +1,10 @@
 import { validateJson, type JsonShape, type JsonValue } from "./json-value.ts";
 export type { JsonShape, JsonValue } from "./json-value.ts";
 import type { Validator } from "./validation.ts";
+import { replicaSources, tableBindings, schemaIdentity, functionDatabases, type DatabaseIdentity } from "./database-metadata.ts";
+import { bindTable, type BoundTable } from "./table-binding.ts";
+import { defineFunctions, type Declarer } from "./declarations.ts";
+import type { QueryContext, MutationContext } from "./database.ts";
 import { compileChecks, type CheckFields, type SqlCheck, type CompiledCheck } from "./sql-check.ts";
 export { sql } from "./sql-check.ts";
 export { createTables } from "./fields.ts";
@@ -379,8 +383,29 @@ export interface TableDefinition<
   readonly $inferInsert: StandaloneInsert<TableDefinition<F, O>>;
   readonly $inferUpdate: StandaloneUpdate<TableDefinition<F, O>>;
   index<const K extends Extract<keyof F, string> | (O extends {readonly primaryKey:string} ? never : "id")>(fields: readonly K[], options?: { readonly name?: string }): TableDefinition<F, O>;
+  extend<const Added extends TableInputs>(fields: Added): TableDefinition<Omit<F, keyof Added> & ColumnFields<Added>, O>;
+  pick<const K extends readonly [Extract<keyof TableFields<TableDefinition<F, O>>, string>, ...Extract<keyof TableFields<TableDefinition<F, O>>, string>[]]>(...fields: K): TableDefinition<Pick<TableFields<TableDefinition<F, O>>, K[number]>, O>;
+  omit<const K extends readonly [Extract<keyof TableFields<TableDefinition<F, O>>, string>, ...Extract<keyof TableFields<TableDefinition<F, O>>, string>[]]>(...fields: K): TableDefinition<Omit<F, K[number]>, O>;
 }
 export interface IndexDefinition { readonly name?: string; readonly fields: readonly string[] }
+
+/** Composition cannot silently discard constraints or leave references to removed columns. */
+function validateComposition(fields: Fields, options: TableOptions, indexes: readonly IndexDefinition[]): void {
+  const key = options.primaryKey ?? "id";
+  const names = new Set([...Object.keys(fields), ...(key === "id" ? ["id"] : [])]);
+  if (!names.has(key)) throw new TypeError(`Composition removes primary key ${key}`);
+  const keyField = fields[key];
+  if (keyField && (keyField.allowsNull || keyField.hasDefault || !["string", "int64", "uuid"].includes(keyField.scalar))) throw new TypeError("Primary keys must be non-null string, int64 or UUID without a literal default");
+  const generation = options.keyGeneration;
+  const output = typeof generation === "object" ? generation.outputType : generation === "uuidV4" || generation === "uuidV7" ? "uuid" : undefined;
+  if (output && keyField && keyField.target === undefined && keyField.scalar !== output) throw new TypeError("Key generator output type does not match primary key");
+  for (const [name, constraint] of Object.entries(options.unique ?? {})) {
+    if (constraint.fields.some(field => !names.has(field))) throw new TypeError(`Composition removes a field used by unique constraint ${name}`);
+    if (constraint.nulls === undefined && constraint.fields.some(field => fields[field]?.allowsNull)) throw new TypeError(`Nullable unique fields require an explicit null policy: ${name}`);
+  }
+  for (const index of indexes) if (index.fields.some(field => !names.has(field))) throw new TypeError(`Composition removes a field used by index ${index.name ?? index.fields.join(", ")}`);
+  compileChecks(options.checks, [...names], key);
+}
 
 function withIndexes<F extends Fields, O extends TableOptions>(fields: F, options: O, indexes: readonly IndexDefinition[]): TableDefinition<F, O> {
   return Object.freeze({ fields, options, indexes: Object.freeze(indexes), [tableBrand]: true as const,
@@ -392,7 +417,27 @@ function withIndexes<F extends Fields, O extends TableOptions>(fields: F, option
       const declaration = Object.freeze({ ...indexOptions, fields: Object.freeze([...selected]) });
       return withIndexes(fields, options, [...indexes, declaration]);
     },
-  }) as TableDefinition<F, O>;
+    extend(added: TableInputs) {
+      plain(added, "table.extend");
+      // Reuse defineTable's scalar/JSON normalization and immutable option snapshots.
+      const next = defineTable({ ...fields, ...added }, options);
+      validateComposition(next.fields, next.options, indexes);
+      return withIndexes(next.fields, next.options, indexes);
+    },
+    pick(...selected: string[]) { return project(selected, true); },
+    omit(...selected: string[]) { return project(selected, false); },
+  }) as unknown as TableDefinition<F, O>;
+
+  function project(selected: readonly string[], include: boolean): TableShape {
+    if (!selected.length || new Set(selected).size !== selected.length) throw new TypeError("Table projection requires distinct fields");
+    const available: Fields = (options.primaryKey ?? "id") === "id" && !Object.hasOwn(fields, "id") ? { ...fields, id: v.uuid() } : fields;
+    for (const name of selected) if (typeof name !== "string" || !Object.hasOwn(available, name)) throw new TypeError(`Unknown projection field ${String(name)}`);
+    const key = options.primaryKey ?? "id";
+    if ((!include && selected.includes(key)) || (include && Object.hasOwn(fields, key) && !selected.includes(key))) throw new TypeError(`Composition removes primary key ${key}`);
+    const projected = Object.freeze(Object.fromEntries(Object.entries(include ? available : fields).filter(([name]) => selected.includes(name) === include)));
+    validateComposition(projected, options, indexes);
+    return withIndexes(projected, options, indexes);
+  }
 }
 
 export function defineTable<
@@ -468,30 +513,73 @@ export interface SchemaDefinition<T extends Tables = Tables> {
   readonly tables: T;
   readonly defaultUuidGeneration: "v4" | "v7";
 }
+declare const schemaType: unique symbol;
+/** Inert authoring helpers; handlers are registered by an application instance. */
+export interface DefinedSchema<T extends Tables = Tables> extends SchemaDefinition<{
+  readonly [K in keyof T]: BoundTable<T[K], DefinedSchema<T>, Extract<K, string>, DatabaseIdentity<DefinedSchema<T>>>
+}> {
+  readonly [schemaType]: true;
+  readonly query: Declarer<"query", QueryContext<DefinedSchema<T>>>;
+  readonly mutation: Declarer<"mutation", MutationContext<DefinedSchema<T>>>;
+}
+const definedSchemas = new WeakSet<object>();
+export function isDefinedSchema(value: unknown): value is DefinedSchema {
+  return typeof value === "object" && value !== null && definedSchemas.has(value);
+}
 
 /** Validate authoring metadata immediately; storage enforcement belongs to the adapter. */
 export function defineSchema<const T extends Tables>(
   tables: T,
   options: { readonly defaultUuidGeneration?: "v4" | "v7" } = {},
-): SchemaDefinition<T> {
+): DefinedSchema<T> {
   plain(tables, "schema.tables");
   plain(options, "schema.options");
   if (Object.keys(options).some((key) => key !== "defaultUuidGeneration"))
     fail("schema.options", "Unknown schema option");
-  const schema = Object.freeze({
+  const metadata = Object.freeze({
     tables: Object.freeze({ ...tables }),
     defaultUuidGeneration: options.defaultUuidGeneration ?? "v7",
   });
-  compiledSchemas.set(schema, compileSchema(schema));
+  const compiled = compileSchema(metadata);
+  const definitions = defineFunctions<QueryContext<DefinedSchema<T>>, MutationContext<DefinedSchema<T>>>();
+  const boundTables: Record<string, BoundTable> = Object.create(null);
+  let schema!: DefinedSchema<T>;
+  const bind = <D extends (...args: never[]) => object>(declare: D): D => {
+    const bound = (...args: never[]) => {
+      const definition = declare(...args);
+      const replica = (definition as { readonly replica?: TableShape }).replica;
+      const owner = schemaIdentity(schema);
+      if (replica && tableBindings.get(replica)?.database !== owner) throw new TypeError("Replica queries must use a table bound to their own schema");
+      functionDatabases.set(definition, owner);
+      return definition;
+    };
+    const extend = (declare as D & { extend?: (...args: never[]) => D }).extend;
+    if (extend) Object.assign(bound, { extend: (...args: never[]) => bind(extend(...args)) });
+    return bound as D;
+  };
+  schema = Object.freeze({ tables: boundTables, defaultUuidGeneration: metadata.defaultUuidGeneration,
+    query: bind(definitions.query), mutation: bind(definitions.mutation),
+  }) as unknown as DefinedSchema<T>;
+  const owner = schemaIdentity(schema);
+  for (const table of compiled) {
+    const bound = bindTable({ database: owner, name: table.name, definition: tables[table.name]!, table, columns: Object.freeze(Object.keys(table.fields)) });
+    boundTables[table.name] = bound;
+    // Replicas remain readonly after binding to their destination schema.
+    const source = replicaSources.get(tables[table.name]!);
+    if (source) replicaSources.set(bound, source);
+  }
+  Object.freeze(boundTables);
+  compiledSchemas.set(schema, compiled);
+  definedSchemas.add(schema);
   return schema;
 }
 
-type KeyName<D extends TableShape> = D["options"] extends {
+export type KeyName<D extends TableShape> = D["options"] extends {
   readonly primaryKey: infer K extends string;
 }
   ? K
   : "id";
-type TableFields<D extends TableShape> =
+export type TableFields<D extends TableShape> =
   KeyName<D> extends keyof D["fields"]
     ? D["fields"]
     : D["fields"] & { readonly id: ReturnType<typeof v.uuid> };
@@ -630,6 +718,7 @@ export function compileSchema(
     ([name, table]) => {
       if (!name || table?.[tableBrand] !== true)
         fail(name || "schema", "Expected a named table declaration");
+      if (tableBindings.has(table)) fail(name, "Bound tables require .replica() in a destination schema; use the standalone definition for independent tables");
       const options = table.options;
       for (const key of Object.keys(options))
         if (
@@ -778,6 +867,15 @@ export function compileSchema(
   const byName = new Map(tables.map((table) => [table.name, table]));
   const definitions = new Map<TableShape, string[]>();
   for (const [name, declaration] of Object.entries(schema.tables)) definitions.set(declaration, [...definitions.get(declaration) ?? [], name]);
+  // References in a replica retain their source declaration identity. Resolve
+  // that identity to the explicit local replica binding, including renamed tables.
+  for (const [name, declaration] of Object.entries(schema.tables)) {
+    const source = replicaSources.get(declaration);
+    if (!source) continue;
+    for (const identity of [source.definition, source.bound]) {
+      definitions.set(identity, [...new Set([...definitions.get(identity) ?? [], name])]);
+    }
+  }
   const resolvedFields = new Map<string, AnyField>();
   const resolvingFields = new Set<string>();
   const resolveField = (table: CompiledTable, name: string): AnyField => {
@@ -787,7 +885,13 @@ export function compileSchema(
       if (resolvedFields.has(path)) return resolvedFields.get(path)!;
       if (resolvingFields.has(path)) fail(`${table.name}.${name}`, "Cyclic primary-key references cannot resolve a storage scalar");
       resolvingFields.add(path);
-      const names = typeof field.target === "string" ? [field.target] : definitions.get(field.target);
+      const binding = typeof field.target === "object" ? tableBindings.get(field.target) : undefined;
+      const names = typeof field.target === "string" ? [field.target] : binding
+        ? Object.entries(schema.tables).filter(([, declaration]) => {
+          const source = replicaSources.get(declaration);
+          return source?.database === binding.database && source.name === binding.name;
+        }).map(([name]) => name)
+        : definitions.get(field.target);
       if (!names || names.length !== 1) fail(`${table.name}.${name}`, "Reference table must be registered exactly once in defineSchema");
       const targetName = names[0]!;
       const target = byName.get(targetName);
@@ -825,6 +929,23 @@ export function compileSchema(
   return Object.freeze(resolved);
 }
 
+/** Replica storage keeps scalar representations, not source-side relational constraints.
+ * A partial dataset cannot enforce source foreign keys, checks or uniqueness safely. */
+export function replicaDefinition(table: CompiledTable, columns: readonly string[]) {
+  if (!columns.includes(table.primaryKey)) throw new TypeError(`Replica projections must include primary key ${table.primaryKey}`);
+  const fields = Object.fromEntries(columns.map(name => {
+    const field = table.fields[name];
+    if (!field) throw new TypeError(`Unknown projection field ${name}`);
+    return [name, new Field(field.scalar, field.allowsNull, field.hasDefault, field.defaultValue, undefined, field.jsonShape, representations.get(field), {
+      ...(field.precision === undefined ? {} : { precision: field.precision }),
+      ...(field.mode === undefined ? {} : { mode: field.mode }),
+      ...(field.constraints === undefined ? {} : { constraints: field.constraints }),
+      customCodec: field.customCodec,
+    })];
+  }));
+  return defineTable(fields, { primaryKey: table.primaryKey, keyGeneration: table.keyGeneration, insertKeyPolicy: table.insertKeyPolicy });
+}
+
 function sameValue(left: unknown, right: unknown): boolean {
   if (Object.is(left, right)) return true;
   if (typeof left !== "object" || left === null || typeof right !== "object" || right === null || Array.isArray(left) !== Array.isArray(right)) return false;
@@ -832,9 +953,11 @@ function sameValue(left: unknown, right: unknown): boolean {
   return keys.length === Object.keys(right).length && keys.every(key => Object.hasOwn(right, key) && sameValue((left as Record<string, unknown>)[key], (right as Record<string, unknown>)[key]));
 }
 function sameTableBinding(left: CompiledTable, right: CompiledTable): boolean {
-  return left.primaryKey === right.primaryKey && sameValue(left.keyGeneration, right.keyGeneration) && left.insertKeyPolicy === right.insertKeyPolicy && Object.keys(left.fields).length === Object.keys(right.fields).length && Object.entries(left.fields).every(([name, field]) => {
+  // Portable templates may bind under different table names and UUID defaults.
+  // Only incompatible field representations make the standalone validator ambiguous.
+  return left.primaryKey === right.primaryKey && left.insertKeyPolicy === right.insertKeyPolicy && Object.keys(left.fields).length === Object.keys(right.fields).length && Object.entries(left.fields).every(([name, field]) => {
     const other = right.fields[name];
-    return other !== undefined && field.scalar === other.scalar && field.mode === other.mode && field.precision === other.precision && field.allowsNull === other.allowsNull && field.hasDefault === other.hasDefault && field.target === other.target && field.onDelete === other.onDelete && sameValue(field.constraints, other.constraints) && field.customCodec === other.customCodec && (!field.customCodec || representations.get(field) === representations.get(other)) && (!field.hasDefault || sameValue(field.encode(field.defaultValue), other.encode(other.defaultValue)));
+    return other !== undefined && field.scalar === other.scalar && field.mode === other.mode && field.precision === other.precision && field.allowsNull === other.allowsNull && field.hasDefault === other.hasDefault && field.onDelete === other.onDelete && sameValue(field.constraints, other.constraints) && field.customCodec === other.customCodec && (!field.customCodec || representations.get(field) === representations.get(other)) && (!field.hasDefault || sameValue(field.encode(field.defaultValue), other.encode(other.defaultValue)));
   });
 }
 

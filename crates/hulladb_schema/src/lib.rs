@@ -241,3 +241,6 @@ pub use constraints::{CheckDefinition, CheckOperand, FieldConstraints, IndexDecl
 pub mod protocol;
 /// Lossless tagged JSON record encoding and decoding.
 pub mod wire;
+
+/// Canonical, backend-neutral schema descriptors shared by authoring frontends and storage engines.
+pub mod descriptor;

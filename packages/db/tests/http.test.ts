@@ -582,11 +582,11 @@ test("receipt expiry is an error without replaying an already committed mutation
 
 test("invalid optimistic output does not prevent the server mutation", async () => {
   setup(); await pending();
-  const brokenPrediction = create.withOptimistic({ query: pending, input: () => undefined, update: () => { throw new Error("prediction bug"); } });
+  const brokenPrediction = create.optimistic({ query: pending, input: () => undefined, update: () => { throw new Error("prediction bug"); } });
   expect((await brokenPrediction({ title: "server owns outcome" })).title).toBe("server owns outcome");
 });
 
-const optimisticCreate = create.withOptimistic({
+const optimisticCreate = create.optimistic({
   query: pending,
   update: (rows, input) => [...rows, { id: -1, title: input.title, owner: "alice" }],
 });

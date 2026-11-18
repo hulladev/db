@@ -280,6 +280,7 @@ test("discovery scans beside the schema without executing helpers and preserves 
 const { query } = defineFunctions<{}, {}>();
 const extended = query.extend(() => ({ tenant: "team" }));
 export const list = extended(ctx => ctx.tenant);
+export { list as alsoList };
 export const helper = () => "ordinary helper";
 `;
   try {
@@ -291,18 +292,29 @@ export const helper = () => "ordinary helper";
     await writeFile(resolve(directory, "queries.ts"), declaration);
     await writeFile(resolve(directory, "project-tasks/queries.ts"), `throw new Error("declaration must not execute during discovery");\n${declaration}`);
     await writeFile(resolve(directory, "types.ts"), 'export type { list } from "./queries.ts";');
+    await writeFile(resolve(directory, "types-star.ts"), 'export type * from "./queries.ts";');
+    await writeFile(resolve(directory, "types-chain.ts"), 'export * from "./types-star.ts";');
+    await writeFile(resolve(directory, "types-named-chain.ts"), 'export { list } from "./types-star.ts";');
+    await writeFile(resolve(directory, "a-barrel.ts"), 'export { list as renamed } from "./queries.ts";');
     await writeFile(resolve(directory, "queries.test.ts"), declaration);
     await writeFile(resolve(directory, "hulla.config.ts"), declaration);
     await writeFile(resolve(directory, "tests/queries.ts"), declaration);
     await writeFile(resolve(output, "ignored.ts"), declaration);
     const modules = await discoverFunctions({ schema, outDir: output });
-    expect(Object.keys(modules).sort()).toEqual(["project-tasks/queries", "queries"]);
+    expect(Object.keys(modules).sort()).toEqual(["a-barrel", "project-tasks/queries", "queries"]);
     await writeFile(resolve(directory, "project-tasks/queries.ts"), declaration);
     await generateFunctions({ schema, outDir: output });
     const nested = await readFile(resolve(output, "project-tasks/queries.ts"), "utf8");
     const generated = await import(resolve(output, "project-tasks/queries.ts"));
     const bindings = await import(resolve(output, "runtime.ts"));
     const declared = await import(resolve(directory, "project-tasks/queries.ts"));
+    const original = await import(resolve(output, "queries.ts"));
+    const barrel = await import(resolve(output, "a-barrel.ts"));
+    expect(barrel.renamed).toBe(original.list);
+    expect(original.alsoList).toBe(original.list);
+    expect(generated.alsoList).toBe(generated.list);
+    const manifest = await Bun.file(resolve(output, "functions.json")).json();
+    expect(Object.keys(manifest.functions).sort()).toEqual(["project-tasks/queries.list", "queries.list"]);
     const observed: string[] = [];
     const release = bindings.runtime.configure(() => ({
       call: (operation: import("../src/contracts.ts").Operation) => {
@@ -336,9 +348,12 @@ export const value = defineFunctions<{}, {}>().query(() => 1);`;
     await writeFile(resolve(directory, "outside.ts"), declaration);
     await writeFile(resolve(directory, "selected/inside.ts"), declaration);
     const options = { schema: resolve(directory, "schema.ts"), functions: resolve(directory, "selected"), outDir: resolve(directory, "generated") };
-    expect(Object.keys(await discoverFunctions(options))).toEqual(["inside"]);
+    expect(Object.keys(await discoverFunctions(options))).toEqual(["selected/inside"]);
+    expect(Object.keys(await discoverFunctions({ ...options, moduleRoot: resolve(directory, "selected") }))).toEqual(["inside"]);
+    const expanded = await discoverFunctions({ ...options, functions: directory });
+    expect(expanded["selected/inside"]).toBe(resolve(directory, "selected/inside.ts"));
     await writeFile(resolve(directory, "selected/inside.tsx"), declaration);
-    await expectCompilerError(discoverFunctions(options), "Duplicate discovered function module: inside");
+    await expectCompilerError(discoverFunctions(options), "Duplicate discovered function module: selected/inside");
   } finally { await rm(directory, { recursive: true }); }
 }, 60_000);
 

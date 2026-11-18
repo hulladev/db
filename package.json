@@ -6,7 +6,7 @@
   ],
   "type": "module",
   "scripts": {
-    "build": "bun run --cwd packages/db build && bun run --cwd packages/studio build && bun run --cwd packages/react build && bun run --cwd packages/vue build && bun run --cwd packages/svelte build && bun run --cwd packages/solid build && bun run --cwd packages/better-auth build",
+    "build": "bun run --cwd packages/db build && bun run --cwd packages/db-postgres build && bun run --cwd packages/db-sqlite build && bun run --cwd packages/studio build && bun run --cwd packages/react build && bun run --cwd packages/vue build && bun run --cwd packages/svelte build && bun run --cwd packages/solid build && bun run --cwd packages/better-auth build",
     "test:bindings": "bun --conditions=hulladb-source test packages/db/tests/bindings.test.ts && bun run --cwd packages/react test && bun run --cwd packages/vue test && bun run --cwd packages/svelte test && bun run --cwd packages/solid test",
     "test:auth": "bun run --cwd packages/better-auth test",
     "release:npm": "bun scripts/release/npm.ts",
@@ -23,7 +23,7 @@
     "release:publish": "node scripts/release.mjs publish",
     "release:verify": "node scripts/release.mjs verify",
     "release": "node scripts/release.mjs publish",
-    "release:check:npm": "bun run --cwd packages/db check && bun run test:bindings && bun run test:auth && bun run release:npm && bun run --cwd packages/studio test && bun scripts/release/verify-npm.ts && bun scripts/release/dry-run.ts && bun run test:release"
+    "release:check:npm": "bun run --cwd packages/db check && bun run --cwd packages/db-sqlite test && bun run test:bindings && bun run test:auth && bun run release:npm && bun run --cwd packages/studio test && bun scripts/release/verify-npm.ts && bun scripts/release/dry-run.ts && bun run test:release"
   },
   "devDependencies": {
     "@changesets/cli": "3.0.3"

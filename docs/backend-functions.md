@@ -1,31 +1,17 @@
 # Intended developer API
 
-Planning entry point, 16 October 2026: read the consolidated
-[agreed SDK architecture](sdk-architecture.md) and
-[replacement delivery plan](sdk-implementation-plan.md) first. This document retains
-detailed decisions and an inventory of the development foundation. Historical
-implemented examples and infrastructure descriptions do not override the latest
-accepted contract and are not the future application quickstart. No target API is
-claimed implemented merely because it appears here.
+Updated 6 November 2026. Read the current [SDK architecture](sdk-architecture.md)
+and [delivery plan](sdk-implementation-plan.md) first. This reference preserves
+detailed schema, query, validation and confirmation rules. New authoring uses
+inert core schemas, schema-owned query/mutation helpers and optional adapter
+instances, as shown in [the schema/SQLite guide](sqlite.md). Older generated
+constructor/config examples describe the existing PostgreSQL service workflow;
+they do not require that workflow for new local applications.
 
-**Status:** Agreed authoring direction, with an initial executable
-[TypeScript function SDK](../packages/db/README.md). Callback declarations,
-direct-import binding generation and runtime/dispatch boundaries are implemented.
-The [schema compiler foundation](schema-authoring.md) now supports the table
-declarations below. The [managed PostgreSQL function runtime](managed-functions.md)
-now executes arbitrary canonical schemas with CRUD, registered Rust handlers,
-atomic mutations, tracked reads and recovery receipts. Database execution examples
-remain illustrative where they depend on the proposed builder syntax. The
-[TypeScript transaction worker](typescript-functions.md) supplies schema-typed
-contexts and executes authored callbacks through native managed transactions.
-The [deployed adapters](sdk-adapters.md) now provide generic
-HTTP/SSE serving, generated result validation, browser persistence, receipt recovery
-and identity cleanup for registered native Rust handlers. The [Rust authoring API](rust-authoring.md)
-now provides table/input derives, typed database contexts, query/mutation attributes,
-registry adapters and task-scoped direct calls. Client-only Rust generation and
-framework-specific authentication remain separate work.
-[Production operations](production-readiness.md) now supplies framework request scopes,
-typed native admin access, quotas, roles and deployment tooling.
+The managed PostgreSQL service, restricted TypeScript worker and Rust remote
+result/recovery cache are implemented. TypeScript SQLite storage, authorized
+replicas and opt-in offline queues are also implemented. Native Rust SQLite
+database execution and managed SQLite HTTP hosting remain work.
 
 ## Function model at a glance
 
@@ -39,15 +25,12 @@ orchestration belong to the user's server code, optionally built with `@hulla/ap
 
 Applications using the package directly from a browser use declared queries and
 mutations through generated direct callable bindings, with query subscriptions.
-Discovery registers declarations with the executor; the running Hulla service
-automatically serves them through its function API. No enablement switch is required.
-Neither mode requires a DB `createClient`, a second
-application API or handwritten forwarding routes. Both share the database engine,
-constraints and committed-change invalidation machinery. Server initialization and
-exact direct-operation signatures remain under design.
-
-This is the target API, not a claim that every part is implemented. Declared handlers
-execute on the server; browser bindings contain contracts and invocation stubs.
+The selected managed service catalogue supplies its function API without a separate
+per-function exposure flag. Browser bindings contain contracts and invocation stubs.
+Local applications can also register declarations on adapter instances and bind
+them locally; declaring a function alone starts neither storage nor an HTTP listener.
+Use [the instance API](sqlite.md) for ownership, registration and lifecycle examples.
+Both paths retain database constraints and committed-change invalidation.
 
 | Surface | Use it for | Database boundary | External services |
 | --- | --- | --- | --- |
@@ -175,17 +158,19 @@ Direct server writes and declared mutations participate in the same revision,
 constraint and subscription invalidation machinery. Transaction changes become
 visible atomically after commit; rolled-back changes publish nothing.
 
-### Function discovery
+### Function registration
 
-Discover exported query and mutation declarations recursively beside the schema by
-default, or in the configured functions directory, and register them with the executor.
-Decision confirmed 18 October 2026: the running service serves those declarations
-automatically; there is no additional `browser` or `api` enablement switch. Generation
-supplies client bindings but does not start a listener. Server-only applications can
-omit declarations. Ordinary helpers and direct server database operations are
-not browser endpoints. There is no special `api.ts` or internal/exposure flag.
-Function authors enforce business permissions and limit returned data; the service
-enforces dispatch validation and authorization boundaries.
+New instances select one barrel import loader or one build-time glob. Barrel exports
+compose shared/application functions; ordinary helpers are not endpoints. Omitting
+registration exposes no local handlers. Selected declarations must belong to the
+instance schema. Binding does not register a handler. The optional app build plugin
+expands globs into ordinary imports without scanning files at application runtime.
+Generation inspects the entrypoint and inert schema without running its initializer.
+
+The existing `defineConfig` PostgreSQL service workflow still supports directory
+discovery. That older setup is not the new instance registration contract. Running
+a managed service mounts its selected functions; registering local handlers does
+not expose an HTTP API. Handlers enforce business permissions and returned data.
 
 ### Authentication boundary
 
@@ -195,7 +180,7 @@ integrations remain optional. Better Auth is the intended optional reference
 integration, including storage/schema support; applications may use other providers.
 
 Decision confirmed 12 October 2026: bring an existing authentication provider or
-library; Hulla does not implement accounts, login flows, passwords or its own
+library; `@hulla/db` does not implement accounts, login flows, passwords or its own
 session system. Supported integrations should use established verification code,
 with an extension point for a trusted server-side verifier. Application developers
 should not need to implement cryptography to connect authentication.
@@ -205,7 +190,7 @@ the application-typed `ctx.identity: Identity | null`. Ordinary server database
 operations use application-owned authentication and authorization; identity is not
 bound to `db`, and the target API has no server `db.withAuth`. Trust
 comes from server verification, never from client-supplied user/tenant fields.
-Hulla remains responsible for preserving the verification boundary, separating
+The managed service remains responsible for preserving the verification boundary, separating
 user-specific results and enforcing access during live delivery. Applications
 define business permissions. Automatic request discovery for each provider/framework
 combination is abandoned; credential verification is configured at the mounted
@@ -300,16 +285,13 @@ generated client API. Transport framing, receipts, revision fences, subscription
 recovery, wire validators and route assembly are package implementation details.
 They must not appear as copied code in an application starter.
 
-Decision, confirmed on 12 October 2026: the first release uses reactive server
-query functions with directly imported callable bindings and result watches. This
-continues the 7 October authoring direction and supersedes the earlier initial-release
-requirement for local row querying. Local row querying, read scopes, coverage and a
-browser replica are outside the selected release. Superseded implementations and
-their documentation are removed as the replacement lands, not maintained alongside
-it. Git history preserves retired designs; shared components still used by the new
-path remain. Exact API spelling remains provisional.
+Remote calls subscribe to authorized server query results. Explicit local SQLite
+replicas additionally support querying downloaded rows, with server-authorized
+coverage and auth/source fencing. The earlier online-only/local-reads-deferred
+release restriction has been replaced by this opt-in contract. Cached function
+results alone still do not prove coverage for arbitrary row queries.
 
-Query callbacks execute on the server; clients observe their returned results.
+Remote query callbacks execute on the server; clients observe their returned results.
 Cached results do not establish coverage for new filters or arguments. Optional
 optimistic presentation can address mutation latency. The cache policy confirmed on
 12 October waits for the server on cold reads, then shares and retains current live
@@ -329,17 +311,13 @@ Receipt lookup must not execute mutation handlers or their declaration extension
 Live-query reconnect remains automatic and independent. Confirmed
 server-side OCC rollback retries remain part of transactional execution; these
 are not client transport retries.
-Cross-reload scope confirmed 16 October 2026: exclude mutation recovery across
-page reloads from v1 entirely, including an opt-in persistence mode. This
-supersedes the 15 October default IndexedDB recovery-persistence proposal:
-do not persist or automatically restore mutation handles after reload.
-Keep live query results, subscriptions and optimistic layers in memory; cold reads
-after reload still wait for the server. Automatic outcome checks apply to
-existing in-memory handles within their confirmation window. Reload does not
-cancel or roll back a submitted server transaction. Applications needing durable
-operation tracking own the relevant application tables and workflow. No browser
-SQLite engine, IndexedDB recovery dependency, row replica, event log or offline
-mutation queue is introduced. Missing receipts never authorize automatic new
+Ordinary online call handles use bounded in-memory confirmation. Explicit
+`.offline(resolveConflict)` on device-bound callables adds durable queues and
+cross-restart recovery through SQLite; it does not turn every query or mutation
+into a persisted operation. Applications register their conflict callback on a
+reopened instance. The [offline contract](sqlite.md#explicit-offline-calls) governs
+queued submission, acknowledgement and recovery of sent attempts.
+Missing receipts never authorize automatic new
 mutation submissions. The bounded server receipt policy below remains necessary
 for outcome reconciliation and duplicate protection; lookup-only reconciliation
 does not eliminate per-request server storage. A terminal failure response must
@@ -696,7 +674,7 @@ authoritative outcome is known or recovery becomes unavailable; temporary
 disconnection need not erase a query's last authorized result.
 Authentication scope changes and authorization loss still clear protected data.
 
-Optimistic API clarification confirmed 16 October 2026: `.withOptimistic(...)`
+Optimistic API clarification confirmed 16 October 2026: `.optimistic(...)`
 is the sole optimistic API. It predicts configured query results, not the
 mutation's return value. Mutation handle data and awaited results are
 authoritative server results. Do not add a separate predicted-output API.
@@ -711,12 +689,12 @@ function helper/wrapper that configures a mutation's optimistic behavior once,
 so components do not repeat cache manipulation at each call. Support multiple
 query targets as separate object arguments, without an enclosing queries
 property or array. Variadic configuration confirmed 15 October 2026:
-mutation.withOptimistic({ query, input, update }, { query, input, update }, ...),
+mutation.optimistic({ query, input, update }, { query, input, update }, ...),
 returning a callable mutation wrapper. One target uses one object argument.
 Each relationship maps mutation input to query
 input and supplies an immutable updater for that query's result. Preserve each
 relationship's query-specific input/result inference rather than widening all
-targets to one union or any. The helper spelling is `.withOptimistic`.
+targets to one union or any. The helper spelling is `.optimistic`.
 Per-call override decision confirmed 16 October 2026: do not add an optimistic
 opt-out flag or method to the wrapper. Applications can export the original
 generated mutation and a separately named optimistic wrapper and choose which
@@ -820,29 +798,22 @@ write tables are considered. OCC protects serializable execution, not submission
 order or latest-click-wins semantics. Browser handles start on invocation, so
 awaiting two already-created handles in sequence does not serialize dispatch.
 Separate async event handlers also do not serialize one another merely by each
-awaiting a mutation. Optional explicit client queue/scoping support remains a
-separate choice; any such queue must account for unconfirmed earlier outcomes.
-Sequential client awaits do not make several mutations one atomic transaction.
-Scoped queue decision confirmed 16 October 2026: omit an SDK-owned queue API
-from v1. Applications may implement their own queues where needed. Document
-ordinary sequential invocation, independent concurrent calls,
-and single-mutation atomic operations. Any future scoped queue must explicitly
-handle confirmation timeout: merely advancing after a rejected client promise
-can violate intended ordering if the previous server mutation can still commit.
-Client queues would not establish ordering across other clients or replace OCC.
+awaiting a mutation. Explicit offline queues must account for unconfirmed earlier
+outcomes. Sequential client awaits do not make several mutations one atomic
+transaction.
+Ordinary remote calls do not acquire inferred per-table serialization. Opt-in
+`.offline(resolveConflict)` queues calls FIFO per source/account, including when
+the transport becomes unavailable. Unknown earlier outcomes may block later intents;
+rejecting an in-memory promise is not proof that advancing a queue is safe. Other
+clients remain concurrent, and a queue does not replace server concurrency guards.
 
-Decision confirmed 13 October 2026: mutations are online-only in v1. Do not accept
-new offline mutations into a durable queue for later submission. Report known
-unavailability for new submissions; browser online status alone is not proof of
-server reachability. This does not remove recovery for already-submitted requests:
-if delivery or commit is uncertain, outcome lookup uses the original request
-identity rather than assuming failure or replaying it as a new mutation. The v1
-SDK does not resubmit mutation payloads after interrupted confirmation; it retries
-receipt lookup only, preserving the original identity and authentication scope.
-Live queries still
-reconnect automatically and may retain previously authorized data marked stale,
-subject to auth expiration, scope changes and authorization-loss cleanup. Offline
-editing and durable queues for new offline writes are outside v1 scope.
+Offline calls queue the server invocation, with optional `.optimistic(...)` feedback.
+They never execute the server handler locally or write directly to readonly replicas.
+The application callback explicitly retries revised input, rejects or defers to its
+own UI. Sent attempts recover using the original request identity and receipt,
+without resubmitting the mutation payload after uncertain confirmation. Transport
+failure and missing receipts do not prove rollback. Live queries reconnect and may
+retain authorized stale data, subject to auth expiry and access-loss cleanup.
 
 These imports contain callable stubs, public operation identities and types, not
 server handler implementations, database drivers or administrative credentials.
@@ -2176,11 +2147,10 @@ Framework request scopes and native admin transactions are implemented in
 
 ## Fullstack frameworks and serverless applications
 
-The standard deployment, confirmed on 12 October 2026, is the supplied Hulla DB
-service. It discovers and runs schemas/functions and owns native hosting, worker
-management, registration and subscriptions. TypeScript authors do not write Rust
-host registration or transaction-worker scaffolding. Framework and serverless
-application code calls this service through the SDK.
+Managed remote execution uses the supplied service, which owns native hosting,
+worker management, registration and subscriptions. Direct application instances
+can execute database operations and registered local handlers without that service.
+TypeScript authors do not write Rust host or transaction-worker scaffolding.
 
 Server and browser code can live in one application repository. Generated modules
 must separate public callable bindings/schema types from server handlers,
@@ -2191,17 +2161,17 @@ names as a security boundary.
 A server loader, React Server Component or framework server function uses ordinary
 server CRUD and application authorization. If it shares database logic with a
 browser declaration, extract an ordinary helper accepting the required database
-capability. The example below uses the existing illustrative query builder; server
-connection bootstrap remains under design:
+capability. The instance in this example is initialized separately by the
+application's selected adapter:
 
 ```ts
-import { db } from './db/_generated/server'
+import { db } from './app/db'
 
 // The application verifies the request and authorizes this owner before calling.
 function pendingTasksForOwner(ownerId: string) {
   return db.select('tasks')
     .where({ ownerId, completed: false })
-    .take(50)
+    .limit(50)
 }
 ```
 
@@ -2222,9 +2192,9 @@ is required rather than assuming one cache automatically updates the other.
 | Deployment | Handler and runtime arrangement |
 | --- | --- |
 | Persistent fullstack application | Application handlers may use a colocated managed runtime or a separate database service. Direct server operations use application authorization and managed database boundaries. |
-| Serverless application using Hulla service | SSR/actions are short-lived application entry points. The SDK performs ordinary database operations against the persistent transaction/sync service. Browser watches can connect to that service through its authenticated transport. |
+| Serverless application using the managed service | SSR/actions are short-lived application entry points. The SDK performs ordinary database operations against the persistent transaction/sync service. Browser watches can connect to that service through its authenticated transport. |
 | Application-hosted functions in serverless invocations | Requires a transaction bridge with ownership, cancellation, deadlines and disconnect rollback. This is a distinct runtime adapter, not a guaranteed property of the current HTTP bridge. |
-| Fully serverless Hulla runtime | Requires durable/shared subscription coordination and a host-supported live-delivery transport. The existing in-process scheduler/feed cannot simply be placed in every ephemeral request. |
+| Fully serverless managed runtime | Requires durable/shared subscription coordination and a host-supported live-delivery transport. The existing in-process scheduler/feed cannot simply be placed in every ephemeral request. |
 
 Start serverless support with serverless application callers and registered database
 functions deployed near the managed Rust runtime. This keeps the application DX

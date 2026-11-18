@@ -155,7 +155,7 @@ export async function generateSchema(
   let sourceImport = relative(outDir, source).split(sep).join("/");
   if (!sourceImport.startsWith(".")) sourceImport = `./${sourceImport}`;
   const referenceTargets = Object.fromEntries(compiled.map(table => [table.name, Object.fromEntries(Object.entries(table.fields).flatMap(([name, field]) => field.target === undefined ? [] : [[name, field.target]]))]));
-  const types = `${header}import type schema from ${JSON.stringify(sourceImport)}
+  const types = `${header}\nimport type schema from ${JSON.stringify(sourceImport)}
 import type { ResolveReferences, Row as SchemaRow, Insert as SchemaInsert, Patch as SchemaPatch, Id as SchemaId } from '@hulla/db/schema'
 import type { ReadDatabase as SchemaReadDatabase, WriteDatabase as SchemaWriteDatabase, Database as SchemaDatabase } from '@hulla/db/server'
 
@@ -175,14 +175,14 @@ export type Id<T extends Tables> = SchemaId<Schema, T>
     if (!configImport.startsWith(".")) configImport = `./${configImport}`;
   }
   const identityImports = configImport === undefined ? "" : `import type config from ${JSON.stringify(configImport)}\nimport type { ConfigIdentity } from '@hulla/db/config'\n`;
-  const functions = `${header}import type { Schema } from './types'
+  const functions = `${header}\nimport type { Schema } from './types'
 import type { QueryContext, MutationContext } from '@hulla/db/server'
 import { defineFunctions } from '@hulla/db/internal/functions'
 ${identityImports}
 export const { query, mutation } = defineFunctions<QueryContext<Schema${configImport === undefined ? "" : ", ConfigIdentity<typeof config>"}>, MutationContext<Schema${configImport === undefined ? "" : ", ConfigIdentity<typeof config>"}>>()
 `;
   const tableMetadata = `JSON.parse(${JSON.stringify(JSON.stringify(Object.fromEntries(compiled.map(table => [table.name, Object.fromEntries(Object.entries(table.fields).map(([name, field]) => [name, { ...(field.jsonShape ? { jsonShape: field.jsonShape } : {}) }]))]))))})`;
-  const tableReferences = `${header}import type { Schema } from './types'
+  const tableReferences = `${header}\nimport type { Schema } from './types'
 import { createTables } from '@hulla/db/schema'
 
 const $tables = createTables<Schema>(${tableMetadata})

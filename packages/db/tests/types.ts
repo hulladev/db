@@ -32,7 +32,7 @@ async function contracts() {
   pending({ mode: "optimistic" });
   // @ts-expect-error subscriptions receive query options only
   pending.subscribe(() => {}, { mode: "optimistic" });
-  const optimistic = create.withOptimistic({
+  const optimistic = create.optimistic({
     query: pending,
     update: (current, input, queryInput) => {
       const noInput: undefined = queryInput;
@@ -47,7 +47,7 @@ async function contracts() {
   expectType<Equal<Input<typeof optimistic>, Input<typeof create>>>(true);
   expectType<Equal<Output<typeof optimistic>, Output<typeof create>>>(true);
   const byOwner = null as unknown as QueryCallable<{ kind: "query"; $types: { input: { owner: string }; output: number } }>;
-  create.withOptimistic({ query: pending, update: current => current }, {
+  create.optimistic({ query: pending, update: current => current }, {
     query: byOwner,
     match: (queryInput, input) => queryInput.owner === input.title,
     update: (current, input, queryInput) => {
@@ -59,25 +59,25 @@ async function contracts() {
       return current + 1;
     },
   });
-  create.withOptimistic({
+  create.optimistic({
     query: byOwner,
     // @ts-expect-error query input mapping must match the target query
     input: () => ({ owner: 1 }),
     update: current => current,
   });
-  create.withOptimistic({ query: byOwner, input: input => ({ owner: input.title }), update: current => current });
+  create.optimistic({ query: byOwner, input: input => ({ owner: input.title }), update: current => current });
   // @ts-expect-error input-bearing queries need an exact input mapping or a match predicate
-  create.withOptimistic({ query: byOwner, update: current => current });
-  create.withOptimistic({
+  create.optimistic({ query: byOwner, update: current => current });
+  create.optimistic({
     query: byOwner,
     // @ts-expect-error match predicates receive the target query's input
     match: queryInput => queryInput.missing,
     update: current => current,
   });
   // @ts-expect-error optimistic wrappers need at least one target
-  create.withOptimistic();
+  create.optimistic();
   // @ts-expect-error mutation bindings cannot be optimistic query targets
-  create.withOptimistic({ query: create, input: () => undefined, update: current => current });
+  create.optimistic({ query: create, input: () => undefined, update: current => current });
   const saved: MutationHandle<Note> = optimistic({ title: "Optimistic" });
   void saved;
   const namespace = { tasks: { pending, create } };
@@ -122,7 +122,7 @@ async function contracts() {
   expectType<Equal<Input<typeof noInputMutation>, undefined>>(true);
   expectType<Equal<Input<typeof noInputMutationBinding>, undefined>>(true);
   expectType<Equal<Output<typeof noInputMutationBinding>, Note[]>>(true);
-  const noInputOptimistic = noInputMutationBinding.withOptimistic({ query: pending, update: current => current });
+  const noInputOptimistic = noInputMutationBinding.optimistic({ query: pending, update: current => current });
   expectType<Equal<Input<typeof noInputOptimistic>, undefined>>(true);
   expectType<Equal<Output<typeof noInputOptimistic>, Note[]>>(true);
   query(({ db }) => {

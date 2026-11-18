@@ -1,9 +1,18 @@
 # Direct server database access
 
+Scope: the existing generated PostgreSQL service workflow. For new application
+instances and shared authoring, use the [schema/SQLite API](sqlite.md), including
+`postgres({...})` from `@hulla/db-postgres`. The older config/generated setup below
+is still implemented; it is not the engine-neutral target architecture.
+
 The generated server entrypoint supports ordinary database calls and transactions.
 Your application server owns authentication, authorization and external services.
 Direct operations do not invoke query/mutation declarations or create recovery
 receipts. They use the same PostgreSQL storage and revision counter as live queries.
+
+For standalone SQLite on an application server, use the separate
+[SQLite API](sqlite.md#initialize-once-per-application); the generated entrypoint below remains
+PostgreSQL-backed.
 
 The SDK supports scalar and JSON fields,
 nested predicates, scalar ordering, pagination, limits, uniqueness checks and

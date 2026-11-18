@@ -163,7 +163,7 @@ test.each([false, true])("generated optimistic selectors update same-input owned
   }));
   try {
     const query = queryBinding<QueryDefinition>(scope, "items.paged", false, codecs, true);
-    const mutation = mutationBinding<MutationDefinition>(scope, "items.edit", true).withOptimistic({
+    const mutation = mutationBinding<MutationDefinition>(scope, "items.edit", true).optimistic({
       query,
       ...(match ? { match: () => true } : {}),
       update: (current, title) => ({ ...current, page: current.page.map(row => ({ ...row, title })), cursor: null }),

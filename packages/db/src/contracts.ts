@@ -41,6 +41,8 @@ export interface Operation {
 export interface CallOptions {
   readonly signal?: AbortSignal;
   readonly optimistic?: import("./optimistic.ts").Predictor;
+  readonly offline?: import("./offline.ts").OfflineResolver<unknown>;
+  readonly onQueryState?: (state: { readonly isStale: boolean; readonly isOptimistic: boolean }) => void;
 }
 export type QueryOptions = Pick<CallOptions, "signal">;
 export interface QuerySubscriptionOptions extends QueryOptions {
@@ -79,6 +81,8 @@ export interface MutationHandle<T> extends PromiseLike<T> {
 
 /** Adapter boundary. The host, not a callable wrapper, owns retries and state. */
 export interface FunctionRuntime {
+  /** Register device-authored policies for recovery of durable queued calls. */
+  registerOfflineResolver?(name: string, resolver: import("./offline.ts").OfflineResolver<unknown>): void;
   /** Local cache context for UI bindings, never proof of server identity. */
   readonly clientAuth?: { readonly key: string | null; readonly pending: boolean; readonly error?: unknown };
   /** Changes whenever an adapter retires its authorization/cache scope. */

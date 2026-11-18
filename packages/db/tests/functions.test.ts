@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { createRuntimeScope } from "../src/runtime.ts";
-import { queryBinding } from "../src/callable.ts";
+import { mutationBinding, queryBinding } from "../src/callable.ts";
 import { type FunctionRuntime } from "../src/contracts.ts";
 import { type QueryState, type MutationState } from "../src/index.ts";
 import { storageFixture } from "./fixture.ts";
@@ -10,6 +10,20 @@ import { runtime as scope } from "./generated/runtime.ts";
 import type { Note, ReadContext, WriteContext } from "./fixtures/server.ts";
 import { defineFunctions, executeDefinition } from "../src/declarations.ts";
 import { standard } from "./fixtures/standard.ts";
+
+test("offline callables require a durable runtime before dispatch and keep the ordinary callable usable", async () => {
+  const scope = createRuntimeScope();
+  let calls = 0;
+  const dispose = scope.configure(() => ({ call: async () => { calls++; return "online"; } }));
+  try {
+    const ordinary = mutationBinding<{ kind: "mutation"; $types: { input: undefined; output: string } }>(scope, "test.write", false);
+    const offline = ordinary.offline(() => ({ action: "defer" }));
+    await expect(Promise.resolve(offline())).rejects.toMatchObject({ code: "offline_unavailable" });
+    expect(calls).toBe(0);
+    expect(await ordinary()).toBe("online");
+    expect(calls).toBe(1);
+  } finally { dispose(); }
+});
 
 const requests = new AsyncLocalStorage<FunctionRuntime>();
 let fixture: ReturnType<typeof storageFixture>;
@@ -452,15 +466,15 @@ test("mutation publication fences remaining observers and awaiting callers after
 test("optimistic wrappers map exact and matching cached queries while preserving authoritative mutation results", async () => {
   const filtered = queryBinding<{ kind: "query"; $types: { input: { owner: string }; output: Note[] } }>(scope, "custom.filtered", true);
   const unrelated = queryBinding<{ kind: "query"; $types: { input: undefined; output: Note[] } }>(createRuntimeScope(), "notes.pending", false);
-  expect(() => create.withOptimistic({ query: unrelated, update: current => current })).toThrow("Optimistic targets");
-  expect(() => create.withOptimistic({ query: filtered, update: (current: Note[]) => current } as never)).toThrow("input mapper or match");
+  expect(() => create.optimistic({ query: unrelated, update: current => current })).toThrow("Optimistic targets");
+  expect(() => create.optimistic({ query: filtered, update: (current: Note[]) => current } as never)).toThrow("input mapper or match");
   const data = new Map<string, unknown>([
     ["notes.pending", []],
     ["custom.filtered:alice", []],
     ["custom.filtered:bob", []],
   ]);
   const key = (query: { name: string; input?: unknown }) => query.name + (query.input ? ":" + (query.input as { owner: string }).owner : "");
-  const optimistic = create.withOptimistic({
+  const optimistic = create.optimistic({
     query: pending,
     update: (current, input) => [...current, { id: -1, owner: "alice", title: input.title }],
   }, {

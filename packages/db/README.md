@@ -16,6 +16,17 @@ Schema authoring includes scalar constraints, named SQL checks, explicit indexes
 references/deletion policies, field codecs and optional Zod validation adapters;
 see [schema setup](../../docs/schema-authoring.md).
 
+`@hulla/db` exports composable schema/table declarations and schema-owned
+query/mutation helpers. `postgres({...})` and `sqlite({...})` initialize application
+instances with their storage settings and optional function catalogue. SQLite supports local-only application/server
+storage through Node/Bun drivers and browser WASM/Expo adapters. Explicitly configured
+sources download authorized query rows into replicas and support durable queued
+server calls with device-side conflict callbacks. Native Rust SQLite database
+storage and SQLite managed HTTP hosting remain separate work. See
+[schema authoring and SQLite](../../docs/sqlite.md) for runtime examples and limits.
+An optional [`@hulla/db/build` integration](../../docs/build.md) compiles application
+function globs for Bun and Vite/Rollup builds without evaluating app startup.
+
 Separate `@hulla/db-react`, `@hulla/db-vue`, `@hulla/db-svelte` and
 `@hulla/db-solid` packages bind generated callables to UI reactivity. They share
 the core cache, support live pagination and authorized SSR `initialData`; see
@@ -131,7 +142,7 @@ only their input, with no cancellation or per-call mode options.
 Wrap a mutation once and export that binding where prediction is useful:
 
 ```ts
-export const optimisticCreate = create.withOptimistic({
+export const optimisticCreate = create.optimistic({
   query: pending,
   update: (notes, input) => [
     ...notes,
@@ -273,7 +284,7 @@ timeout configuration.
 
 The npm package includes macOS arm64 and Linux x64/glibc native
 executables. Browser-only use does not launch them. See the
-[release workflow](../../docs/releasing.md) for all six npm packages, Rust crates,
+[release workflow](../../docs/releasing.md) for the npm packages, Rust crates,
 license notices and archive checks.
 
 ## Validation
