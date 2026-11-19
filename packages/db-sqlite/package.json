@@ -1,6 +1,6 @@
 {
   "name": "@hulla/db-sqlite",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "description": "SQLite application instances and platform adapters for Hulla schemas",
   "exports": {
@@ -71,7 +71,7 @@
     "LICENSE"
   ],
   "peerDependencies": {
-    "@hulla/db": "^0.2.0"
+    "@hulla/db": "^0.3.0"
   },
   "devDependencies": {
     "@hulla/db": "workspace:*",

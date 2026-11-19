@@ -1,6 +1,6 @@
 {
   "name": "@hulla/db",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "bin": {
     "hulla-db": "./dist/cli.js"
