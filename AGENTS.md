@@ -1,5 +1,23 @@
 # Agent guidance
 
+## Application boundaries
+
+- Default to PostgreSQL for main application data. Choose device SQLite for
+  deliberately local data or explicit offline storage. Check the installed SDK
+  version against [the architecture](docs/architecture.md) and the
+  [SDK contract](docs/sdk-architecture.md) before changing a consumer.
+- Keep schema and codec modules inert. Put platform storage initialization in one
+  entrypoint per application instance. Screens use bound queries and mutations
+  for both local and remote data. Keep table operations in scoped handlers and
+  trusted server or maintenance code.
+- Keep server credentials, drivers and authored server handlers out of remote
+  client dependency graphs. Publish specific authorized operations through the
+  server catalogue and use the generated client factory at the application
+  boundary. Replicas and queued remote writes require explicit source and
+  authorization ownership.
+- Fix repeated platform setup in the owning adapter and shared UI behavior in
+  the framework-neutral SDK. Use application helpers for feature logic.
+
 ## Validation scope
 
 - Choose validation from the actual diff and plausible failure modes. Run only

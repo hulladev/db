@@ -1,11 +1,11 @@
 # Agreed SDK architecture
 
-Updated 6 November 2026. This is the current API/correctness contract. The
-[architecture](architecture.md) records package and engine boundaries; the
-[delivery plan](sdk-implementation-plan.md) identifies unfinished work. The
-[schema/SQLite guide](sqlite.md) provides current examples. Detailed schema/query
-rules remain in [backend-functions.md](backend-functions.md), but its older service
-setup does not override this contract.
+This is the current API and correctness contract. The
+[architecture](architecture.md) records execution boundaries and the default
+application API. The [delivery plan](sdk-implementation-plan.md) tracks
+unfinished work. The [schema/SQLite guide](sqlite.md) provides current examples.
+See the [backend function reference](backend-functions.md) for detailed schema
+and query rules. Use this contract for application setup.
 
 ## Responsibility and execution boundaries
 
@@ -57,9 +57,10 @@ Explicit `.replica()` declares readonly replica tables.
 `schema.query(...)` and `schema.mutation(...)` construct function declarations.
 Authors may destructure these helpers from the schema; no generated declarer import,
 `defineFunctions` or separate `defineDatabase` is needed. Functions do not register
-by being declared. An instance selects one barrel import loader or build-time glob;
-a barrel combines shared/app exports using normal module composition. Catalogue
-ownership rejects foreign-schema declarations before driver opening.
+by being declared. An instance selects a static catalogue, a barrel import loader
+or build-time glob. A barrel combines shared and app exports using normal module
+composition. Catalogue ownership rejects foreign-schema declarations before driver
+opening.
 
 `sqlite({ schema, filename/open, functions?, sources? })` and
 `postgres({ schema, url, namespace?, functions? })` create eager application instances
@@ -73,11 +74,12 @@ it; neither silently resets incompatible data or applies migrations. SQLite sche
 migrations remain work. The existing PostgreSQL additive migration workflow retains
 its explicit contract.
 
-Local calls use inferred `db.functions` from a barrel, or `db.bind(declaration)` and
-`db.bind(namespace)`. Binding does not register handlers. Local declarations must
-be in the instance's selected catalogue. Shared handlers use invocation `ctx.db`,
-not a captured instance. Applications with different schemas share ordinary helpers
-or factories producing appropriately owned declarations.
+For local execution, screens use `db.functions` from a static module catalogue.
+The SDK binds declarations before opening storage, which lets framework observers
+mount during startup. Explicit `db.bind` remains available for legacy lazy or glob
+catalogues and for replica configurations. Shared handlers receive scoped `ctx.db`
+for the invocation. Applications with different schemas share ordinary helpers or
+factories producing appropriately owned declarations.
 
 The [optional glob build integration](build.md) rewrites literal relative `functions`
 glob properties into module imports. Managed generation also compiles glob selectors.
@@ -89,9 +91,10 @@ second runtime or injected shutdown hook is necessary for this feature.
 Generation statically inspects an application entrypoint such as `db/server.ts`
 and emits `_generated/server` beside it. It imports the separate inert exported
 schema and selected declarations without executing the eager initializer.
-Generated modules allow both granular imports and namespace calls. Remote references
-are unbound until `db.bind(...)`; browser output has contracts and type-only handler
-imports, excluding server implementations, credentials and driver openers.
+`createClient({ url, ... })` from the generated `_client` module binds the
+catalogue to an independent remote runtime and exposes `client.functions`. Browser
+output includes contracts and type-only handler imports. Generated granular and
+namespace references also support explicit binding to a device instance.
 
 Generated `source` contracts carry schema/source ownership, not deployment URLs.
 A device instance supplies typed `sources: [{ database: source, url, ...auth }]`.

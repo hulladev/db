@@ -1,37 +1,97 @@
 # Database architecture
 
-Updated 6 November 2026. This document records the current direction; the
-[SDK contract](sdk-architecture.md) gives the API and correctness requirements,
-and the [delivery plan](sdk-implementation-plan.md) separates implemented work
-from remaining work. Earlier PostgreSQL-only and online-only release proposals
-have been replaced by this contract.
+The [SDK contract](sdk-architecture.md) specifies interfaces and correctness
+guarantees. The [delivery plan](sdk-implementation-plan.md) tracks remaining work.
 
 ## Product and storage model
 
-`@hulla/db` supplies reusable schema/function authoring, typed database operations,
-reactive results and explicit replication/offline contracts. Rust and
-TypeScript/JavaScript are first-class application languages on both clients and
-servers. Application frameworks own routing, authentication flows, external
-services and jobs.
+PostgreSQL is the default for the main database. A TypeScript app can keep all
+its data there and use live queries and mutations from web or mobile. Add a
+device database when particular records should stay on the device or when a
+feature needs persistent offline storage.
 
-PostgreSQL and SQLite are supported architectural choices. Engine selection and
-replication are independent: SQLite may hold local-only data, readonly server
-replicas, or authoritative server data. PostgreSQL is a server engine. There is
-no implicit conversion from PostgreSQL to SQLite for development or disconnection.
-libSQL/Turso-specific drivers require their own adapter and conformance evidence;
-SQLite support alone does not establish compatibility with those services.
-
-| Application layout | Authoritative storage | Device storage |
+| Data | Storage | Behavior |
 | --- | --- | --- |
-| Local-only application | SQLite in the application | Same local database; no synchronization |
-| Server-only application | PostgreSQL or SQLite | None required |
-| PostgreSQL with offline devices | PostgreSQL | SQLite local tables and explicitly declared replicas |
-| SQLite with offline devices | Server SQLite | Separate device SQLite databases and declared replicas |
+| Main application data | PostgreSQL on the server | Authoritative records, server-verified identity and shared access. |
+| Device-owned data | Optional SQLite on the device | Private logs, drafts or scratch data stay in that installation. A fully local app can store all its data here. |
+| Shared data needed offline | Optional SQLite on the device plus PostgreSQL on the server | Explicit readonly replica coverage and opt-in queued server mutations. The server remains authoritative. |
+| Server data for an app that chooses embedded storage | SQLite on the server | The same TypeScript instance API in a standalone server. Managed SQLite HTTP hosting has a separate delivery gate. |
 
-This is the intended capability model. TypeScript SQLite storage and replica/offline
-support are implemented; native Rust SQLite database execution and SQLite managed
-HTTP hosting remain unfinished. Do not describe the SQLite managed server workflow
-as having PostgreSQL parity yet.
+A local SQLite file and a SQLite replica have different ownership. A device-owned
+row can be edited and committed immediately. A replicated row reflects a server
+query's authorized coverage and receives updates through synchronization. An app
+can keep its main records in PostgreSQL and offer separately stored private data.
+Moving existing records between the two is an explicit product and data migration.
+Local development runs the selected engine. libSQL and Turso drivers require
+their own conformance evidence.
+
+### Where application code lives
+
+| Module | Owns | Used by |
+| --- | --- | --- |
+| `db/schema.ts` | Tables, constraints, codecs and inferred data types. Imports are inert. | Storage initializers and application code that shares the contract |
+| `db/device.ts` | One platform-specific database instance per device file and application lifetime. Exposes bound local operations to the UI. | Device features |
+| `db/server.ts` | Authoritative connection, deployment settings and selection of externally callable operations. | Server routes, jobs and managed hosting tooling |
+| `db/operations/` | Named queries and mutations, their inputs, database operations and any authorization required by their execution context. | The runtime executing the operation |
+| `db/client.ts` | The generated remote client bound to the public service endpoint and the application's credentials. | Browser and mobile features that call the server |
+
+Create the modules the chosen layout needs. A screen imports its operation API and
+supplies feature inputs. Query and mutation handlers use scoped `ctx.db`. Trusted
+routes, jobs and storage maintenance can use a direct database instance. Keep a
+device-only schema with its app until another consumer needs it. Enforce remote
+import boundaries with package exports and bundle checks so that server
+initializers, database credentials and handlers stay on the server.
+
+### Application API
+
+Declare named queries and mutations once, import the catalogue at the instance
+boundary, and use the resulting callable API in the screen. The SDK binds calls
+and refreshes observed queries after committed writes.
+
+```ts
+// db/server.ts
+import { postgres } from '@hulla/db-postgres'
+import { schema } from './schema'
+import * as operations from './operations'
+
+export const db = postgres({ schema, url: process.env.DATABASE_URL, functions: operations })
+```
+
+```ts
+// db/client.ts for a same-origin app, after hulla-db generate db/server.ts
+import { createClient } from './_generated/server/_client'
+
+export const client = createClient({ url: '/db', credentials: 'include' })
+export const api = client.functions
+```
+
+```ts
+// In a screen
+import { useQuery } from '@hulla/db-react'
+import { api } from './db/client'
+
+const workouts = useQuery(api.workouts.list, { day })
+
+async function logWorkout(day: string, durationMinutes: number) {
+  return api.workouts.create({ day, durationMinutes })
+}
+```
+
+The generated client connects directly over HTTP. Device storage is optional.
+Use one client per application session and a request-scoped client for
+authenticated server rendering. The server catalogue is the publication boundary.
+The application supplies identity verification and authorizes access in handlers.
+
+For a local feature, register its operation catalogue with
+`sqlite({ schema, filename, functions: operations })` on Node or Bun and export
+`api = db.functions` from the device entrypoint. Expo and browser SQLite currently
+take a driver opener in place of `filename`. A static catalogue provides stable
+callables before storage opens. Calls wait for startup and expose failures through
+their usual state. The same framework bindings work with either API.
+
+Replica binding and conflict resolution stay at the device boundary. See the
+[SQLite guide](sqlite.md) for platform and replica setup and the
+[managed service guide](browser-service.md) for hosting.
 
 ## Declarations and application instances
 
@@ -76,7 +136,7 @@ See [application instances and SQLite](sqlite.md) for executable examples and li
 
 ## Function ownership and execution
 
-An instance optionally selects one barrel import loader or one build-time glob.
+An instance optionally selects a static catalogue, a barrel import loader or a build-time glob.
 Barrels can combine shared and application functions through ordinary exports;
 no arrays or automatic discovery of neighboring modules are necessary. A declaration
 must belong to the instance's schema. Sharing declarations shares neither data nor
@@ -95,12 +155,12 @@ sandbox or PostgreSQL retry policy. Current local handlers receive `identity: nu
 the managed host supplies verified identity. Do not infer remote exposure or a
 security boundary from the database engine, filename, function declaration or build.
 
-Generation emits browser-safe unbound references and source contracts under
-`_generated/<entrypoint filename>`. Applications bind references with `db.bind(...)`.
-Granular function imports and namespace imports are both supported. Handler code,
-connection URLs and credentials never enter remote client artifacts. The optional
-[`functionGlobs()` build integration](build.md) expands literal glob properties to
-ordinary imports; it does not construct a second runtime or inject lifecycle code.
+Generation emits a browser-safe client factory, unbound references and source
+contracts under `_generated/<entrypoint filename>`. The factory binds a remote
+catalogue. The unbound references support explicit replica and granular binding.
+Handler code, database URLs and server credentials stay out of remote client
+artifacts. The optional [`functionGlobs()` build integration](build.md) expands
+literal glob properties to ordinary imports.
 
 ## Replicas, offline calls and conflicts
 
@@ -183,6 +243,19 @@ key rules, constraints and wire validation remain shared contracts across adapte
 The Rust row describes the agreed public package direction, not a completed crate
 refactor. Existing schema/macro/worker internals do not justify adding a mandatory
 public runtime crate. Rust is not inherently a backend-only language.
+
+| Runtime responsibility | Implementation boundary |
+| --- | --- |
+| TypeScript authoring, typed builders and observation | The portable TypeScript SDK owns schema and operation authoring, typed results and client call semantics. Framework packages translate those observations into component lifecycle. |
+| Embedded SQLite execution | `@hulla/db-sqlite` compiles supported operations and owns its connection and transactions. Platform entrypoints own native SQLite integration and entropy. Expo supplies its native SQLite runtime. |
+| Managed PostgreSQL execution | The Rust engine owns transaction execution, committed revisions and receipts. The managed service verifies credentials, dispatches and publishes authorized snapshots. Its restricted worker runs authored TypeScript handlers. The PostgreSQL npm adapter owns integration with the native assets. |
+| Rust applications | Rust applications author typed operations through `hulladb` and choose an execution adapter or remote client. Rust and TypeScript clients use the same remote protocol and server guarantees. |
+
+Keep one owner for each capability. Codegen and CLI tooling prepare artifacts at
+build time. They must stay outside production client dependency graphs. Extract
+PostgreSQL native assets from the core package along the existing delivery plan.
+Use adapter conformance checks to compare supported behavior and keep differences
+in execution capabilities explicit.
 
 CLI JavaScript, development runtimes, compilers, engine bridges and database server
 executables have different footprints and lifetimes. Keeping a CLI entrypoint in

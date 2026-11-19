@@ -7,6 +7,15 @@ execution and SQLite managed HTTP hosting remain work. Runtime responsiveness,
 interactive queries/writes and client/server latency take priority over short
 builds. See [architecture](docs/architecture.md) and [schema authoring](docs/schema-authoring.md).
 
+## Choose an application layout
+
+| Data and storage | Start here |
+| --- | --- |
+| Main application data | Start with PostgreSQL and connect web or mobile screens with the generated client. [Application API](docs/architecture.md#application-api) · [Managed service](docs/browser-service.md) |
+| Optional private or local-only data | Run typed queries and mutations against SQLite on the device. [SQLite and Expo setup](docs/sqlite.md#browser-and-expo-storage) |
+| Shared data with offline access | Use PostgreSQL for authoritative records. Add device SQLite for readonly replicas and selected queued mutations. [Replicas and offline calls](docs/sqlite.md#authoritative-queries-and-readonly-replicas) |
+| Standalone server with embedded storage | Configure the SQLite adapter with the same application instance API. [Server instances](docs/sqlite.md#initialize-once-per-application) |
+
 In the managed service, PostgreSQL remains authoritative. Managed commands
 authorize, validate and commit business rows, synchronization revisions and
 recovery receipts in one transaction.

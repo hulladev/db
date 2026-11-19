@@ -1,10 +1,14 @@
 # Serve reactive queries and mutations
 
-Scope: the existing PostgreSQL managed service and generated configuration.
-The [current instance API](sqlite.md) uses inert schemas, adapter initialization
-and explicit source bindings. SQLite managed hosting remains unfinished. Automatic
-PostgreSQL development startup below describes today's launcher, not a permanent
-requirement for every engine or SDK installation.
+For a PostgreSQL application, use the [adapter entrypoint](architecture.md#application-api)
+with a static operation catalogue. Start `hulla-db dev db/server.ts` for local
+development. The generated `_generated/server/_client` module exports `createClient`.
+Pass it the service URL and credentials at the app boundary and use its typed
+`functions` in browser or mobile screens. Device SQLite is optional.
+
+The config-based PostgreSQL workflow below documents the existing `db.config.ts`
+entrypoint. Standalone server SQLite uses the same instance API. Managed SQLite
+HTTP hosting remains work.
 
 Declare database functions, start the supplied service, then import the generated
 browser callables. The service owns function routes, credential verification,

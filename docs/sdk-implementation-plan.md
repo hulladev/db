@@ -1,9 +1,8 @@
 # Database delivery plan
 
-Updated 6 November 2026. The governing contract is
-[SDK architecture](sdk-architecture.md), with product/package boundaries in
-[architecture](architecture.md). This replaces the October proof packets and
-chronological implementation diary; completed work is not a new task list.
+The [SDK contract](sdk-architecture.md) governs current behavior.
+[Architecture](architecture.md) defines application and package boundaries
+and the default application API.
 
 ## Implemented foundation
 
@@ -11,8 +10,8 @@ chronological implementation diary; completed work is not a new task list.
 | --- | --- |
 | Authoring | Inert core schemas/tables, schema-owned query/mutation helpers, immutable table composition and source-bound replicas |
 | Application instances | Optional PostgreSQL/SQLite adapters, eager startup, automatic operation waits, observable readiness and optional terminal close |
-| Function selection | One barrel loader or glob, schema ownership validation, instance-local bindings and aliases |
-| Generation | Static entrypoint analysis, separate inert schema imports, generated source contracts and granular/namespace remote references; no eager initializer execution |
+| Function selection | Static catalogues expose typed callables during startup for both engines. Lazy barrels and globs remain supported. |
+| Generation | Static entrypoint analysis, inert schema imports, generated HTTP clients and explicit source contracts for replicas |
 | PostgreSQL development | Initializer/config entrypoints, managed storage when URL is omitted, explicit external connections, runtime environment settings and explicit external provisioning |
 | Application globs | Small opt-in `functionGlobs()` integration for Bun and Vite/Rollup; normal module imports and host build lifecycle |
 | SQLite | Node/Bun built-in drivers and application-supplied browser/Expo connections; transactions, constraints, codecs, exact int64 and supported CRUD/query subset |
@@ -26,6 +25,38 @@ is not a Rust SQLite database driver. SQLite local handlers also do not inherit 
 managed PostgreSQL worker sandbox, authorization setup or retry policy.
 
 ## Remaining work and review gates
+
+### Simplify the application API first
+
+1. **Expo setup.** Add filename-based setup to `@hulla/db-sqlite/expo`. The
+   Expo entrypoint owns the dedicated native connection, its cleanup and secure
+   randomness. Keep driver injection for applications that supply a connection.
+   Keep the existing open/provision lifecycle and database filename. Verify
+   reopening a file created with the published API preserves its rows, IDs and
+   constraints. Build iOS and Android bundles and exercise a native device or
+   simulator. Check that core, Node/Bun and browser consumers can load their
+   entrypoints without Expo dependencies. Share failed-open recovery at the
+   instance boundary. Test that retries release partial connections, share one
+   in-flight attempt, and let an existing observer recover without rebinding.
+2. **Adopt the API in apps by data ownership.** Use PostgreSQL for the main data
+   and add device SQLite where a feature needs local ownership or offline storage.
+   For Fitness, settle which entries belong to the user's account and which are
+   deliberately private to the device before changing storage. Preserve the local
+   journal and its data until the chosen migration or continued local use is
+   verified. Exercise date-filtered lists, edits, deletes and one-row guards.
+3. **Document and cut over by installed version.** Lead with PostgreSQL for shared
+   application data, then show local SQLite and offline replicas as options.
+   The skill in the sibling repository still targets `0.1.2` and teaches the
+   generated PostgreSQL workflow first. Update it and the website with the
+   release that ships the new API, and migrate examples alongside their
+   replacement. Preserve published call sites through an explicit cutover.
+
+For browser-only embedded databases, prove the default persistent WASM integration
+and its worker lifecycle before advertising filename-based setup. Publish supported
+browser storage modes and make an unavailable requested mode fail explicitly.
+
+This work uses the current SQLite adapter and managed PostgreSQL service. The
+Rust refactor and managed SQLite hosting below can progress independently.
 
 ### Engine-neutral Rust API and SQLite server execution
 
