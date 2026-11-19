@@ -1,6 +1,6 @@
 {
   "name": "@hulla/db-postgres",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "type": "module",
   "description": "PostgreSQL application instances for Hulla schemas and functions",
   "exports": {
@@ -30,7 +30,7 @@
     "LICENSE"
   ],
   "peerDependencies": {
-    "@hulla/db": "^0.3.0"
+    "@hulla/db": "^0.3.1"
   },
   "devDependencies": {
     "@hulla/db": "workspace:*",
