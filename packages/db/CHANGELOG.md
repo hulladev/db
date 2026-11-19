@@ -1,5 +1,11 @@
 # @hulla/db
 
+## 0.3.0
+
+### Minor Changes
+
+- 55f1c06: Register a static operation catalogue with either database adapter. `db.functions` exposes bound queries and mutations before storage opens, including for framework observers. Generated PostgreSQL clients expose the same operation catalogue through `createClient({ url }).functions` and connect directly over HTTP.
+
 ## 0.2.0
 
 ### Minor Changes
