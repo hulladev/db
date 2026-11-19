@@ -1,5 +1,12 @@
 # @hulla/db-vue
 
+## 0.3.1
+
+### Patch Changes
+
+- Updated dependencies [c36898c]
+  - @hulla/db@0.3.1
+
 ## 0.3.0
 
 ### Patch Changes

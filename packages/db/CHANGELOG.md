@@ -1,5 +1,11 @@
 # @hulla/db
 
+## 0.3.1
+
+### Patch Changes
+
+- c36898c: Publish the operation catalogue and generated HTTP client APIs as an installable database package family.
+
 ## 0.3.0
 
 ### Minor Changes
