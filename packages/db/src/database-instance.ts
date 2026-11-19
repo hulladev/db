@@ -5,7 +5,7 @@ import { inheritClientStorage } from "./client-storage.ts";
 import { executeDefinition, isFunctionDefinition, type FunctionDefinition } from "./declarations.ts";
 import type { SchemaDefinition } from "./schema.ts";
 import type { ConnectedDefinition, DatabaseEngine } from "./engine.ts";
-import type { FunctionSource } from "./function-source.ts";
+import { namespaceObject, type FunctionSource } from "./function-source.ts";
 import type { FunctionSignature, FunctionRuntime } from "./contracts.ts";
 import { bindingInfo, queryBinding, mutationBinding, type QueryCallable, type MutationCallable } from "./callable.ts";
 import { createRuntimeScope, type RuntimeScope } from "./runtime.ts";
@@ -21,7 +21,7 @@ export type DatabaseState =
 export type FunctionBindings<T> = T extends FunctionSignature & { readonly kind: "query" } ? QueryCallable<T>
   : T extends FunctionSignature & { readonly kind: "mutation" } ? MutationCallable<T>
   : T extends object ? { readonly [K in keyof T as T[K] extends object ? K : never]: FunctionBindings<T[K]> } : never;
-export type SourceFunctions<F> = F extends () => PromiseLike<infer M> ? FunctionBindings<M> : {};
+export type SourceFunctions<F> = F extends () => PromiseLike<infer M> ? FunctionBindings<M> : F extends object ? FunctionBindings<F> : {};
 export type BoundFunctions<T> = T extends FunctionSignature ? FunctionBindings<T>
   : T extends (...args: never[]) => unknown ? T
   : T extends object ? { readonly [K in keyof T]: BoundFunctions<T[K]> } : never;
@@ -36,9 +36,6 @@ export type Database<S extends SchemaDefinition = SchemaDefinition, F extends Fu
   bind<T extends object>(reference: T): BoundFunctions<T>;
 };
 const instances = new WeakMap<object, DatabaseConfiguration>();
-function namespaceObject(value: object): boolean {
-  return [Object.prototype, null].includes(Object.getPrototypeOf(value)) || Object.prototype.toString.call(value) === '[object Module]';
-}
 const factories = new WeakMap<Function, DatabaseEngine>();
 export function registerDatabaseFactory(factory: Function, engine: DatabaseEngine): void { factories.set(factory, engine); }
 export function factoryEngine(factory: unknown): DatabaseEngine {
@@ -179,7 +176,7 @@ function createInstance<S extends SchemaDefinition, F extends FunctionSource | u
     try {
       // Validate the selected handlers before a driver acquires storage.
       if (typeof functions === "string") throw new TypeError("Function globs require the @hulla/db/build integration, or managed-service generation");
-      const selected = functions ? await functions() : {};
+      const selected = typeof functions === "function" ? await functions() : functions ?? {};
       assertOpen();
       catalogue = buildCatalogue(selected);
       local = await openDatabase(configuration, configuration.connection, initialize);

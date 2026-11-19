@@ -55,16 +55,20 @@ rather than capture an application connection. Local execution currently supplie
 ```ts
 import { sqlite } from '@hulla/db-sqlite'
 import { schema } from './db/schema'
+import * as operations from './app/functions'
 
 export const db = sqlite({
   filename: './app.sqlite',
   schema,
-  functions: () => import('./app/functions'),
+  functions: operations,
 })
 
 // Calls wait for startup automatically.
 const drafts = await db.functions.drafts.listDrafts()
 ```
+
+Export `db.functions` as the application's `api` for screen code. Framework query
+bindings can observe a statically registered operation before the database opens.
 
 Construction starts initialization eagerly. `db.ready()` optionally waits for it.
 `db.state` and `db.subscribe(listener)` expose `initializing`, `ready`, `error`
@@ -77,23 +81,25 @@ Ordinary startup opens existing storage and verifies its schema. Use
 provisioning; these return the same instance interface. Startup never silently
 resets data or applies migrations. SQLite schema migrations are not implemented.
 
-For local-only CRUD, omit `functions`:
+Scripts and trusted server code that only use direct CRUD can omit `functions`:
 
 ```ts
 const db = sqlite({ schema, filename: './app.sqlite' })
 await db.insert('drafts', { title: 'Draft', body: 'Text' })
 ```
 
-PostgreSQL uses the same structure:
+PostgreSQL uses the same structure and is the default for main application data:
 
 ```ts
 import { postgres } from '@hulla/db-postgres'
+import { schema } from './db/schema'
+import * as operations from './app/functions'
 
 const db = postgres({
   url: process.env.DATABASE_URL,
   namespace: 'app',
   schema,
-  functions: () => import('./app/functions'),
+  functions: operations,
 })
 ```
 
@@ -145,8 +151,9 @@ Flat exports and explicit aliases also work. A shared declaration must use the
 same schema as its destination instance. Generated flat/namespace aliases share
 one callable; local catalogues preserve alias identity after loading.
 
-Registration accepts one lazy module import or one build-time glob, without
-arrays or implicit merging. Omitting registration exposes no nearby handlers.
+Registration accepts a static catalogue, a lazy module import or a build-time glob.
+Use an imported module namespace for a statically registered hosted application.
+Omitting registration exposes no nearby handlers.
 For legacy declarations, generation also accepts CommonJS named exports:
 
 ```ts
@@ -164,7 +171,8 @@ the integration replaces literal glob properties with module imports without exe
 application startup during the build. An uncompiled glob rejects before storage
 opens. No filesystem scanning occurs in the running application.
 
-For typed local calls, bind a declaration or namespace to the instance:
+For a typed call with a glob or an observer mounting before a lazy catalogue loads,
+bind the declaration in the application entrypoint:
 
 ```ts
 import { listDrafts } from './app/functions/drafts'

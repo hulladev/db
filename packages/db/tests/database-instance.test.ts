@@ -4,6 +4,7 @@ import { postgres } from '@hulla/db-postgres';
 import { schema } from './fixtures/local-schema.ts';
 import * as declarations from './fixtures/local-functions.ts';
 import { defineSchema, defineTable, v } from '../src/index.ts';
+import { createQueryObserver } from '../src/bindings.ts';
 
 test('PostgreSQL startup rejects missing or invalid explicit connections without local provisioning', async () => {
   const previous = process.env.DATABASE_URL;
@@ -86,27 +87,30 @@ test('closing while the driver opens releases its connection exactly once', asyn
   } finally { await db.close(); }
 });
 
-test('local subscriptions update after committed writes and stop when their instance closes', async () => {
-  const db = sqlite.initialize({ schema, filename: ':memory:', functions: async () => declarations });
-  await db.ready();
+test('an embedded screen can observe its static catalogue before the database opens', async () => {
+  const db = sqlite.initialize({ schema, filename: ':memory:', functions: declarations });
+  const api = db.functions;
   const observed: unknown[] = [];
   const initial = Promise.withResolvers<void>();
   const updated = Promise.withResolvers<void>();
   const retired = Promise.withResolvers<void>();
-  const stop = db.functions.list.subscribe(state => {
-    if (state.status === 'success') {
-      observed.push(state.data.map(row => row.title));
-      if (state.data.length) updated.resolve(); else initial.resolve();
-    } else if (state.status === 'error') retired.resolve();
-  });
+  let stop: (() => void) | undefined;
   try {
+    const observer = createQueryObserver(api.list);
+    stop = observer.subscribe(() => {
+      const state = observer.getSnapshot();
+      if (state.status === 'success') {
+        observed.push(state.data.map(row => row.title));
+        if (state.data.length) updated.resolve(); else initial.resolve();
+      } else if (state.status === 'error') retired.resolve();
+    });
     await initial.promise;
-    await db.functions.create({ title: 'Committed' });
+    await api.create({ title: 'Committed' });
     await updated.promise;
     expect(observed).toEqual([[], ['Committed']]);
     await db.close();
     await retired.promise;
-  } finally { stop(); await db.close(); }
+  } finally { stop?.(); await db.close(); }
 });
 
 test('schema ownership and malformed selectors fail before invoking a storage opener', async () => {

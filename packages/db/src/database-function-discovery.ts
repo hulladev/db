@@ -17,20 +17,23 @@ export function catalogueImports(analysis: FunctionAnalysis, declarations: reado
 }
 
 /** Resolve explicit selectors before executing selected declaration modules. */
-export async function databaseFunctions(database: DatabaseConfiguration, source: string, outDir: string, declarations: readonly DatabaseDeclaration[], options: Pick<GenerationOptions, "functions" | "moduleRoot">, analysis: FunctionAnalysis): Promise<Readonly<Record<string, string>>> {
+export async function databaseFunctions(database: DatabaseConfiguration, source: string, outDir: string, declarations: readonly DatabaseDeclaration[], options: Pick<GenerationOptions, "functions" | "moduleRoot">, analysis: FunctionAnalysis): Promise<{ modules: Readonly<Record<string, string>>; rootModule: string | undefined }> {
   if (database.functions !== undefined && options.functions !== undefined) throw new TypeError("Declare functions in database initialization or hosting config, not both");
   const selection = declarations.find(value => value.functions)?.functions;
   let modules: Readonly<Record<string, string>>;
+  let rootModule: string | undefined;
   if (database.functions === undefined) {
     // An omitted catalogue means CRUD only. Legacy hosting may still opt into
     // its explicit discovery directory; never expose nearby handlers implicitly.
     modules = options.functions === undefined ? {} : await discoverFunctions({ ...options, schema: source, outDir }, analysis);
   } else if (!selection) throw new TypeError("Cannot resolve functions configuration; declare it in the exported database constructor options");
-  else if (selection.kind === "import") {
+  else if (selection.kind !== "glob") {
     const path = Bun.resolveSync(selection.specifier, dirname(selection.importer));
     await analysis.open([path]);
     const name = basename(path, extname(path));
-    modules = await analysis.catalogue(path, name === "index" ? basename(dirname(path)) : name);
+    const prefix = name === "index" ? basename(dirname(path)) : name;
+    modules = await analysis.catalogue(path, prefix);
+    if (modules[prefix] === path) rootModule = prefix;
     if (!Object.keys(modules).length) throw new TypeError("The functions import exports no query or mutation declarations");
   } else {
     const root = resolve(options.moduleRoot ?? dirname(selection.file));
@@ -62,5 +65,5 @@ export async function databaseFunctions(database: DatabaseConfiguration, source:
     if (database.functions !== undefined && functions.some(value => functionDatabases.get(value) !== database.identity)) throw new TypeError(`Function catalogue contains declarations owned by another schema: ${name}`);
     if (functions.some(value => functionDatabases.get(value) === database.identity)) selected[name] = path;
   }
-  return selected;
+  return { modules: selected, rootModule: rootModule && Object.hasOwn(selected, rootModule) ? rootModule : undefined };
 }

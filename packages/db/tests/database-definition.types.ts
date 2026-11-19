@@ -22,10 +22,8 @@ async function contracts() {
   const schema = defineSchema({ publications });
   const primary = schemaIdentity(schema);
   sqlite({ schema, filename: 'app.sqlite', functions: './functions/**/*.cjs' });
-  // @ts-expect-error registration accepts one barrel loader or one glob
+  // @ts-expect-error registration accepts one static catalogue, loader or glob
   sqlite({ schema, filename: 'app.sqlite', functions: [] });
-  // @ts-expect-error registry objects are not selectors
-  sqlite({ schema, filename: 'app.sqlite', functions: {} });
   // @ts-expect-error an import loader must return a promise
   sqlite({ schema, filename: 'app.sqlite', functions: () => 123 });
   // @ts-expect-error URL belongs on sources, not an endpoint declaration
@@ -75,7 +73,7 @@ async function contracts() {
   schema.query(({ db }) => db.insert('publications', {}));
   const { query } = schema;
   const q = query(({ db }) => db.select('publications'));
-  const local = sqlite({ schema, filename: 'local.sqlite', functions: async () => ({ queries: { q } }) });
+  const local = sqlite({ schema, filename: 'local.sqlite', functions: { queries: { q } } });
   const results = await local.functions.queries.q();
   const direct = local.bind({ queries: { q } });
   const directRows = await direct.queries.q();

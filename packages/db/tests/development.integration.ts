@@ -181,16 +181,14 @@ try {
   await Bun.write(resolve(direct, 'package.json'), '{"type":"module"}');
   await Bun.write(resolve(direct, 'db/schema.ts'), `import {defineSchema,defineTable,v} from '@hulla/db';export const schema=defineSchema({notes:defineTable({title:v.string()})});`);
   await Bun.write(resolve(direct, 'db/functions.ts'), `import {schema} from './schema';export const list=schema.query(({db})=>db.select('notes'));export const create=schema.mutation(({db})=>db.insert('notes',{title:'adapter entrypoint'}));`);
-  const initializer = (connection = '') => `import {postgres} from '@hulla/db-postgres';import {schema} from './schema';export const db=postgres({schema,functions:()=>import('./functions'),${connection}});`;
+  const initializer = (connection = '') => `import {postgres} from '@hulla/db-postgres';import {schema} from './schema';import * as functions from './functions';export const db=postgres({schema,functions,${connection}});`;
   const entry = resolve(direct, 'db/server.ts');
   await Bun.write(entry, initializer());
   const directClient = (session: Session, write: boolean) => {
     const baseUrl = [...session.output.matchAll(/Database service listening at (http:\/\/127\.0\.0\.1:\d+)/g)].at(-1)![1];
-    return JSON.parse(app(`import {HttpRuntime} from ${imports(project, 'node_modules/@hulla/db/dist/http.js')};
-import {contracts,runtime} from ${imports(direct, 'db/_generated/server/runtime.ts')};
-import {list,create} from ${imports(direct, 'db/_generated/server/functions.ts')};
-const transport=new HttpRuntime({baseUrl:${JSON.stringify(baseUrl)},contracts});const stop=runtime.configure(()=>transport);
-try{${write ? 'await create();' : ''}console.log(JSON.stringify(await list()));}finally{stop();await transport.dispose();}`));
+    return JSON.parse(app(`import {createClient} from ${imports(direct, 'db/_generated/server/_client.ts')};
+const client=createClient({url:${JSON.stringify(baseUrl)}});
+try{${write ? 'await client.functions.create();' : ''}console.log(JSON.stringify(await client.functions.list()));}finally{await client.dispose();}`));
   };
   const adapterManaged = start(direct, undefined, 'db/server.ts');
   await until(adapterManaged, () => readyCount(adapterManaged) === 1);
