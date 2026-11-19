@@ -18,6 +18,7 @@ import { loadHostConfiguration } from '../src/host-configuration.ts';
 test('prepared PostgreSQL hosting reads deployment settings without running eager database startup', async () => {
   const directory = await mkdtemp(new URL('./.host-codegen-', import.meta.url).pathname);
   const key = 'HULLADB_TEST_HOST_URL';
+  const globals = globalThis as typeof globalThis & { hostCatalogueLoaded?: boolean };
   const previous = process.env[key];
   try {
     const entry = join(directory, 'server.ts');
@@ -25,20 +26,27 @@ test('prepared PostgreSQL hosting reads deployment settings without running eage
     await Bun.write(join(directory, 'schema.ts'), `import { defineSchema, defineTable, v } from '@hulla/db'
 export const schema = defineSchema({ drafts: defineTable({ title: v.string() }) })`);
     await Bun.write(join(directory, 'settings.ts'), `export const settings = { url: process.env.${key}, namespace: 'host_test' }`);
+    await Bun.write(join(directory, 'drafts.ts'), `import { schema } from './schema'
+Object.assign(globalThis, { hostCatalogueLoaded: true })
+export const list = schema.query(({ db }) => db.select('drafts'))`);
     await Bun.write(entry, `import { postgres } from '@hulla/db-postgres'
 import { schema } from './schema'
 import { settings } from './settings'
-export const db = postgres({ schema, ...settings })`);
+import * as functions from './drafts'
+export const db = postgres({ schema, ...settings, functions })`);
     process.env[key] = 'postgres://localhost/build_only';
     await generateDatabase(entry);
+    delete globals.hostCatalogueLoaded;
     process.env[key] = 'postgres://localhost/deployment';
     const { config, schema: hosted } = await loadHostConfiguration(entry);
+    expect(globals.hostCatalogueLoaded).toBeUndefined();
     expect(config.database.server).toEqual({ url: 'postgres://localhost/deployment', namespace: 'host_test' });
     expect(Object.keys(hosted.tables)).toEqual(['drafts']);
     // Hosting must not fall back to executing the application when its artifact is missing.
     await Bun.file(join(directory, '_generated/server/_host.js')).delete();
     await expect(loadHostConfiguration(entry)).rejects.toThrow('run hulla-db generate');
   } finally {
+    delete globals.hostCatalogueLoaded;
     if (previous === undefined) delete process.env[key]; else process.env[key] = previous;
     await rm(directory, { recursive: true, force: true });
   }
@@ -77,7 +85,7 @@ test("generated granular and namespace replica queries share callables, enforce 
     expect(await granular.byWorkspace({ workspace: "alice" })).toEqual([expect.objectContaining({ title: "Public" })]);
     expect(JSON.stringify(await grouped.tasks.byWorkspace({ workspace: "alice" }), (_key, value) => typeof value === "bigint" ? value.toString() : value)).not.toContain("PRIVATE_COLUMN");
     await expect(Promise.resolve(granular.byWorkspace({ workspace: "bob" }))).rejects.toThrow("DATABASE_REPLICA_SERVER_GUARD");
-    const bundle = await Bun.build({ entrypoints: [join(outDir, "index.ts")], target: "browser", conditions: runtimeExportConditions() });
+    const bundle = await Bun.build({ entrypoints: [join(outDir, "_client.ts")], target: "browser", conditions: runtimeExportConditions() });
     expect(bundle.success).toBe(true);
     const contents = (await Promise.all(bundle.outputs.map(output => output.text()))).join("\n");
     expect(contents).not.toContain("DATABASE_REPLICA_SERVER_GUARD");

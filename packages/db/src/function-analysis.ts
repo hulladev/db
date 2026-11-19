@@ -11,7 +11,7 @@ export interface DatabaseDeclaration {
   readonly argument: SourceSpan;
   readonly schemaExport?: { readonly file: string; readonly name: string };
   readonly factoryExport?: { readonly file: string; readonly name: string };
-  readonly functions?: SourceSpan & { readonly shorthand?: true } & ({ readonly kind: "glob"; readonly pattern: string } | { readonly kind: "import"; readonly specifier: string; readonly importer: string });
+  readonly functions?: SourceSpan & { readonly shorthand?: true } & ({ readonly kind: "glob"; readonly pattern: string } | { readonly kind: "import" | "namespace"; readonly specifier: string; readonly importer: string });
 }
 
 export interface FunctionExport {
@@ -271,6 +271,19 @@ export class FunctionAnalysis {
       }
       return undefined;
     };
+    const namespaceImport = async (node: Node) => {
+      const symbol = node.kind === SyntaxKind.NamespaceImport ? undefined : await project.checker.getSymbolAtLocation(node);
+      const bindings = node.kind === SyntaxKind.NamespaceImport ? [node] : await Promise.all((symbol?.declarations ?? []).map(declaration => declaration.resolve(project)));
+      for (const binding of bindings) {
+        if (binding?.kind !== SyntaxKind.NamespaceImport) continue;
+        const clause = binding.parent;
+        if (!clause || !isImportClause(clause) || clause.phaseModifier === SyntaxKind.TypeKeyword) continue;
+        const statement = clause.parent;
+        if (statement && isImportDeclaration(statement) && isStringLiteral(statement.moduleSpecifier)) {
+          return { specifier: statement.moduleSpecifier.text, importer: span(statement).file };
+        }
+      }
+    };
     const candidates: { name: string; root: Node }[] = [];
     for (const exported of await this.moduleExports(project, file)) {
       const target = exported.flags & SymbolFlags.Alias ? await project.checker.getAliasedSymbol(exported) : exported;
@@ -310,7 +323,11 @@ export class FunctionAnalysis {
             if (body.kind === SyntaxKind.AwaitExpression && "expression" in body) body = body.expression as Node;
             if (!isCallExpression(body) || body.expression.kind !== SyntaxKind.ImportKeyword || body.arguments.length !== 1 || !isStringLiteral(body.arguments[0]!)) throw new TypeError("functions loader must return one literal import()");
             selection = { ...location, kind: "import", specifier: body.arguments[0]!.text, importer: span(body).file };
-          } else throw new TypeError("functions must be a glob or a lazy literal import()");
+          } else {
+            const imported = await namespaceImport(value);
+            if (!imported) throw new TypeError("For hosting, functions must be an imported module namespace, a lazy literal import(), or a glob");
+            selection = { ...location, kind: "namespace", ...imported };
+          }
         }
         const location = span(call);
         const schemaBinding = await exportedBinding(schemaNode);

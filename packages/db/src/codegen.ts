@@ -28,7 +28,7 @@ export interface GenerationOptions {
   readonly database?: DatabaseConfiguration;
   /** Database export from the explicit, shared metadata entrypoint. */
   readonly databaseExport?: string;
-  readonly databaseArtifacts?: { readonly worker: string; readonly bundle: string; readonly host: string };
+  readonly databaseArtifacts?: { readonly worker: string; readonly bundle: string; readonly host: string; readonly rootModule?: string | undefined };
   readonly databaseSource?: { readonly wrapper: string; readonly bundle: string; readonly declaration: string };
   readonly client?: ClientConnection;
   readonly limits?: InvocationLimits;
@@ -142,12 +142,12 @@ async function generateWithAnalysis(options: GenerationOptions, analysis: Functi
   for (const module of Object.keys(moduleSources)) {
     assertModuleName(module);
     if (module.split("/").at(-1) === "index") throw new Error("Function module index is reserved for generated namespace entrypoints");
-    if (options.databaseArtifacts && ["_worker", "_host"].includes(module)) throw new Error(`Function module ${module} is reserved for generated hosting`);
+    if (options.databaseArtifacts && ["_worker", "_host", "_client"].includes(module)) throw new Error(`Function module ${module} is reserved by the database generator`);
     if (options.databaseSource && ["source", "_source"].includes(module)) throw new Error(`Function module ${module} is reserved for the shared source contract`);
     if (!options.database && (module === "types" || module === "functions" || module === "tables")) throw new Error(`Function module name conflicts with a generated schema output: ${module}.ts`);
   }
   const namespaces = namespaceFiles(Object.keys(moduleSources));
-  for (const name of ["runtime.ts", "functions.json", ...(options.databaseArtifacts ? ["_worker.ts", "_worker.js", "_host.js"] : []), ...(options.databaseSource ? ["source.ts", "_source.js", "_source.d.ts"] : []), ...namespaces.keys(), ...Object.keys(moduleSources).map(module => `${module}.ts`)]) {
+  for (const name of ["runtime.ts", "functions.json", ...(options.databaseArtifacts ? ["_worker.ts", "_worker.js", "_host.js", "_client.ts"] : []), ...(options.databaseSource ? ["source.ts", "_source.js", "_source.d.ts"] : []), ...namespaces.keys(), ...Object.keys(moduleSources).map(module => `${module}.ts`)]) {
     await checkOutputPath(outDir, name);
     if (existing.includes(name) && !ownsOutput(name, await Bun.file(resolve(outDir, name)).text())) {
       throw new Error(`Refusing to overwrite an authored file: ${name}`);
@@ -256,6 +256,20 @@ async function generateWithAnalysis(options: GenerationOptions, analysis: Functi
   files.set("runtime.ts", `${header}\nimport { ${client ? "createBrowserRuntime" : "createRuntimeScope"}, valueCodec } from '@hulla/db/internal/client'\n${binding}\nexport const contracts = {\n${contracts.join(",\n")}\n} as const\n${client
     ? `const browser = createBrowserRuntime(contracts, ${JSON.stringify(client)}, { maxResponseBytes: ${maxOutputBytes + 2 * 1024 * 1024} })\nexport const { runtime, setAuth, setHeaders, dispose } = browser`
     : `export const runtime = createRuntimeScope(${binding ? `contracts, $database, ${JSON.stringify(fingerprint)}` : ""})\nexport const setAuth = runtime.setAuth.bind(runtime)`}\n`);
+  if (options.databaseArtifacts) {
+    const root = options.databaseArtifacts.rootModule;
+    files.set("_client.ts", `${header}
+import { bindClientFunctions, createBrowserRuntime, type BrowserOptions } from '@hulla/db/internal/client'
+import { contracts } from './runtime.ts'
+import * as modules from './index.ts'
+${root ? `const { ${JSON.stringify(root)}: root, ...groups } = modules\nconst references = { ...groups, ...root }` : 'const references = modules'}
+
+export function createClient(options: BrowserOptions) {
+  const { runtime, ...client } = createBrowserRuntime(contracts, options, { maxResponseBytes: ${maxOutputBytes + 2 * 1024 * 1024} })
+  return { ...client, functions: bindClientFunctions(runtime, references) }
+}
+`);
+  }
   files.set("functions.json", JSON.stringify({ generatedBy: "@hulla/db", limits: resolveLimits(options.limits), functions: manifest }, null, 2) + "\n");
   // Validate ownership of every output before any write; never replace authored files.
   await mkdir(outDir, { recursive: true });

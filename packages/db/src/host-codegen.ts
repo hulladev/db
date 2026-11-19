@@ -4,11 +4,20 @@ import { runtimeExportConditions } from './runtime-conditions.ts';
 
 /** Server-only settings preserve runtime expressions without running an eager initializer. */
 export async function generateHost(source: string, name: string, declarations: readonly DatabaseDeclaration[]): Promise<string> {
-  const files = new Map<string, DatabaseDeclaration[]>();
-  for (const declaration of declarations) {
-    const group = files.get(declaration.call.file) ?? [];
-    group.push(declaration);
-    files.set(declaration.call.file, group);
+  type Edit = { start: number; end: number; replace: (source: string) => string };
+  const files = new Map<string, Edit[]>();
+  function edit(file: string, change: Edit) {
+    const edits = files.get(file) ?? [];
+    edits.push(change);
+    files.set(file, edits);
+  }
+  for (const { call, factory, argument, functions } of declarations) {
+    edit(call.file, { start: call.start, end: argument.start,
+      replace: original => ` (await import('@hulla/db/internal/engine')).captureHostDatabase(${original.slice(factory.start, factory.end)},` });
+    edit(call.file, { start: argument.end, end: call.end, replace: () => ')' });
+    // Prepared hosting uses the compiled worker catalogue, not host-side handlers.
+    if (functions?.kind === 'namespace') edit(functions.file, { start: functions.start, end: functions.end,
+      replace: original => functions.shorthand ? ` ${original.slice(functions.start, functions.end).trim()}: undefined` : ' undefined' });
   }
   const build = await Bun.build({
     entrypoints: ['__hulla_host_settings__'], target: 'node', format: 'esm',
@@ -24,11 +33,8 @@ export async function generateHost(source: string, name: string, declarations: r
         if (!patches) return undefined;
         const original = await Bun.file(args.path).text();
         let contents = original;
-        for (const declaration of [...patches].sort((a, b) => b.call.start - a.call.start)) {
-          const factory = original.slice(declaration.factory.start, declaration.factory.end);
-          const options = original.slice(declaration.argument.start, declaration.argument.end);
-          const replacement = ` (await import('@hulla/db/internal/engine')).captureHostDatabase(${factory}, ${options})`;
-          contents = contents.slice(0, declaration.call.start) + replacement + contents.slice(declaration.call.end);
+        for (const patch of [...patches].sort((a, b) => b.start - a.start)) {
+          contents = contents.slice(0, patch.start) + patch.replace(original) + contents.slice(patch.end);
         }
         return { contents, loader: /\.[cm]?jsx?$/.test(args.path) ? 'jsx' : 'tsx', resolveDir: dirname(args.path) };
       });
