@@ -1,7 +1,8 @@
 import { cp, mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { executables, verifyNative } from "../../packages/db/scripts/native-artifacts.ts";
+import { postgresAssetOrigin, postgresManifestName, preparePostgresArchives, reusePostgresArchives } from "./local-postgres.ts";
+import { stagePostgresRuntime } from "./postgres-runtime.ts";
 
 const root = Bun.fileURLToPath(new URL("../../", import.meta.url));
 const directories: string[] = (await Bun.file(join(root, '.changeset/release.config.json')).json()).packages;
@@ -15,6 +16,11 @@ command([process.execPath, "run", "build"]);
 const version = (await Bun.file(join(root, "packages/db/package.json")).json()).version;
 const output = resolve(root, "output/releases", version);
 await mkdir(output, { recursive: true });
+const postgresAssets = process.env.HULLADB_REUSE_POSTGRES_ASSETS === "true"
+  ? await reusePostgresArchives(output, platforms)
+  : await preparePostgresArchives(join(root, "packages/db-cli/native"), output, platforms, postgresAssetOrigin);
+const postgresManifest = join(output, postgresManifestName);
+await Bun.write(postgresManifest, JSON.stringify(postgresAssets) + "\n");
 const staging = await mkdtemp(join(tmpdir(), "hulladb-npm-release-"));
 try {
   for (const directory of directories) {
@@ -36,28 +42,11 @@ try {
       (_, path, fragment = "") => `](https://github.com/hulladev/db/blob/main/${relative(root, resolve(source, path))}${fragment})`);
     await Bun.write(join(stage, "README.md"), readme);
     await Bun.write(join(stage, "LICENSE"), Bun.file(join(root, "LICENSE")));
-    if (manifest.name === "@hulla/db-local-postgres") {
-      for (const platform of platforms) {
-        const directory = join(source, "native", platform, "postgres");
-        for (const executable of ["bin/postgres", "bin/initdb"])
-          await verifyNative(join(directory, executable), platform);
-        for (const name of ["COPYRIGHT", "build.json", "share/postgres.bki"])
-          if (!await Bun.file(join(directory, name)).exists()) throw new Error(`Missing ${platform} PostgreSQL asset: ${name}`);
-        await cp(directory, join(stage, "native", platform, "postgres"), { recursive: true, dereference: true });
-      }
-    }
-    if (manifest.name === "@hulla/db-postgres") {
-      for (const platform of platforms) {
-        const destination = join(stage, "native", platform);
-        await mkdir(destination, { recursive: true });
-        for (const executable of executables) {
-          const path = join(source, "native", platform, executable);
-          await verifyNative(path, platform);
-          await cp(path, join(destination, executable), { dereference: true });
-        }
-      }
-      await nativeNotices(stage);
-      manifest.files.push("THIRD_PARTY_NOTICES.md", "licenses");
+    if (manifest.name === "@hulla/db-cli") await cp(postgresManifest, join(stage, "dist", postgresManifestName));
+    const platform = platforms.find(platform => manifest.name === `@hulla/db-postgres-${platform}`);
+    if (platform) {
+      await stagePostgresRuntime(join(root, "packages/db-postgres/native"), join(stage, "native"), platform);
+      await nativeNotices(stage, platform);
     }
     await Bun.write(join(stage, "package.json"), JSON.stringify(manifest, null, 2) + "\n");
     const archive = `${manifest.name.replace("@", "").replace("/", "-")}-${version}.tgz`;
@@ -66,13 +55,12 @@ try {
   }
 } finally { await rm(staging, { recursive: true, force: true }); }
 
-async function nativeNotices(stage: string) {
+async function nativeNotices(stage: string, platform: string) {
   const metadata = JSON.parse(command(["cargo", "metadata", "--locked", "--format-version", "1"]));
   const dependencies = new Set<string>();
-  for (const target of ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu"]) {
-    const tree = command(["cargo", "tree", "--locked", "-p", "hulladb_server", "-p", "hulladb_js", "--features", "hulladb_server/typescript", "--target", target, "--edges", "normal,build", "--prefix", "none", "--format", "{p}"]);
-    for (const line of tree.split("\n")) { const [name, version] = line.split(" "); if (version) dependencies.add(`${name}@${version.slice(1)}`); }
-  }
+  const target = platform === "darwin-arm64" ? "aarch64-apple-darwin" : "x86_64-unknown-linux-gnu";
+  const tree = command(["cargo", "tree", "--locked", "-p", "hulladb_server", "-p", "hulladb_js", "--features", "hulladb_server/typescript", "--target", target, "--edges", "normal,build", "--prefix", "none", "--format", "{p}"]);
+  for (const line of tree.split("\n")) { const [name, version] = line.split(" "); if (version) dependencies.add(`${name}@${version.slice(1)}`); }
   const notices = ["# Native third-party notices", "", "The packaged native executables use the following third-party crates. Build dependencies are included. Original license, copyright and notice files are preserved below; this package's MIT license does not replace them.", ""];
   for (const dependency of metadata.packages.sort((a: any, b: any) => a.name.localeCompare(b.name))) {
     if (!dependency.source || !dependencies.has(`${dependency.name}@${dependency.version}`)) continue;

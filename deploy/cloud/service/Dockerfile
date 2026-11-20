@@ -1,7 +1,7 @@
-# Build context: deploy/cloud. Supply a tarball containing linux-<arch> assets.
+# Build context: deploy/cloud. Supply the Linux x64 glibc runtime archive.
 FROM oven/bun:1.4.0 AS build
 WORKDIR /app
-COPY service/package.json service/hulla-db.tgz service/hulla-db-postgres.tgz service/hulla-db-cli.tgz ./
+COPY service/package.json service/hulla-db*.tgz ./
 RUN bun install --ignore-scripts
 COPY next-app/db ./db
 COPY next-app/lib/session.ts ./lib/session.ts

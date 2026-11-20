@@ -1,6 +1,7 @@
 import { chmod, lstat, mkdir, open, rename, rm } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { cliError, cliOutput } from "./cli-output.ts";
+import { openLocalPostgresAssets } from "./local-postgres-assets.ts";
 
 export interface LocalPostgres { readonly url: string; readonly closed: Promise<void>; close(): Promise<void> }
 
@@ -26,19 +27,6 @@ async function saveDiagnostics(stream: ReadableStream<Uint8Array>, path: string)
 /** Own a foreground postmaster. No pg_ctl daemon and no host PostgreSQL lookup. */
 export async function startLocalPostgres(configPath: string, signal: AbortSignal): Promise<LocalPostgres> {
   const root = resolve(dirname(configPath), ".hulla");
-  const platform = `${process.platform}-${process.arch}`;
-  let packageManifest: string;
-  try { packageManifest = import.meta.resolve("@hulla/db-local-postgres/package.json"); }
-  catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code !== "MODULE_NOT_FOUND" && code !== "ERR_MODULE_NOT_FOUND") throw error;
-    throw new Error("Managed local development requires @hulla/db-local-postgres. Install it as a dev dependency or supply a PostgreSQL URL.");
-  }
-  const binaries = Bun.fileURLToPath(new URL(`./native/${platform}/postgres/bin/`, packageManifest));
-  const environment = { ...process.env, LD_LIBRARY_PATH: resolve(binaries, "../lib") };
-  for (const name of ["postgres", "initdb"]) {
-    if (!await Bun.file(resolve(binaries, name)).exists()) throw new Error(`@hulla/db-local-postgres has no binaries for ${platform}. Supply a PostgreSQL URL.`);
-  }
   await mkdir(root, { recursive: true, mode: 0o700 });
   const info = await lstat(root);
   if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("Local database directory must be a real directory: .hulla");
@@ -47,6 +35,7 @@ export async function startLocalPostgres(configPath: string, signal: AbortSignal
   try { await mkdir(lock, { mode: 0o700 }); }
   catch { throw new Error("Local database is locked. Stop the other hulla-db dev process. After a crash, confirm its processes have exited before removing .hulla/dev.lock."); }
   let child: Bun.Subprocess | undefined;
+  let assets: Awaited<ReturnType<typeof openLocalPostgresAssets>> | undefined;
   let closing: Promise<void> | undefined;
   let initializing: string | undefined;
   let draining: Promise<void> | undefined;
@@ -59,6 +48,7 @@ export async function startLocalPostgres(configPath: string, signal: AbortSignal
       await draining;
     }
     if (initializing) await rm(initializing, { recursive: true, force: true });
+    await assets?.close();
     await rm(lock, { recursive: true });
   })();
   const abort = () => { if (child) signalGroup(child, "SIGINT"); };
@@ -66,6 +56,9 @@ export async function startLocalPostgres(configPath: string, signal: AbortSignal
   try {
     await Bun.write(resolve(lock, "owner.json"), JSON.stringify({ pid: process.pid }), { mode: 0o600, createPath: false });
     signal.throwIfAborted();
+    assets = await openLocalPostgresAssets(signal);
+    const binaries = assets.bin;
+    const environment = { ...process.env, LD_LIBRARY_PATH: resolve(binaries, "../lib") };
     const state = resolve(root, "local.json"), data = resolve(root, "postgres");
     const stateInfo = await lstat(state).catch((error: NodeJS.ErrnoException) => { if (error.code !== "ENOENT") throw error; });
     if (stateInfo && (!stateInfo.isFile() || stateInfo.isSymbolicLink())) throw new Error(".hulla/local.json must be a regular file.");

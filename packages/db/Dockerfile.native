@@ -19,6 +19,8 @@ COPY packages ./packages
 RUN bun install --frozen-lockfile --ignore-scripts
 RUN bun run --cwd packages/db build:postgres
 
-FROM scratch AS artifacts
+FROM scratch AS runtime
 COPY --from=build /native /native
-COPY --from=development /build/packages/db-local-postgres/native/linux-x64/ /local-postgres/
+
+FROM runtime AS artifacts
+COPY --from=development /build/packages/db-cli/native/linux-x64/ /local-postgres/

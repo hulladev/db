@@ -42,11 +42,14 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE",
-    "native"
+    "LICENSE"
   ],
   "peerDependencies": {
     "@hulla/db": "^0.3.4"
+  },
+  "optionalDependencies": {
+    "@hulla/db-postgres-darwin-arm64": "0.3.4",
+    "@hulla/db-postgres-linux-x64": "0.3.4"
   },
   "devDependencies": {
     "@hulla/db": "workspace:*",

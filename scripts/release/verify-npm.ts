@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { cp, mkdtemp, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { postgresArchiveName, postgresAssetOrigin, postgresManifestName } from "./local-postgres.ts";
 
 const root = Bun.fileURLToPath(new URL("../../", import.meta.url));
 const version = (await Bun.file(join(root, "packages/db/package.json")).json()).version;
@@ -32,17 +33,50 @@ try {
   }
   // Content-address local archives so caches cannot substitute an older build.
   const directories: string[] = (await Bun.file(join(root, '.changeset/release.config.json')).json()).packages;
+  const nativePackages = new Map<string, { tarball: ReturnType<typeof Bun.file>; manifest: Record<string, unknown> }>();
   for (const directory of directories) {
-    const name: string = (await Bun.file(join(root, directory, 'package.json')).json()).name;
+    const { name, os } = await Bun.file(join(root, directory, "package.json")).json() as { name: string; os?: string[] };
     const file = Bun.file(join(archives, `${name.replace("@", "").replace("/", "-")}-${version}.tgz`));
+    if (os) {
+      const result = Bun.spawnSync(["tar", "-xOf", file.name!, "package/package.json"]);
+      assert.equal(result.exitCode, 0, result.stderr.toString());
+      const archiveManifest = JSON.parse(result.stdout.toString());
+      const integrity = "sha512-" + new Bun.CryptoHasher("sha512").update(await file.arrayBuffer()).digest("base64");
+      nativePackages.set(name, { tarball: file, manifest: { ...archiveManifest, dist: { integrity } } });
+      continue;
+    }
     const hash = new Bun.CryptoHasher("sha256").update(await file.arrayBuffer()).digest("hex");
     const filename = `${name.replace('@', '').replace('/', '-')}-${hash}.tgz`;
     await Bun.write(join(consumer, filename), file);
     dependencies[name] = `file:./${filename}`;
   }
   await Bun.write(join(consumer, "package.json"), JSON.stringify({ private: true, type: "module", dependencies }));
-  command(["npm", "install", "--ignore-scripts", "--no-audit", "--no-fund"]);
-  console.log(`Installed all ${directories.length} release archives outside the checkout.`);
+  // Expose the two unpublished platform archives as registry dependencies so
+  // npm must select the target even though the app only installs the adapter.
+  const registry = Bun.serve({
+    hostname: "127.0.0.1", port: 0,
+    fetch(request) {
+      const url = new URL(request.url);
+      const name = decodeURIComponent(url.pathname).slice(1);
+      if (url.pathname.startsWith("/tarballs/")) {
+        const asset = nativePackages.get(name.slice("tarballs/".length));
+        return asset ? new Response(asset.tarball) : new Response(null, { status: 404 });
+      }
+      const asset = nativePackages.get(name);
+      if (!asset) return new Response(null, { status: 404 });
+      const dist = { ...asset.manifest.dist as object, tarball: new URL(`tarballs/${encodeURIComponent(name)}`, url.origin).href };
+      return Response.json({ name, "dist-tags": { latest: version }, versions: { [version]: { ...asset.manifest, dist } } });
+    },
+  });
+  try {
+    await Bun.write(join(consumer, ".npmrc"), `@hulla:registry=${registry.url.href}\n`);
+    const install = Bun.spawn(["npm", "install", "--ignore-scripts", "--no-audit", "--no-fund", "--cache", join(consumer, ".npm-cache")], {
+      cwd: consumer, stdout: "pipe", stderr: "pipe",
+    });
+    const [code, output, errors] = await Promise.all([install.exited, new Response(install.stdout).text(), new Response(install.stderr).text()]);
+    assert.equal(code, 0, `npm install\n${output}\n${errors}`);
+  } finally { await registry.stop(true); }
+  console.log("Installed the release archives and selected a native runtime through the adapter's optional dependencies.");
   for (const name of Object.keys(dependencies).filter(name => name.startsWith("@hulla/"))) {
     const packageRoot = join(consumer, "node_modules", name);
     const manifest = await Bun.file(join(packageRoot, "package.json")).json();
@@ -52,7 +86,29 @@ try {
     assert(await Bun.file(join(packageRoot, "LICENSE")).exists());
     await verifyExports(name, packageRoot, manifest.exports);
   }
-  const postgres = join(consumer, "node_modules/@hulla/db-postgres");
+  const assets = await Bun.file(join(consumer, "node_modules/@hulla/db-cli/dist/local-postgres-assets.json")).json();
+  assert.deepEqual(assets, await Bun.file(join(archives, postgresManifestName)).json());
+  for (const platform of ["darwin-arm64", "linux-x64"]) {
+    const archive = postgresArchiveName(platform);
+    const bytes = await Bun.file(join(archives, archive)).arrayBuffer();
+    assert.deepEqual(assets[platform], {
+      url: new URL(archive, postgresAssetOrigin).href,
+      size: bytes.byteLength,
+      sha256: new Bun.CryptoHasher("sha256").update(bytes).digest("hex"),
+    });
+  }
+  const adapter = join(consumer, "node_modules/@hulla/db-postgres");
+  const platform = `${process.platform}-${process.arch}`;
+  const nativeName = `@hulla/db-postgres-${platform}`;
+  const postgres = join(consumer, "node_modules", nativeName);
+  const adapterManifest = await Bun.file(join(adapter, "package.json")).json();
+  assert.deepEqual(adapterManifest.optionalDependencies, Object.fromEntries([...nativePackages.keys()].map(name => [name, version])));
+  for (const name of nativePackages.keys()) {
+    const binary = Bun.file(join(consumer, "node_modules", name, "native/hulladb-bridge"));
+    assert.equal(await binary.exists(), name === nativeName, name);
+  }
+  await verifyExports(nativeName, postgres, (await Bun.file(join(postgres, "package.json")).json()).exports);
+  assert(!await Bun.file(join(adapter, "native", platform, "hulladb-bridge")).exists());
   const notices = await Bun.file(join(postgres, "THIRD_PARTY_NOTICES.md")).text();
   for (const match of notices.matchAll(/\]\((licenses\/[^)]+)\)/g)) assert(await Bun.file(join(postgres, match[1]!)).exists());
   assert(notices.includes("rquickjs-sys"), "QuickJS native notices missing");
@@ -79,6 +135,6 @@ try {
   // Existing behavioral smoke checks launch the packaged native processes under
   // Node with Cargo, checkout executables and PATH fallbacks unavailable.
   command([process.execPath, join(root, "packages/db/tests/package.integration.ts"),
-    ...["db", "db-sqlite", "db-postgres", "db-cli"].map(name => join(archives, `hulla-${name}-${version}.tgz`))], root);
+    ...["db", "db-sqlite", "db-postgres", "db-cli", `db-postgres-${platform}`].map(name => join(archives, `hulla-${name}-${version}.tgz`))], root);
   console.log("Installed native process and missing-asset recovery checks passed.");
 } finally { await rm(consumer, { recursive: true, force: true }); }

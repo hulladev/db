@@ -1,42 +1,42 @@
 import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
 type Executable = "bridge" | "service" | "js";
-// Literal URLs keep native assets visible to framework file tracing.
+const require = createRequire(import.meta.url);
+// Literal resolutions keep executable files visible to server file tracing.
 const assets = {
   "darwin-arm64": {
-    bridge: new URL("../native/darwin-arm64/hulladb-bridge", import.meta.url),
-    service: new URL("../native/darwin-arm64/hulladb-service", import.meta.url),
-    js: new URL("../native/darwin-arm64/hulladb-js", import.meta.url),
-  },
-  "darwin-x64": {
-    bridge: new URL("../native/darwin-x64/hulladb-bridge", import.meta.url),
-    service: new URL("../native/darwin-x64/hulladb-service", import.meta.url),
-    js: new URL("../native/darwin-x64/hulladb-js", import.meta.url),
+    bridge: () => require.resolve("@hulla/db-postgres-darwin-arm64/hulladb-bridge"),
+    service: () => require.resolve("@hulla/db-postgres-darwin-arm64/hulladb-service"),
+    js: () => require.resolve("@hulla/db-postgres-darwin-arm64/hulladb-js"),
   },
   "linux-x64": {
-    bridge: new URL("../native/linux-x64/hulladb-bridge", import.meta.url),
-    service: new URL("../native/linux-x64/hulladb-service", import.meta.url),
-    js: new URL("../native/linux-x64/hulladb-js", import.meta.url),
-  },
-  "linux-arm64": {
-    bridge: new URL("../native/linux-arm64/hulladb-bridge", import.meta.url),
-    service: new URL("../native/linux-arm64/hulladb-service", import.meta.url),
-    js: new URL("../native/linux-arm64/hulladb-js", import.meta.url),
+    bridge: () => require.resolve("@hulla/db-postgres-linux-x64/hulladb-bridge"),
+    service: () => require.resolve("@hulla/db-postgres-linux-x64/hulladb-service"),
+    js: () => require.resolve("@hulla/db-postgres-linux-x64/hulladb-js"),
   },
 } as const;
 
 export function resolveNativeExecutable(kind: Executable): string {
-  const override = process.env[{ bridge: "HULLADB_ENGINE", service: "HULLADB_SERVICE", js: "HULLADB_JS" }[kind]];
+  const variable = { bridge: "HULLADB_ENGINE", service: "HULLADB_SERVICE", js: "HULLADB_JS" }[kind];
+  const override = process.env[variable];
   if (override) return override;
   const platform = `${process.platform}-${process.arch}`;
-  const binaries = assets[platform as keyof typeof assets];
-  if (binaries && existsSync(binaries[kind])) return fileURLToPath(binaries[kind]);
-  // Only a source checkout can use developer-built binaries. Published modules
-  // are always in dist and never consult the application's cwd or run Cargo.
   if (import.meta.url.endsWith("/src/native.ts")) {
-    const development = new URL(`../../../target/debug/hulladb-${kind}`, import.meta.url);
-    if (existsSync(development)) return fileURLToPath(development);
+    for (const path of [`../native/${platform}/hulladb-${kind}`, `../../../target/debug/hulladb-${kind}`]) {
+      const development = new URL(path, import.meta.url);
+      if (existsSync(development)) return fileURLToPath(development);
+    }
   }
-  throw new Error(`No packaged hulladb-${kind} executable for ${platform}. Install an @hulla/db-postgres artifact containing native/${platform}, or set ${{ bridge: "HULLADB_ENGINE", service: "HULLADB_SERVICE", js: "HULLADB_JS" }[kind]} to a compatible executable.`);
+  const locate = assets[platform as keyof typeof assets]?.[kind];
+  if (locate) {
+    try {
+      const path = locate();
+      if (existsSync(path)) return path;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "MODULE_NOT_FOUND") throw error;
+    }
+  }
+  throw new Error(`No packaged hulladb-${kind} executable for ${platform}. Install @hulla/db-postgres with optional dependencies on the deployment target, or set ${variable} to a compatible executable.`);
 }

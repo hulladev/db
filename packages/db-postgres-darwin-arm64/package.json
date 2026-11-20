@@ -1,0 +1,34 @@
+{
+  "name": "@hulla/db-postgres-darwin-arm64",
+  "version": "0.3.4",
+  "description": "Native executables for @hulla/db-postgres on darwin-arm64",
+  "license": "MIT",
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "files": [
+    "native",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "licenses"
+  ],
+  "exports": {
+    "./hulladb-bridge": "./native/hulladb-bridge",
+    "./hulladb-service": "./native/hulladb-service",
+    "./hulladb-js": "./native/hulladb-js",
+    "./package.json": "./package.json"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hulladev/db.git",
+    "directory": "packages/db-postgres-darwin-arm64"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}

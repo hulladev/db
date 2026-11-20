@@ -14,6 +14,16 @@
       "directory": "packages/better-auth"
     },
     {
+      "name": "@hulla/db-postgres-darwin-arm64",
+      "version": "0.3.4",
+      "directory": "packages/db-postgres-darwin-arm64"
+    },
+    {
+      "name": "@hulla/db-postgres-linux-x64",
+      "version": "0.3.4",
+      "directory": "packages/db-postgres-linux-x64"
+    },
+    {
       "name": "@hulla/db-postgres",
       "version": "0.3.4",
       "directory": "packages/db-postgres"
@@ -22,11 +32,6 @@
       "name": "@hulla/db-studio",
       "version": "0.3.4",
       "directory": "packages/studio"
-    },
-    {
-      "name": "@hulla/db-local-postgres",
-      "version": "0.3.4",
-      "directory": "packages/db-local-postgres"
     },
     {
       "name": "@hulla/db-cli",

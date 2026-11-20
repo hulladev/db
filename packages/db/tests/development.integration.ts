@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { access, cp, mkdir, mkdtemp, rm, stat, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
+import { postgresArchiveName, postgresManifestName, preparePostgresArchives, reusePostgresArchives } from "../../../scripts/release/local-postgres.ts";
+import { stagePostgresRuntime } from "../../../scripts/release/postgres-runtime.ts";
 
 const packageRoot = Bun.fileURLToPath(new URL("../", import.meta.url));
 const scratch = await mkdtemp(resolve(tmpdir(), "hulla-installed-dev-"));
@@ -13,11 +15,18 @@ const node = Bun.spawnSync(["node", "-p", "process.execPath"]).stdout.toString()
 assert(node.startsWith("/"));
 const tools = resolve(scratch, "bin");
 const owner = process.env.HULLA_CODEX_PROCESS_OWNER;
-const env = { PATH: tools, HOME: scratch, NODE_ENV: "development", ...(owner ? { HULLA_CODEX_PROCESS_OWNER: owner } : {}) };
+const cache = resolve(scratch, "cache");
+const env = { PATH: tools, HOME: scratch, XDG_CACHE_HOME: cache, NODE_ENV: "development", ...(owner ? { HULLA_CODEX_PROCESS_OWNER: owner } : {}) };
 const listener = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } });
 const servicePort = listener.port;
 listener.stop(true);
 const cli = resolve(installedCLI, "dist/cli.js");
+const platform = `${process.platform}-${process.arch}`;
+const archiveName = postgresArchiveName(platform);
+const nativePackage = `db-postgres-${platform}`;
+let downloads = 0;
+let otherDownloads = 0;
+let downloadServer: Bun.Server<undefined> | undefined;
 interface Session { child: Bun.Subprocess<"ignore", "pipe", "pipe">; exited: Promise<number>; output: string; expectedExit: number }
 const sessions: Session[] = [];
 function command(args: string[], cwd: string, environment?: Record<string, string>, timeout = 30_000) {
@@ -72,19 +81,57 @@ try {
   await mkdir(project);
   await Bun.write(resolve(project, "package.json"), '{"type":"module","private":true}');
   const archives = [];
-  for (const name of ["db", "db-postgres", "db-cli", "db-local-postgres"]) {
+  for (const name of ["db", "db-postgres", "db-cli"]) {
     const archive = resolve(scratch, `${name}.tgz`);
     command([process.execPath, "pm", "pack", "--ignore-scripts", "--filename", archive], resolve(packageRoot, "..", name));
     archives.push(archive);
   }
+  const runtime = resolve(scratch, "runtime");
+  await stagePostgresRuntime(resolve(packageRoot, "../db-postgres/native"), resolve(runtime, "native"), platform);
+  await cp(resolve(packageRoot, "../", nativePackage, "package.json"), resolve(runtime, "package.json"));
+  const runtimeArchive = resolve(scratch, `${nativePackage}.tgz`);
+  command([process.execPath, "pm", "pack", "--ignore-scripts", "--filename", runtimeArchive], runtime);
+  archives.push(runtimeArchive);
   command(["npm", "install", "--ignore-scripts", "--no-audit", "--no-fund", "--no-package-lock", "--prefer-offline", ...archives], project, undefined, 120_000);
+  const archive = Bun.file(resolve(scratch, archiveName));
+  let otherArchive: Uint8Array<ArrayBuffer> | undefined;
+  downloadServer = Bun.serve({
+    hostname: "127.0.0.1", port: 0,
+    async fetch(request) {
+      if (new URL(request.url).pathname === "/other.tar.gz" && otherArchive) {
+        otherDownloads++;
+        return new Response(otherArchive);
+      }
+      if (new URL(request.url).pathname !== `/${archiveName}`) return new Response(null, { status: 404 });
+      if (++downloads === 1) {
+        const bytes = new Uint8Array(await archive.arrayBuffer());
+        bytes[0] = bytes[0]! ^ 1;
+        return new Response(bytes);
+      }
+      return new Response(archive);
+    },
+  });
+  const assets = process.env.HULLADB_REUSE_POSTGRES_ASSETS === "true"
+    ? await reusePostgresArchives(scratch, [platform])
+    : await preparePostgresArchives(resolve(packageRoot, "../db-cli/native"), scratch, [platform], downloadServer.url.href);
+  const asset = { ...assets[platform]!, url: new URL(archiveName, downloadServer.url).href };
+  const manifestPath = resolve(installedCLI, "dist", postgresManifestName);
+  await Bun.write(manifestPath, JSON.stringify({ [platform]: asset }));
   await mkdir(resolve(project, "db"));
   await Bun.write(resolve(project, "db.config.ts"), `import {defineConfig} from '@hulla/db/config';export default defineConfig({database:{server:{}},service:{port:${servicePort}}});\n`);
   await Bun.write(resolve(project, "db/schema.ts"), schema);
   await Bun.write(resolve(project, "db/notes.ts"), source);
   command([node, cli, "generate", resolve(project, "db.config.ts")], scratch, env);
+  assert.equal(downloads, 0, "generation must work without downloading PostgreSQL");
+  const rejected = start();
+  await until(rejected, () => rejected.output.includes("PostgreSQL archive checksum mismatch"));
+  await stop(rejected);
+  await assert.rejects(access(resolve(cache, "hulla/db/postgres", `${platform}-${asset.sha256}.tar.gz`)), { code: "ENOENT" });
+  await assert.rejects(access(resolve(project, ".hulla/postgres")), { code: "ENOENT" });
+  await assert.rejects(access(resolve(project, ".hulla/dev.lock")), { code: "ENOENT" });
   const first = start();
   await until(first, () => readyCount(first) === 1);
+  assert.equal(downloads, 2, "managed startup downloads a fresh archive after a failed verification");
   const state = resolve(project, ".hulla/local.json");
   const url = (await Bun.file(state).json()).url as string;
   assert.equal((await stat(state)).mode & 0o777, 0o600);
@@ -128,7 +175,8 @@ try {
   assert.equal(query().rows.length, 1);
 
   const productionRoot = resolve(scratch, "production");
-  for (const [name, source] of [["db", installed], ["db-postgres", adapter]] as const) {
+  for (const [name, source] of [["db", installed], ["db-postgres", adapter],
+    [nativePackage, resolve(project, "node_modules/@hulla", nativePackage)]] as const) {
     await cp(source, resolve(productionRoot, "node_modules/@hulla", name), { recursive: true });
   }
   await cp(resolve(project, "db"), resolve(productionRoot, "db"), { recursive: true });
@@ -210,8 +258,19 @@ try {
 const client=createClient({url:${JSON.stringify(baseUrl)}});
 try{${write ? 'await client.functions.create();' : ''}console.log(JSON.stringify(await client.functions.list()));}finally{await client.dispose();}`));
   };
+  // Change the gzip timestamp to simulate another valid build without changing its PostgreSQL data baseline.
+  otherArchive = new Uint8Array(await archive.arrayBuffer());
+  otherArchive[4] = otherArchive[4]! ^ 1;
+  await Bun.write(manifestPath, JSON.stringify({ [platform]: {
+    url: new URL("other.tar.gz", downloadServer.url).href,
+    size: otherArchive.length,
+    sha256: new Bun.CryptoHasher("sha256").update(otherArchive).digest("hex"),
+  } }));
   const adapterManaged = start(direct, undefined, 'db/server.ts');
   await until(adapterManaged, () => readyCount(adapterManaged) === 1);
+  assert.equal(otherDownloads, 1);
+  await downloadServer.stop(true);
+  downloadServer = undefined;
   const adapterState = resolve(direct, 'db/.hulla/local.json');
   assert.equal(typeof (await Bun.file(adapterState).json()).url, 'string');
   const adapterPID = Number((await Bun.file(resolve(direct, 'db/.hulla/postgres/postmaster.pid')).text()).split('\n')[0]);
@@ -222,6 +281,7 @@ try{${write ? 'await client.functions.create();' : ''}console.log(JSON.stringify
   await until(adapterRestarted, () => readyCount(adapterRestarted) === 1);
   assert.equal(directClient(adapterRestarted, false)[0].title, 'adapter entrypoint');
   await stop(adapterRestarted);
+  await Bun.write(manifestPath, JSON.stringify({ [platform]: asset }));
   // Using an external endpoint still starts the service, but never initializes
   // that namespace until the explicit init command is run.
   await Bun.write(entry, initializer(`url:${JSON.stringify(url)},namespace:'adapter_external'`));
@@ -294,9 +354,10 @@ const db=postgres({schema});try{await db.ready();throw new Error('Unexpected con
   await stop(early);
   for (const pid of owned) assert.throws(() => process.kill(pid, 0), { code: "ESRCH" });
   await assert.rejects(access(resolve(interrupted, ".hulla/dev.lock")));
-  console.log("Installed Node CLI: managed and external PostgreSQL, schema migration, hot reload, persistence, and process cleanup passed with Bun on PATH. The production service ran without Bun or system PostgreSQL.");
+  console.log("Installed Node CLI: verified on-demand download, offline cache, managed and external PostgreSQL, schema migration, hot reload, persistence, and process cleanup passed. The production service ran without Bun or system PostgreSQL.");
 } finally {
   const cleanup = await Promise.allSettled(sessions.map(stop));
+  await downloadServer?.stop(true);
   await rm(scratch, { recursive: true, force: true });
   for (const result of cleanup) if (result.status === "rejected") throw result.reason;
 }

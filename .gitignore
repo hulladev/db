@@ -15,7 +15,7 @@ node_modules/
 /packages/studio/example/_generated/
 /packages/db/native/
 /packages/db-postgres/native/
-/packages/db-local-postgres/native/
+/packages/db-cli/native/
 /packages/db/*.tgz
 
 /output/releases/
