@@ -1,5 +1,13 @@
 # @hulla/db-sqlite
 
+## 0.3.2
+
+### Patch Changes
+
+- 8682b06: Reuse SQLite column expressions and field metadata across operations to reduce repeated work when reading and decoding rows.
+- Updated dependencies [934027c]
+  - @hulla/db@0.3.2
+
 ## 0.3.1
 
 ### Patch Changes

@@ -1,5 +1,12 @@
 # @hulla/db-postgres
 
+## 0.3.2
+
+### Patch Changes
+
+- Updated dependencies [934027c]
+  - @hulla/db@0.3.2
+
 ## 0.3.1
 
 ### Patch Changes
