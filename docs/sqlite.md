@@ -76,6 +76,18 @@ and terminal `closed` states. `db.close()` is optional application shutdown, not
 per-query operation; closing does not reopen the instance. Close after an explicit
 transaction finishes. The instance drains its managed local handlers during close.
 
+SQLite retries a busy or locked database once during startup, after a short delay.
+Calls keep waiting on the same instance during that retry. Use `startupRetry: false`
+to disable it, or pass a predicate `startupRetry: error => boolean` to classify
+errors from a custom driver. A failed driver close prevents reopening. Each
+`open` call must return a fresh connection and clean up any resources it acquires
+if it rejects.
+
+If startup still fails, a Retry action can call `await db.retry()` and surface
+any rejection. The method shares an in-progress open and keeps `db.functions`
+and its existing subscriptions. Failed operations can be submitted explicitly
+once the database is ready.
+
 Ordinary startup opens existing storage and verifies its schema. Use
 `sqlite.initialize({...})` or `postgres.initialize({...})` for explicit first-time
 provisioning; these return the same instance interface. Startup never silently
@@ -212,8 +224,11 @@ const db = sqlite({
 ```
 
 The root SQLite package selects the browser entrypoint in browser bundles. OPFS
-availability and workers belong to the chosen WASM runtime. Platforms without Web
-Crypto supply a maintained CSPRNG through `randomBytes`.
+availability and workers belong to the chosen WASM runtime. SQLite generates UUIDs
+from Web Crypto by default. The Expo entrypoint uses the optional `expo-crypto`
+peer when Web Crypto is unavailable. Install that peer with `npx expo install expo-crypto`
+to match the application's Expo SDK. `randomBytes` supplies an explicit secure
+provider for a custom runtime or overrides the platform default.
 
 SQLite supports scalar/JSON columns, defaults, codecs, UUIDs, scalar filters,
 ordering, CRUD, bulk writes, upserts and ungrouped aggregates. Exact `int64` values

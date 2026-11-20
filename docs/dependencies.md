@@ -21,8 +21,9 @@ The optional `@hulla/db-sqlite` package adds no required npm dependency. Its
 Node and Bun drivers use their runtime SQLite implementations through separate
 entrypoints. Browser and Expo adapters accept application-owned connections from
 official SQLite WASM and `expo-sqlite`; neither engine is imported or bundled by
-the core package. Platforms without Web Crypto supply their maintained CSPRNG
-through `randomBytes`, for example `expo-crypto.getRandomBytes`.
+the core package. The Expo entrypoint can load the application's optional
+`expo-crypto` peer when Web Crypto is unavailable. Other platforms without Web
+Crypto supply their maintained CSPRNG through `randomBytes`.
 
 The currently packaged local PostgreSQL is built from the official 18.6 source archive with its pinned
 SHA-256. The build disables optional ICU, readline, compression and TLS libraries;

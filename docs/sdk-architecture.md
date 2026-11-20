@@ -69,6 +69,11 @@ explicit wait. Observable state reports initializing/ready/error/closed, indepen
 of network connectivity. `close()` is optional terminal shutdown. No public connect
 step or startup mode option is required.
 
+Adapters can retry transient storage startup while the instance is initializing.
+`db.retry()` restarts a failed storage open in place and preserves bound operations
+and active query subscriptions. It shares in-progress startup and rejects after
+terminal close. Retry does not replay a previously failed invocation.
+
 Ordinary opening verifies existing storage. `.initialize(...)` explicitly provisions
 it; neither silently resets incompatible data or applies migrations. SQLite schema
 migrations remain work. The existing PostgreSQL additive migration workflow retains
