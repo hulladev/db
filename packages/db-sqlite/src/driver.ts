@@ -22,15 +22,3 @@ export function wasmSQLiteDriver(connection: SQLiteWasmConnection): SQLiteDriver
     close() { connection.close(); },
   };
 }
-
-export interface ExpoSQLiteConnection {
-  getAllAsync<T>(sql: string, parameters: SQLiteValue[]): Promise<T[]>;
-  closeAsync(): Promise<void>;
-}
-/** Wrap a dedicated expo-sqlite connection; the application owns opening/configuring its file. */
-export function expoSQLiteDriver(connection: ExpoSQLiteConnection): SQLiteDriver {
-  return {
-    execute: (sql, parameters = []) => connection.getAllAsync<SQLiteRecord>(sql, [...parameters]),
-    close: () => connection.closeAsync(),
-  };
-}

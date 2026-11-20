@@ -6,7 +6,7 @@ import { sqliteClientStorage } from "./client-storage.ts";
 type Atomic = <T>(handler: () => T | PromiseLike<T>) => Promise<T>;
 
 export interface SQLiteOptions {
-  /** Platform CSPRNG when Web Crypto is unavailable, e.g. expo-crypto.getRandomBytes. */
+  /** Platform CSPRNG when Web Crypto is unavailable. */
   readonly randomBytes?: (length: number) => Uint8Array;
   /** Callback deadline, excluding time in the connection queue. Defaults to 5000. */
   readonly transactionTimeoutMs?: number;

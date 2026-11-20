@@ -49,15 +49,10 @@
       "types": "./dist/browser.d.ts",
       "default": "./dist/browser.js"
     },
-    "./expo": {
-      "hulladb-worker": {
-        "hulladb-source": "./src/worker.ts",
-        "types": "./dist/worker.d.ts",
-        "default": "./dist/worker.js"
-      },
-      "hulladb-source": "./src/expo.ts",
-      "types": "./dist/expo.d.ts",
-      "default": "./dist/expo.js"
+    "./portable": {
+      "hulladb-source": "./src/portable.ts",
+      "types": "./dist/portable.d.ts",
+      "default": "./dist/portable.js"
     }
   },
   "scripts": {
@@ -71,13 +66,7 @@
     "LICENSE"
   ],
   "peerDependencies": {
-    "@hulla/db": "^0.3.3",
-    "expo-crypto": "*"
-  },
-  "peerDependenciesMeta": {
-    "expo-crypto": {
-      "optional": true
-    }
+    "@hulla/db": "^0.3.3"
   },
   "devDependencies": {
     "@hulla/db": "workspace:*",

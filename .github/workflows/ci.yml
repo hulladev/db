@@ -43,6 +43,8 @@ jobs:
       - run: cargo build -p hulladb_js --locked
       - run: make sdk-check
       - run: bun run --cwd packages/db-sqlite test
+      - run: bun run --cwd packages/db-expo typecheck
+      - run: bun run --cwd packages/db-expo test
       - run: bun run test:bindings
       - run: bun run test:auth
       - name: Check framework and auth types
