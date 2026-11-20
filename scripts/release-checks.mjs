@@ -100,10 +100,11 @@ test("version preparation keeps a family coordinated and mode never publishes an
     await mkdir(".changeset");
     await mkdir("core");
     await mkdir("adapter");
+    await mkdir("native");
     const save = (file, value) => writeFile(file, JSON.stringify(value));
     await save(".changeset/release.config.json", {
       repository: "test/repo",
-      packages: ["adapter", "core"],
+      packages: ["adapter", "core", "native"],
     });
     const core = {
       name: "core",
@@ -111,10 +112,12 @@ test("version preparation keeps a family coordinated and mode never publishes an
       repository: { url: "https://github.com/test/repo.git" },
     };
     await save("core/package.json", core);
+    await save("native/package.json", { ...core, name: "native", os: ["linux"], cpu: ["x64"] });
     await save("adapter/package.json", {
       ...core,
       name: "adapter",
       peerDependencies: { core: "^1.0.0" },
+      optionalDependencies: { native: "1.0.0" },
     });
     await main("mode");
     assert.equal(await readFile("output", "utf8"), "mode=none\n");
@@ -126,12 +129,11 @@ test("version preparation keeps a family coordinated and mode never publishes an
     assert.equal(plan.version, "1.1.0");
     assert.deepEqual(
       plan.packages.map((pkg) => pkg.name),
-      ["core", "adapter"],
+      ["native", "core", "adapter"],
     );
-    assert.equal(
-      JSON.parse(await readFile("adapter/package.json", "utf8")).peerDependencies.core,
-      "^1.1.0",
-    );
+    const adapter = JSON.parse(await readFile("adapter/package.json", "utf8"));
+    assert.equal(adapter.peerDependencies.core, "^1.1.0");
+    assert.equal(adapter.optionalDependencies.native, "1.1.0");
     await rm(".changeset/fix.md");
     process.env.GITHUB_EVENT_NAME = "push";
     globalThis.fetch = async (url) => {

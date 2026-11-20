@@ -8,9 +8,10 @@ import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:net';
 
 // A local deployment-shape proof. No cloud account or provider resource is used.
-const [core, postgres, cli] = process.argv.slice(2);
-if (!core || !postgres || !cli || !process.env.HULLADB_TEST_URL)
-  throw new Error('Usage: HULLADB_TEST_URL=... bun deploy/cloud/verify.ts <core.tgz> <postgres.tgz> <cli.tgz>');
+const [core, postgres, cli, native] = process.argv.slice(2);
+if (!core || !postgres || !cli || !native || !process.env.HULLADB_TEST_URL)
+  throw new Error('Usage: HULLADB_TEST_URL=... bun deploy/cloud/verify.ts <core.tgz> <postgres.tgz> <cli.tgz> <native-platform.tgz>');
+const platformPackage = `db-postgres-${process.platform}-${process.arch}`;
 const source = fileURLToPath(new URL('./next-app', import.meta.url));
 const root = await mkdtemp(join(tmpdir(), 'hulla-cloud-proof-'));
 const app = join(root, 'build'), runtime = join(root, 'runtime');
@@ -66,6 +67,7 @@ try {
   for (const [name, tarball, group] of [
     ['db', core, 'dependencies'],
     ['db-postgres', postgres, 'dependencies'],
+    [platformPackage, native, 'dependencies'],
     ['db-cli', cli, 'devDependencies'],
   ] as const) {
     const hash = createHash('sha256').update(await readFile(resolve(tarball))).digest('hex');
@@ -85,8 +87,8 @@ try {
   await cp(join(app, '.next/standalone'), runtime, { recursive: true });
   await mkdir(join(runtime, '.next'), { recursive: true });
   await cp(join(app, '.next/static'), join(runtime, '.next/static'), { recursive: true });
-  const native = join(runtime, `node_modules/@hulla/db-postgres/native/${process.platform}-${process.arch}/hulladb-bridge`);
-  assert((await readFile(native)).length > 0, 'Standalone tracing omitted the native bridge');
+  const nativeBridge = join(runtime, `node_modules/@hulla/${platformPackage}/native/hulladb-bridge`);
+  assert((await readFile(nativeBridge)).length > 0, 'Standalone tracing omitted the native bridge');
   assert((await readFile(join(runtime, 'node_modules/@hulla/db-postgres/package.json'), 'utf8')).includes('dist/server.js'));
   for (const path of await files(join(runtime, '.next/static'))) {
     const content = await readFile(path, 'utf8');
@@ -141,7 +143,7 @@ try {
   await writeFile(env.FIXTURE_SESSION_STATUS_FILE, 'revoked');
   await page.waitForFunction(() => document.querySelector('[data-testid=live-status]')?.textContent?.startsWith('error:'));
   assert.equal(await page.getByTestId('live-tasks').textContent(), '', 'Revoked live query retained protected rows');
-  await writeFile(join(root, 'result.json'), JSON.stringify({ namespace, packageHashes, node: await command([node, '--version']), next: '16.4.2', react: '19.2.5', tracedBridge: native, checks: ['standalone tracing', 'SSR', 'route write', 'server action write', 'grouped rollback', 'browser live updates', 'anonymous rejection', 'revoked live query clears data', 'no browser credentials'], deployment: false }, null, 2));
+  await writeFile(join(root, 'result.json'), JSON.stringify({ namespace, packageHashes, node: await command([node, '--version']), next: '16.4.2', react: '19.2.5', tracedBridge: nativeBridge, checks: ['standalone tracing', 'SSR', 'route write', 'server action write', 'grouped rollback', 'browser live updates', 'anonymous rejection', 'revoked live query clears data', 'no browser credentials'], deployment: false }, null, 2));
   console.log(`Cloud-shape local proof passed. Evidence: ${join(root, 'result.json')}`);
 } catch (error) {
   console.error(`Service output: ${serviceLog}\nNext output: ${webLog}`);

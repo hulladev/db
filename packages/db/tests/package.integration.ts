@@ -1,11 +1,11 @@
-/** Run explicitly with the packed core, SQLite, PostgreSQL, and CLI archives. */
+/** Run explicitly with packed runtime, CLI, and current-platform native archives. */
 import assert from "node:assert/strict";
 import { access, copyFile, mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
-const [core, sqlite, postgres, cli] = process.argv.slice(2);
-if (!core || !sqlite || !postgres || !cli) throw new Error("Pass the core, SQLite, PostgreSQL, and CLI npm archives");
+const [core, sqlite, postgres, cli, native] = process.argv.slice(2);
+if (!core || !sqlite || !postgres || !cli || !native) throw new Error("Pass the core, SQLite, PostgreSQL, CLI, and current-platform native npm archives");
 const scratch = await mkdtemp(resolve(tmpdir(), "hulladb-package-"));
 const directory = resolve(scratch, "runtime");
 const install = resolve(directory, "node_modules/@hulla/db");
@@ -53,17 +53,19 @@ try {
   `], { cwd: directory, stdout: "inherit", stderr: "inherit" });
   assert.equal(local.exitCode, 0);
   console.log("Installed SQLite works without Expo, PostgreSQL, or development packages");
-  unpack("PostgreSQL", directory, postgres);
+  unpack("PostgreSQL", directory, postgres, native);
   await assert.rejects(access(resolve(directory, "node_modules/@hulla/db-cli")), { code: "ENOENT" });
   await copyFile(new URL("./fixtures/package-runtime.mjs", import.meta.url), resolve(directory, "check.mjs"));
-  const node = Bun.spawnSync([nodePath, "check.mjs"], { cwd: directory, env: { PATH: "/nonexistent", HOME: directory }, stdout: "inherit", stderr: "inherit" });
-  assert.equal(node.exitCode, 0);
+  for (const executable of [nodePath, process.execPath]) {
+    const runtime = Bun.spawnSync([executable, "check.mjs"], { cwd: directory, env: { PATH: "/nonexistent", HOME: directory }, stdout: "inherit", stderr: "inherit" });
+    assert.equal(runtime.exitCode, 0);
+  }
 
   const generator = resolve(scratch, "generation");
   await mkdir(generator);
   await Bun.write(resolve(generator, "package.json"), '{"type":"module","private":true}');
   unpack("CLI", generator, core, sqlite, cli);
-  for (const entry of ["@hulla/db-local-postgres", "@hulla/db-postgres", "@hulla/db-cli/native"])
+  for (const entry of ["@hulla/db-postgres", "@hulla/db-cli/native"])
     await assert.rejects(access(resolve(generator, "node_modules", entry)), { code: "ENOENT" });
   await Bun.write(resolve(generator, "schema.ts"), `
     import { defineSchema, defineTable, v } from "@hulla/db";

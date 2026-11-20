@@ -87,13 +87,13 @@ server read, scope the query/mutation declarations independently, and pass the
 verified `initialAuthKey` to `useQuery`. Do not opt private results into shared
 Next/CDN caches. See [authentication boundaries](../meta-frameworks.md#keep-server-data-private-when-adding-authentication).
 
-Keep `@hulla/db` external to the server bundle and trace the native assets:
+Keep the database packages external to the server bundle and trace the native assets:
 
 ```js
 // next.config.mjs — merge into your existing config
 export default {
-  serverExternalPackages: ['@hulla/db'],
-  outputFileTracingIncludes: { '/*': ['node_modules/@hulla/db-postgres/native/**/*'] },
+  serverExternalPackages: ['@hulla/db', '@hulla/db-postgres'],
+  outputFileTracingIncludes: { '/*': ['node_modules/@hulla/db-postgres-*/native/**/*'] },
 }
 ```
 

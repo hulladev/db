@@ -1,0 +1,37 @@
+{
+  "name": "@hulla/db-postgres-linux-x64",
+  "version": "0.3.4",
+  "description": "Native executables for @hulla/db-postgres on linux-x64",
+  "license": "MIT",
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "libc": [
+    "glibc"
+  ],
+  "files": [
+    "native",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "licenses"
+  ],
+  "exports": {
+    "./hulladb-bridge": "./native/hulladb-bridge",
+    "./hulladb-service": "./native/hulladb-service",
+    "./hulladb-js": "./native/hulladb-js",
+    "./package.json": "./package.json"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hulladev/db.git",
+    "directory": "packages/db-postgres-linux-x64"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}

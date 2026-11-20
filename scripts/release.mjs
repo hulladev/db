@@ -182,7 +182,7 @@ async function prepare(config) {
         if (names.has(name))
           manifest[field][name] = range.startsWith("workspace:")
             ? "workspace:^"
-            : `^${pkg.version}`;
+            : stable.test(range) ? pkg.version : `^${pkg.version}`;
       }
     }
     await save(file, manifest);
@@ -344,6 +344,14 @@ async function verify(config) {
   }
   const consumer = await mkdtemp(path.join(tmpdir(), "hulla-published-consumer-"));
   try {
+    const packages = await Promise.all(manifest.packages.map(async (pkg) => ({
+      ...pkg, ...await json(path.join(pkg.directory, "package.json")),
+    })));
+    const platformSpecific = (pkg) => pkg.os || pkg.cpu || pkg.libc;
+    const libc = process.platform === "linux"
+      ? process.report.getReport().header.glibcVersionRuntime ? "glibc" : "musl"
+      : undefined;
+    const supports = (field, value) => !field || field.includes(value);
     await save(path.join(consumer, "package.json"), { private: true, type: "module" });
     run(
       "npm",
@@ -357,13 +365,17 @@ async function verify(config) {
         "--no-package-lock",
         "--cache",
         path.join(consumer, ".npm-cache"),
-        ...manifest.packages.map((pkg) => `${pkg.name}@${pkg.version}`),
+        ...packages.filter((pkg) => !platformSpecific(pkg)).map((pkg) => `${pkg.name}@${pkg.version}`),
         ...config.smokeDependencies,
       ],
       consumer,
     );
-    for (const pkg of manifest.packages) {
+    for (const pkg of packages) {
       const directory = path.join(consumer, "node_modules", pkg.name);
+      if (!supports(pkg.os, process.platform) || !supports(pkg.cpu, process.arch) || !supports(pkg.libc, libc)) {
+        assert(!(await exists(directory)), `Unexpected platform package: ${pkg.name}`);
+        continue;
+      }
       const installed = await json(path.join(directory, "package.json"));
       assert.equal(installed.version, pkg.version);
       async function checkTargets(value) {

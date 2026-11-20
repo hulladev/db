@@ -50,9 +50,16 @@ target host using its C compiler and Make. It also accepts `--source-archive <fi
 for an offline source archive, with the same checksum verification. The resulting
 bundle contains the server, initialization tool, runtime libraries and data files,
 without optional system libraries. On macOS it rewrites and signs library references
-so assets remain usable after leaving the build directory. The assets ship
-in `@hulla/db-local-postgres`. The CLI uses the installed Bun runtime and the
-compiler from its own pinned TypeScript dependency.
+so assets remain usable after leaving the build directory. The npm build pins
+the size and checksum of each platform archive in the CLI. The CLI uses the
+installed Bun runtime and its own pinned TypeScript dependency.
+
+`packages/db/scripts/postgres-build.json` identifies the managed PostgreSQL build.
+Increment its revision when the build recipe or target baseline changes, and set
+the version and source checksum when changing the upstream PostgreSQL release.
+Keep published builds available for the SDK releases that pin them. To validate a
+candidate with an existing build, use `HULLADB_REUSE_POSTGRES_ASSETS=true bun run
+release:check:npm`.
 
 For Linux x64, build and stage the
 genuine cross-platform assets:
@@ -61,8 +68,8 @@ genuine cross-platform assets:
 docker build --platform linux/amd64 -f packages/db/Dockerfile.native \
   --output type=local,dest=/tmp/hulladb-native .
 bun run --cwd packages/db build:native --from /tmp/hulladb-native/native --platform linux-x64
-mkdir -p packages/db-local-postgres/native/linux-x64
-cp -a /tmp/hulladb-native/local-postgres/. packages/db-local-postgres/native/linux-x64/
+mkdir -p packages/db-cli/native/linux-x64
+cp -a /tmp/hulladb-native/local-postgres/. packages/db-cli/native/linux-x64/
 ```
 
 The release requires both `darwin-arm64` and `linux-x64`; Linux uses glibc.
@@ -72,12 +79,14 @@ Other native targets need their own build and execution evidence before inclusio
 Browser bindings do not execute native binaries.
 The installed development check must run on each released native target. It
 exercises generation, Date codecs, hot reload, persistence, schema mismatch
-recovery, external database ownership and process cleanup. It starts Bun from an
-isolated PATH and PostgreSQL from the opt-in package.
+recovery, external database ownership and process cleanup. It uses a loopback
+download server to exercise checksum rejection, retry and offline cache reuse.
 
 For a full release, artifacts are written under `output/releases/<rust-version>/`: the configured npm tarballs, nine Cargo
 archives, `manifest.json` and `SHA256SUMS`. The manifest records exact archive
-hashes, package sizes, source HEAD and whether the checkout was dirty. Treat a
+hashes, package sizes, source HEAD and whether the checkout was dirty. The two
+managed PostgreSQL downloads are staged under `output/releases/<npm-version>/`.
+Their checksums are pinned in the CLI tarball. Treat a
 dirty candidate as review material: commit the reviewed source, rerun preparation
 and checks, and tag the exact release commit before registry publication.
 
@@ -85,7 +94,8 @@ The npm builder stages production manifests without workspace-only source export
 conditions, dev dependencies or build scripts. Package workspace manifests declare
 public npm access. Publish the prepared tarballs,
 not the `packages/*` source directories. Every tarball contains MIT license text.
-`@hulla/db-postgres` includes the native dependency license and copyright notices.
+Each platform dependency of `@hulla/db-postgres` includes its native dependency
+license and copyright notices.
 If a registry dependency omitted its shared license, the builder recovers
 it from the immutable upstream commit recorded by Cargo. That step needs network
 access and fails if the original notice cannot be recovered.
@@ -114,11 +124,12 @@ Publish npm core first, followed by the optional drivers, Studio and framework/a
 
 ```text
 @hulla/db
+@hulla/db-postgres-darwin-arm64
+@hulla/db-postgres-linux-x64
 @hulla/db-postgres
 @hulla/db-sqlite
 @hulla/db-react
 @hulla/db-studio
-@hulla/db-local-postgres
 @hulla/db-cli
 @hulla/db-vue
 @hulla/db-svelte

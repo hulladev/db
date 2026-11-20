@@ -31,7 +31,8 @@ Run from the repository root:
 ```sh
 HULLADB_TEST_URL=postgresql://user:password@127.0.0.1:5432/disposable \
 PSQL=/absolute/path/to/psql \
-bun deploy/cloud/verify.ts /absolute/hulla-db.tgz /absolute/hulla-db-postgres.tgz /absolute/hulla-db-cli.tgz
+bun deploy/cloud/verify.ts /absolute/hulla-db.tgz /absolute/hulla-db-postgres.tgz \
+  /absolute/hulla-db-cli.tgz /absolute/hulla-db-postgres-<os>-<arch>.tgz
 ```
 
 The script installs the archives into a fresh temporary application outside the
@@ -70,8 +71,8 @@ pooler compatibility.
 ## Provider-neutral persistent service image
 
 Copy the archives into `deploy/cloud/service` as `hulla-db.tgz`,
-`hulla-db-postgres.tgz`, and `hulla-db-cli.tgz`. Use matching Linux assets for
-the target architecture.
+`hulla-db-postgres.tgz`, `hulla-db-cli.tgz` and
+`hulla-db-postgres-linux-x64.tgz`. Build this fixture for Linux x64.
 
 ```sh
 docker build --platform linux/amd64 -f deploy/cloud/service/Dockerfile -t hulla-service-fixture deploy/cloud

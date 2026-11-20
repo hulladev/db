@@ -59,7 +59,7 @@ Install the SDK in your application and generate from the directory containing
 
 ```sh
 npm install @hulla/db @hulla/db-postgres
-npm install --save-dev @hulla/db-cli @hulla/db-local-postgres
+npm install --save-dev @hulla/db-cli
 npx hulla-db dev db.config.ts
 ```
 
@@ -76,9 +76,9 @@ the schema. No listener or database connection starts during generation or impor
 Server connection settings and handler implementations are excluded from generated
 browser bindings.
 
-For an existing PostgreSQL instance, skip `@hulla/db-local-postgres` and set `database.server.url` or `DATABASE_URL`,
+For an existing PostgreSQL instance, set `database.server.url` or `DATABASE_URL`,
 then run `npx hulla-db generate` and `npx hulla-db init` explicitly before `dev`.
-Managed local development initializes its own storage automatically. Repeating
+Managed local development downloads PostgreSQL on first use and initializes its storage. Repeating
 initialization verifies matching storage and preserves existing data. An incompatible schema produces an error; initialization never
 silently resets it or applies an upgrade migration. Use an appropriate provisioning
 credential for this command and application credentials for normal access.

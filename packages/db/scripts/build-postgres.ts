@@ -1,10 +1,10 @@
 import { cp, mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { cpus, tmpdir } from "node:os";
 import { join } from "node:path";
+import build from "./postgres-build.json" with { type: "json" };
 
-// Maintainer tooling only. Consumers receive these assets in the npm archive.
-const version = "18.6";
-const sha256 = "555610c24d53e4316da5b7d3fc25c279d96856d5e0e23ee308c328c5fa881d9f";
+// Maintainer tooling. The release publishes platform archives for on-demand development downloads.
+const { version, sha256 } = build;
 const platform = `${process.platform}-${process.arch}`;
 const args = process.argv.slice(2);
 if (args.length && (args.length !== 2 || args[0] !== "--source-archive")) throw new Error("Usage: build:postgres [--source-archive postgresql-18.6.tar.bz2]");
@@ -34,7 +34,7 @@ try {
   command(["./configure", `--prefix=${install}`, "--without-icu", "--without-readline", "--without-zlib", "--without-lz4", "--without-zstd", "--disable-nls"], source);
   command(["make", `-j${Math.min(cpus().length, 8)}`], source);
   command(["make", "install"], source);
-  const destination = Bun.fileURLToPath(new URL(`../../db-local-postgres/native/${platform}/postgres/`, import.meta.url));
+  const destination = Bun.fileURLToPath(new URL(`../../db-cli/native/${platform}/postgres/`, import.meta.url));
   await mkdir(destination, { recursive: true });
   for (const name of ["bin", "lib", "share"]) await rm(join(destination, name), { recursive: true, force: true });
   await mkdir(join(destination, "bin"));
@@ -42,7 +42,7 @@ try {
   await mkdir(join(destination, "lib"));
   for (const name of await readdir(join(install, "lib"))) {
     if (!/\.(?:dylib|so(?:\.\d+)*)$/.test(name) || /^lib(?:ecpg|pgtypes)/.test(name)) continue;
-    // npm archives omit symlinks. Preserve each loader name as a regular file.
+    // Preserve each loader name as a regular file in the portable archive.
     const file = Bun.file(join(install, "lib", name));
     await Bun.write(join(destination, "lib", name), file, { mode: (await file.stat()).mode & 0o777 });
   }

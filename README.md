@@ -105,9 +105,9 @@ cargo add hulladb@0.1.1
 Add `@hulla/db-postgres` for PostgreSQL or `@hulla/db-sqlite` for embedded SQLite.
 The PostgreSQL adapter includes native executables for macOS arm64 and Linux
 x64/glibc and runs on Node 22.18+ or Bun. Install `@hulla/db-cli` as a development
-dependency and use Bun to generate bindings or run `hulla-db dev`. To let `dev`
-manage a local PostgreSQL instance, also install `@hulla/db-local-postgres` and
-omit `database.server.url` and `DATABASE_URL`. Local data persists in `.hulla`.
+dependency and use Bun to generate bindings or run `hulla-db dev`. With
+`database.server.url` and `DATABASE_URL` unset, `dev` downloads and caches a
+verified PostgreSQL build on first use. Local data persists in `.hulla`.
 See the [development setup](docs/browser-service.md).
 
 ## AI agent guidance
