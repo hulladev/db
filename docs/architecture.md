@@ -238,7 +238,7 @@ key rules, constraints and wire validation remain shared contracts across adapte
 | Shared TypeScript authoring and contracts | `@hulla/db` |
 | Application storage and engine integration | `@hulla/db-postgres`, `@hulla/db-sqlite` |
 | Framework lifecycle bindings | Separate React, Vue, Svelte and Solid packages |
-| Generation and local provisioning | `@hulla/db-cli` and opt-in `@hulla/db-local-postgres` in the development environment |
+| Generation and local provisioning | `@hulla/db-cli` in the development environment |
 | Rust application API | `hulladb`, with optional `hulladb_postgres` and `hulladb_sqlite` adapters |
 
 The Rust row describes the agreed public package direction, not a completed crate
@@ -263,9 +263,9 @@ delegate to the database CLI installed in the project so generation uses the
 version selected for that application. Use `hulla-db` today.
 
 **Confirmed development behavior:** the dev command runs the supplied development
-service against the selected storage. With `@hulla/db-local-postgres` installed,
-omitting `url` and `DATABASE_URL` starts a persistent local PostgreSQL instance.
-An explicit connection uses that database.
+service against the selected storage. Omitting `url` and `DATABASE_URL` starts a
+persistent local PostgreSQL instance using a verified, cached archive. An explicit
+connection uses that database.
 An explicit initializer URL wins over the environment. Empty, invalid and unreachable
 connections error without falling back to managed storage. External databases keep
 explicit provisioning/migration; the development server runs in both cases. There

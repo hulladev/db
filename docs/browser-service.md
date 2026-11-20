@@ -83,15 +83,16 @@ Install Bun and the database CLI for development. Add the local server package
 to provision a PostgreSQL instance automatically:
 
 ```sh
-npm install --save-dev @hulla/db-cli @hulla/db-local-postgres
+npm install --save-dev @hulla/db-cli
 npx hulla-db dev db.config.ts
 ```
 
 `dev` uses Bun and the CLI's TypeScript dependency to generate bindings, start
 the service, and restart it after source changes. With no server URL or
-`DATABASE_URL`, it starts PostgreSQL from `@hulla/db-local-postgres` and
-initializes that database. Storage persists in `.hulla/postgres`;
-the private connection lives in `.hulla/local.json`. Add `.hulla/` to the application's
+`DATABASE_URL`, it downloads the CLI release's PostgreSQL build, verifies its
+checksum, and caches the archive for later offline starts. It initializes the
+database on first use. Storage persists in `.hulla/postgres` and the private
+connection lives in `.hulla/local.json`. Add `.hulla/` to the application's
 `.gitignore`. Generated server imports find this connection from a separate Node/Bun
 application, independent of its working directory. If `database.client` is omitted,
 `dev` generates a loopback client URL using the service port (3001 by default).
@@ -137,8 +138,8 @@ in the deployment. Missing artifacts produce an error with a generation instruct
 The auth verifier executes in the chosen Node or Bun process; handler declarations
 execute in the same restricted native engine in either case.
 
-`@hulla/db-postgres` contains compiled JavaScript and native binaries for macOS
-arm64 and Linux x64/glibc. The service runs on Node 22.18+ or Bun and requires an
+`@hulla/db-postgres` installs its native executable dependency for macOS arm64
+or Linux x64/glibc. The service runs on Node 22.18+ or Bun and requires an
 explicit PostgreSQL URL. Generation and `dev` use Bun and the CLI's TypeScript
 dependency. Commands default to `db.config.ts` in the current directory.
 

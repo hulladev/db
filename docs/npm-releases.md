@@ -14,7 +14,12 @@ changelogs, the lockfile and `.changeset/release-plan.json`. The plan is the exp
 publication boundary: an unprepared checkout never publishes just because a package
 is missing from npm. Review and merge that PR to release.
 
-The next run checks sources, packs artifacts, and waits at the `npm` environment.
+The next run checks sources and packs artifacts. Managed PostgreSQL assets use a
+GitHub prerelease named for the PostgreSQL version and build revision, such as
+`postgresql-18.6-r1`. The workflow publishes a build once and verifies the public
+manifest and archives before publishing the npm packages. Later SDK releases
+reuse those same assets until the PostgreSQL build revision changes.
+npm publication waits at the `npm` environment.
 Approve that job once for the whole repository release. npm authenticates the workflow
 using OIDC; there are no per-package mobile prompts or stored npm publishing tokens.
 Versions come from the reviewed `package.json` files. Stable releases use `latest`.
@@ -30,7 +35,8 @@ does not create a GitHub Release; announcements remain a separate opt-in step.
 
 ## GitHub announcements are disabled
 
-npm publication and verification do not create a GitHub Release by default.
+The managed PostgreSQL prerelease hosts the CLI's platform downloads. A stable
+GitHub Release for the npm family requires an explicit opt-in.
 Both the announcement job and its script require an explicit
 `PUBLISH_GITHUB_RELEASES=true` opt-in. Leave that repository variable unset while
 reviewing documentation and improving the packages.
@@ -76,8 +82,9 @@ Package settings to configure:
 - `@hulla/db-better-auth`
 - `@hulla/db`
 - `@hulla/db-cli`
-- `@hulla/db-local-postgres`
 - `@hulla/db-postgres`
+- `@hulla/db-postgres-darwin-arm64`
+- `@hulla/db-postgres-linux-x64`
 - `@hulla/db-sqlite`
 - `@hulla/db-react`
 - `@hulla/db-solid`
@@ -91,7 +98,8 @@ Use **Actions → Release → Run workflow** on `main`, or rerun a failed job.
 Dependency and peer packages publish before integrations. An existing version is
 skipped only when its npm integrity matches the built archive; a conflicting version,
 auth error, rate limit or registry outage fails explicitly. Reuse the original
-`npm-release` artifact when retrying publication; do not rebuild with different inputs.
+`npm-release` artifact when retrying publication. Its managed PostgreSQL downloads
+and npm archives must match the bytes already published.
 When explicitly enabled, GitHub Release creation happens after consumer verification and is idempotent; retries do not create duplicate releases or notifications. There is no atomic
 multi-package npm transaction: a failure may leave a partial publication, which the
 next run resumes. No package is silently unpublished or overwritten.

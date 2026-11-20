@@ -7,8 +7,7 @@ for package ownership and deployment boundaries.
 The SDK has no required npm runtime dependencies. Browser bindings and production
 Node/Bun entrypoints use platform APIs. Generation and `dev` use the developer's
 Bun installation and the pinned TypeScript dependency of `@hulla/db-cli`.
-The optional `@hulla/db-local-postgres` package contains a local PostgreSQL 18.6
-build for managed development.
+Managed development fetches a pinned PostgreSQL 18.6 archive on first use.
 Zod 4 is an optional peer for `@hulla/db/zod`: applications
 choosing that adapter supply it; ordinary core entrypoints do not import it.
 Valibot and `@types/*` remain development fixtures/tooling. Prepared `serve` does not import the
@@ -22,10 +21,10 @@ loads `expo-sqlite` and `expo-crypto` as optional peers. Expo applications insta
 native modules for their SDK version. Other platforms without Web Crypto supply
 their secure entropy provider through `randomBytes`.
 
-The currently packaged local PostgreSQL is built from the official 18.6 source archive with its pinned
+The managed PostgreSQL build uses the official 18.6 source archive with its pinned
 SHA-256. The build disables optional ICU, readline, compression and TLS libraries;
-it listens on loopback with PostgreSQL's SCRAM authentication. The local asset
-package includes the original PostgreSQL copyright notice. The October 26 check of
+it listens on loopback with PostgreSQL's SCRAM authentication. The local download
+includes the original PostgreSQL copyright notice. The October 26 check of
 [PostgreSQL 18 advisories](https://www.postgresql.org/support/security/18/) found no
 listed fix newer than 18.6. This is scoped to the added PostgreSQL dependency.
 Separate UI packages use their matching framework and `@hulla/db` as peers.
@@ -38,11 +37,11 @@ npm advisory check, not a new Rust workspace audit.
 ## Adapter and tooling direction
 
 `@hulla/db` ships the shared TypeScript declarations, client and observations.
-`@hulla/db-sqlite` owns embedded SQLite integration. `@hulla/db-postgres` ships
-the PostgreSQL bridge, hosted service and handler executable.
-`@hulla/db-cli` ships generation and development commands. Install
-`@hulla/db-local-postgres` to opt into a managed local server. Production
-services use `hulla-db-serve` from `@hulla/db-postgres`.
+`@hulla/db-sqlite` owns embedded SQLite integration. `@hulla/db-postgres` selects
+the platform package for its bridge, hosted service and handler executables.
+`@hulla/db-cli` ships generation and development commands. Its managed server
+downloads a verified archive only when `dev` runs without a configured database
+URL. Production services use `hulla-db-serve` from `@hulla/db-postgres`.
 
 The Rust public direction is `hulladb` plus optional `hulladb_postgres` and
 `hulladb_sqlite`, usable by client/server applications. The current SDK still defaults

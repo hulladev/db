@@ -36,9 +36,9 @@ and `Output<typeof fn>` helpers infer declaration and callable contracts.
 Optional `@hulla/db-better-auth` stores provider data in PostgreSQL; see the
 [Better Auth setup](../../docs/better-auth.md).
 
-`npx hulla-db dev` uses Bun and the CLI's pinned TypeScript compiler. Install
-`@hulla/db-local-postgres` and omit `database.server.url` to use managed local
-storage. An explicit URL or `DATABASE_URL` uses your own database.
+`npx hulla-db dev` uses Bun and the CLI's pinned TypeScript compiler. With
+`database.server.url` and `DATABASE_URL` unset, it downloads and caches a
+verified PostgreSQL build on first use. An explicit URL uses your own database.
 See [local development](../../docs/browser-service.md).
 Production `hulla-db-serve` from `@hulla/db-postgres` loads prepared artifacts
 under Node or Bun. The development tools ship in `@hulla/db-cli`.

@@ -57,10 +57,11 @@ npm install @hulla/db @hulla/db-postgres
 npm install --save-dev @hulla/db-cli
 ```
 
-The PostgreSQL package includes native executables for macOS arm64 and Linux
-x64/glibc. There are no installation-time native downloads
-or runtime Cargo builds. Linux musl/Alpine, Linux arm64 and macOS x64 need separate
-artifacts and execution validation. Missing native targets produce an explicit error.
+`@hulla/db-postgres` installs the matching native package through the package
+manager's optional dependencies. Install for the deployment target with those
+dependencies enabled. The supported targets are macOS arm64 and Linux x64/glibc.
+Missing native targets produce an explicit error. Startup uses the installed
+executables and the configured PostgreSQL server.
 
 Add `@hulla/db-react`, `@hulla/db-vue`, `@hulla/db-svelte` or `@hulla/db-solid`
 for the application's framework, and `@hulla/db-better-auth` for Better Auth storage.
@@ -109,9 +110,9 @@ import { createClient } from './db/_generated/server/_client'
 export const api = createClient({ url: 'https://db.example.com', fetch, createRequestId: randomUUID }).functions
 ```
 
-For local development, install `@hulla/db-local-postgres` to let
-`npx hulla-db dev` manage a persistent PostgreSQL instance when no URL is
-configured. Production requires `database.server.url` or
+For local development, `npx hulla-db dev` downloads PostgreSQL on first use and
+manages a persistent local instance when no URL is configured. Production
+requires `database.server.url` or
 `DATABASE_URL` and never falls back to local development credentials. The private
 runtime, compiler and PostgreSQL live in separate development assets; production
 file tracing does not need to retain them. See [local setup](browser-service.md).

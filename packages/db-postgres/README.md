@@ -28,7 +28,9 @@ the adapter never starts a PostgreSQL server. Generation prepares server-only
 settings without opening the instance, and evaluates environment URLs at hosting
 time. Deploy the generated directory along with the application.
 
-This package ships the native PostgreSQL bridge and managed service.
+The package manager installs the matching native bridge, service and handler
+executables as an optional dependency. Keep optional dependencies enabled
+when installing for the deployment target.
 Run `hulla-db-serve db/server.ts` to serve prepared artifacts in production.
 Generation and local provisioning use the separate `@hulla/db-cli` package.
 See the [deployment guide](../../docs/deployment.md).
