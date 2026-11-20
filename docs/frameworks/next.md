@@ -93,7 +93,7 @@ Keep `@hulla/db` external to the server bundle and trace the native assets:
 // next.config.mjs — merge into your existing config
 export default {
   serverExternalPackages: ['@hulla/db'],
-  outputFileTracingIncludes: { '/*': ['node_modules/@hulla/db/native/**/*'] },
+  outputFileTracingIncludes: { '/*': ['node_modules/@hulla/db-postgres/native/**/*'] },
 }
 ```
 

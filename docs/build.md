@@ -6,22 +6,21 @@ Barrel imports work directly, without a build plugin:
 const db = sqlite({ schema, filename: './app.sqlite', functions: () => import('./functions') })
 ```
 
-For application globs, add `functionGlobs()` from `@hulla/db/build` to your existing
+For application globs, add `functionGlobs()` from `@hulla/db-cli/build` to your existing
 build configuration. The hook expands literal glob properties into module imports
-using the build host's parser and filesystem APIs. It adds no production dependency
-and does not require Hulla's packaged compiler or Bun executable.
+using the build host's parser and filesystem APIs. It adds no production dependency.
 
 ```ts
 // vite.config.ts — the same plugin also works with Rollup
 import { defineConfig } from 'vite'
-import { functionGlobs } from '@hulla/db/build'
+import { functionGlobs } from '@hulla/db-cli/build'
 
 export default defineConfig({ plugins: [functionGlobs()] })
 ```
 
 ```ts
 // Bun
-import { functionGlobs } from '@hulla/db/build'
+import { functionGlobs } from '@hulla/db-cli/build'
 
 await Bun.build({
   entrypoints: ['./app.ts'],

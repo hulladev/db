@@ -84,8 +84,8 @@ The application supplies identity verification and authorizes access in handlers
 
 For a local feature, register its operation catalogue with
 `sqlite({ schema, filename, functions: operations })` on Node or Bun and export
-`api = db.functions` from the device entrypoint. Expo and browser SQLite currently
-take a driver opener in place of `filename`. A static catalogue provides stable
+`api = db.functions` from the device entrypoint. Expo takes a filename through
+`@hulla/db-sqlite/expo`, and browser SQLite takes a driver opener. A static catalogue provides stable
 callables before storage opens. Calls wait for startup and expose failures through
 their usual state. The same framework bindings work with either API.
 
@@ -238,6 +238,7 @@ key rules, constraints and wire validation remain shared contracts across adapte
 | Shared TypeScript authoring and contracts | `@hulla/db` |
 | Application storage and engine integration | `@hulla/db-postgres`, `@hulla/db-sqlite` |
 | Framework lifecycle bindings | Separate React, Vue, Svelte and Solid packages |
+| Generation and local provisioning | `@hulla/db-cli` and opt-in `@hulla/db-local-postgres` in the development environment |
 | Rust application API | `hulladb`, with optional `hulladb_postgres` and `hulladb_sqlite` adapters |
 
 The Rust row describes the agreed public package direction, not a completed crate
@@ -251,27 +252,20 @@ public runtime crate. Rust is not inherently a backend-only language.
 | Managed PostgreSQL execution | The Rust engine owns transaction execution, committed revisions and receipts. The managed service verifies credentials, dispatches and publishes authorized snapshots. Its restricted worker runs authored TypeScript handlers. The PostgreSQL npm adapter owns integration with the native assets. |
 | Rust applications | Rust applications author typed operations through `hulladb` and choose an execution adapter or remote client. Rust and TypeScript clients use the same remote protocol and server guarantees. |
 
-Keep one owner for each capability. Codegen and CLI tooling prepare artifacts at
-build time. They must stay outside production client dependency graphs. Extract
-PostgreSQL native assets from the core package along the existing delivery plan.
-Use adapter conformance checks to compare supported behavior and keep differences
-in execution capabilities explicit.
+Direct databases and generated clients run with their runtime packages alone.
+Projects that generate bindings or use build plugins add `@hulla/db-cli` for
+those workflows. The CLI uses the project's Bun installation and its own pinned
+TypeScript compiler. The PostgreSQL adapter ships the native bridge and HTTP
+service. A separate opt-in package ships the local database server.
 
-CLI JavaScript, development runtimes, compilers, engine bridges and database server
-executables have different footprints and lifetimes. Keeping a CLI entrypoint in
-an SDK does not put it in an application bundle when runtime imports are isolated.
-A PostgreSQL driver/bridge does not require installing the PostgreSQL server.
-SQLite-only applications should not have to ship PostgreSQL or a development
-compiler. Native asset relocation is not complete in the checkout.
-
-**Under review:** retain DB-specific CLI/codegen with the SDK and have the existing
-`hulla` CLI delegate to that project's installed version, without requiring another
-manually coordinated tools package. The current executable remains `hulla-db`;
-`hulla db` development/generation routing has not been implemented.
+The database CLI releases alongside the SDK. Any future `hulla db` commands can
+delegate to the database CLI installed in the project so generation uses the
+version selected for that application. Use `hulla-db` today.
 
 **Confirmed development behavior:** the dev command runs the supplied development
-service against the selected storage. PostgreSQL without `url` or `DATABASE_URL`
-uses managed persistent local PostgreSQL; an explicit connection uses that database.
+service against the selected storage. With `@hulla/db-local-postgres` installed,
+omitting `url` and `DATABASE_URL` starts a persistent local PostgreSQL instance.
+An explicit connection uses that database.
 An explicit initializer URL wins over the environment. Empty, invalid and unreachable
 connections error without falling back to managed storage. External databases keep
 explicit provisioning/migration; the development server runs in both cases. There
@@ -282,12 +276,8 @@ server-only runtime settings without executing its eager constructor, and deploy
 environment values are read when hosting starts. Outside dev, the adapter needs a
 URL and never starts PostgreSQL. The older config workflow remains supported.
 
-Automatic local provisioning and unconditional npm bundling are separate decisions.
-Engine-specific download/cache distribution and first-run/offline setup remain
-under review. Current development assets are still packaged. SQLite needs no
-PostgreSQL process; managed SQLite HTTP hosting remains unfinished and rejects
-explicitly before PostgreSQL provisioning. Production always requires configured
-storage and never falls back to a local development database.
+SQLite runs in the application process or a platform worker. Managed SQLite HTTP
+hosting remains unfinished. Production always requires configured storage.
 
 Convex demonstrates a managed local backend process under its dev command;
 [its documentation](https://docs.convex.dev/cli/local-deployments) also allows cloud

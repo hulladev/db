@@ -14,7 +14,7 @@ From the repository root:
 bun install
 bun run --cwd packages/db build
 bun run --cwd packages/studio build
-bun --conditions=hulladb-source packages/db/src/cli.ts dev packages/studio/example/db.config.ts --studio
+bun --conditions=hulladb-source packages/db-cli/src/cli.ts dev packages/studio/example/db.config.ts --studio
 ```
 
 The example uses the SDK's local development database. In another terminal, add
@@ -31,7 +31,7 @@ assets. Set `DATABASE_URL` to use an existing PostgreSQL instance instead. For a
 external database, explicitly initialize the example before starting development:
 
 ```sh
-bun --conditions=hulladb-source packages/db/src/cli.ts init packages/studio/example/db.config.ts
+bun --conditions=hulladb-source packages/db-cli/src/cli.ts init packages/studio/example/db.config.ts
 ```
 
 For your own project, install Studio alongside `@hulla/db`, then run

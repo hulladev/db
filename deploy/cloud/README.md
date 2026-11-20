@@ -1,11 +1,9 @@
 # Portable application compatibility fixture
 
-This tests a Node application, a separately running persistent `@hulla/db` service,
-and PostgreSQL. Next.js is one framework example; the database package has no
-Vercel dependency. The same package supplies JavaScript and native processes to
-Node or Bun hosts that permit child processes. Edge/isolate runtimes do not meet
-that requirement. No cloud account, hosted PostgreSQL or deployment is created by
-this fixture.
+This tests a Node application, a separately running persistent
+`@hulla/db-postgres` service, and PostgreSQL. Next.js is one framework example.
+The service uses Node or Bun and native child processes. Its generated client
+uses the portable `@hulla/db` package. The fixture runs locally.
 
 The Next app uses the generated API unchanged:
 
@@ -27,16 +25,16 @@ Keep application, service, auth and database settings separate for each environm
 
 ## Reproduce locally from the package
 
-Build/package `@hulla/db` with native assets matching the local OS/architecture,
-then run from the repository root:
+Build the core, PostgreSQL, and CLI archives for the local OS and architecture.
+Run from the repository root:
 
 ```sh
 HULLADB_TEST_URL=postgresql://user:password@127.0.0.1:5432/disposable \
 PSQL=/absolute/path/to/psql \
-bun deploy/cloud/verify.ts /absolute/path/to/hulla-db-0.1.0.tgz
+bun deploy/cloud/verify.ts /absolute/hulla-db.tgz /absolute/hulla-db-postgres.tgz /absolute/hulla-db-cli.tgz
 ```
 
-The script installs the tarball into a fresh temporary application outside the
+The script installs the archives into a fresh temporary application outside the
 checkout. Bun generates the application at build time. Node builds Next's production
 standalone output, which is copied to another directory and launched with the packaged
 native bridge. The persistent service uses prepared artifacts under Node; no Cargo,
@@ -57,8 +55,8 @@ cookie is HttpOnly, and the service verifies it independently of `setAuth`.
 
 ## File tracing
 
-`next.config.mjs` selects `output: 'standalone'`, keeps `@hulla/db` external on the
-server and explicitly includes its `native/**/*` assets in server traces. Native
+`next.config.mjs` selects `output: 'standalone'`, keeps the two runtime packages
+external on the server and explicitly includes the PostgreSQL package's native assets. Native
 assets must match the deployment OS/architecture; a successful macOS build alone
 cannot establish Linux compatibility. The verification script checks that the bridge
 is present in standalone output and executes from that copied package.
@@ -71,8 +69,9 @@ pooler compatibility.
 
 ## Provider-neutral persistent service image
 
-Copy a package tarball containing the target Linux native assets to
-`deploy/cloud/service/hulla-db.tgz`, then:
+Copy the archives into `deploy/cloud/service` as `hulla-db.tgz`,
+`hulla-db-postgres.tgz`, and `hulla-db-cli.tgz`. Use matching Linux assets for
+the target architecture.
 
 ```sh
 docker build --platform linux/amd64 -f deploy/cloud/service/Dockerfile -t hulla-service-fixture deploy/cloud
@@ -85,7 +84,8 @@ The multi-stage image generates with Bun and runs with Node. It includes no Carg
 runtime or repository checkout. Supply the settings from `next-app/.env.example`
 through your container platform's secret/environment mechanisms. Bind port 3001;
 terminate public HTTPS at your proxy. Provision the isolated schema explicitly with
-`node node_modules/@hulla/db/dist/cli.js init db.config.ts` before starting `serve`.
+`npx hulla-db init db.config.ts` from the build or provisioning environment before
+starting `hulla-db-serve`.
 Startup never initializes or resets storage. SIGTERM closes the service.
 
 This is a compatibility image for the fixture's isolated auth/storage setup. It is

@@ -1,9 +1,9 @@
 # Release workflow
 
-The current npm release is `0.1.2`, under MIT, from
-[the hulladev/db repository](https://github.com/hulladev/db). Applications install
-`@hulla/db@0.1.2` and the matching framework/auth packages from npm, or
-`hulladb = "0.1.1"` from crates.io. The steps below are for maintainers. npm version preparation and OIDC publication now use the [automated npm release workflow](npm-releases.md); this guide retains native artifact preparation and the separate Cargo release process.
+Install `@hulla/db` and its matching adapters from npm or `hulladb` from crates.io.
+npm version preparation and OIDC publication use the
+[automated npm release workflow](npm-releases.md). The steps below cover native
+artifact preparation and the separate Cargo release process.
 The Rust packages use version `0.1.1`. The Rust implementation preserves
 public crate paths, features and formats. The npm packages include local development,
 application schema upgrades and the optional `@hulla/db-studio` workbench.
@@ -36,14 +36,12 @@ bun run release:check
 
 Stage genuine native binaries first when they are missing or runtime source has
 changed. Build the macOS arm64 executables on that host with
-`bun run --cwd packages/db build:native`, then stage the development tools:
-Use Bun 1.4.4 for `build:development`; it pins the distributed runtime independently
-of the application's JavaScript runtime.
+`bun run --cwd packages/db build:native`, then build the optional local
+PostgreSQL assets and the SDK packages:
 
 ```sh
 bun run --cwd packages/db build:postgres
-bun run --cwd packages/db build:development
-bun run --cwd packages/db build
+bun run build
 bun packages/db/tests/development.integration.ts
 ```
 
@@ -52,10 +50,9 @@ target host using its C compiler and Make. It also accepts `--source-archive <fi
 for an offline source archive, with the same checksum verification. The resulting
 bundle contains the server, initialization tool, runtime libraries and data files,
 without optional system libraries. On macOS it rewrites and signs library references
-so assets remain usable after leaving the build directory. `build:development`
-compiles the private Bun runtime, stages TypeScript and its native compiler/standard
-library, and preserves upstream notices. Consumers build or download none of these
-tools at installation or startup. Bun 1.4.4 is a maintainer build dependency.
+so assets remain usable after leaving the build directory. The assets ship
+in `@hulla/db-local-postgres`. The CLI uses the installed Bun runtime and the
+compiler from its own pinned TypeScript dependency.
 
 For Linux x64, build and stage the
 genuine cross-platform assets:
@@ -63,10 +60,9 @@ genuine cross-platform assets:
 ```sh
 docker build --platform linux/amd64 -f packages/db/Dockerfile.native \
   --output type=local,dest=/tmp/hulladb-native .
-cd packages/db
-bun run build:native --from /tmp/hulladb-native/native --platform linux-x64
-bun run build:development --from /tmp/hulladb-native/native --platform linux-x64
-cd ../..
+bun run --cwd packages/db build:native --from /tmp/hulladb-native/native --platform linux-x64
+mkdir -p packages/db-local-postgres/native/linux-x64
+cp -a /tmp/hulladb-native/local-postgres/. packages/db-local-postgres/native/linux-x64/
 ```
 
 The release requires both `darwin-arm64` and `linux-x64`; Linux uses glibc.
@@ -74,13 +70,10 @@ The Linux runtime and development assets use Debian 12 (Bookworm) as their build
 baseline so local PostgreSQL also runs on that distribution.
 Other native targets need their own build and execution evidence before inclusion.
 Browser bindings do not execute native binaries.
-Package checks require development assets for every included native target, so
-a candidate with only runtime binaries cannot accidentally ship a broken `dev`
-command. The installed development check must also run on each released target;
-macOS arm64 is verified locally, while Linux still needs its own execution evidence.
-It exercises generation, inferred Date codecs, hot reload, persistence, schema
-mismatch recovery, external database ownership and process cleanup with no Bun,
-compiler or PostgreSQL installation on the consumer's PATH.
+The installed development check must run on each released native target. It
+exercises generation, Date codecs, hot reload, persistence, schema mismatch
+recovery, external database ownership and process cleanup. It starts Bun from an
+isolated PATH and PostgreSQL from the opt-in package.
 
 For a full release, artifacts are written under `output/releases/<rust-version>/`: the configured npm tarballs, nine Cargo
 archives, `manifest.json` and `SHA256SUMS`. The manifest records exact archive
@@ -91,9 +84,9 @@ and checks, and tag the exact release commit before registry publication.
 The npm builder stages production manifests without workspace-only source export
 conditions, dev dependencies or build scripts. Package workspace manifests declare
 public npm access. Publish the prepared tarballs,
-not the `packages/*` source directories. Every tarball contains MIT license text;
-the core archive additionally preserves native dependency license/copyright
-notices. If a registry dependency omitted its shared license, the builder recovers
+not the `packages/*` source directories. Every tarball contains MIT license text.
+`@hulla/db-postgres` includes the native dependency license and copyright notices.
+If a registry dependency omitted its shared license, the builder recovers
 it from the immutable upstream commit recorded by Cargo. That step needs network
 access and fails if the original notice cannot be recovered.
 
@@ -125,6 +118,8 @@ Publish npm core first, followed by the optional drivers, Studio and framework/a
 @hulla/db-sqlite
 @hulla/db-react
 @hulla/db-studio
+@hulla/db-local-postgres
+@hulla/db-cli
 @hulla/db-vue
 @hulla/db-svelte
 @hulla/db-solid

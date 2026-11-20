@@ -28,7 +28,7 @@ managed PostgreSQL worker sandbox, authorization setup or retry policy.
 
 ### Simplify the application API first
 
-1. **Expo setup.** `@hulla/db-expo` owns filename-based native connection setup
+1. **Expo setup.** `@hulla/db-sqlite/expo` owns filename-based native connection setup
    and secure randomness. It accepts custom connections and shares the existing
    open, provision, and recovery lifecycle. Verify iOS and Android builds and
    exercise reopening saved data on a native device or simulator.
