@@ -227,7 +227,7 @@ const db = sqlite({
 })
 ```
 
-Starting with 0.4.0, migrate imports from `@hulla/db-sqlite/expo` to
+Starting with 0.3.4, migrate imports from `@hulla/db-sqlite/expo` to
 `@hulla/db-expo`. Keep the existing filename and schema to preserve saved data.
 If the connection needs custom options, pass `open` instead of `filename` and
 wrap a fresh native connection with `expoSQLiteDriver` from `@hulla/db-expo`.

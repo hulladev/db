@@ -1,6 +1,6 @@
 ---
-"@hulla/db-expo": minor
-"@hulla/db-sqlite": minor
+"@hulla/db-expo": patch
+"@hulla/db-sqlite": patch
 ---
 
 Move Expo support to `@hulla/db-expo`. Import `sqlite` from the new package and
