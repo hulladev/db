@@ -71,7 +71,13 @@
     "LICENSE"
   ],
   "peerDependencies": {
-    "@hulla/db": "^0.3.2"
+    "@hulla/db": "^0.3.2",
+    "expo-crypto": "*"
+  },
+  "peerDependenciesMeta": {
+    "expo-crypto": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@hulla/db": "workspace:*",

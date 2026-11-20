@@ -25,4 +25,6 @@ export interface DatabaseEngine<Name extends string = string, Connection = never
   readonly serialTransactions?: boolean;
   connect<S extends SchemaDefinition>(schema: S, connection: Connection): Promise<ConnectedDatabase<S>>;
   initialize<S extends SchemaDefinition>(schema: S, connection: Connection): Promise<ConnectedDatabase<S>>;
+  /** Classify a failed, cleaned-up storage open for a bounded automatic retry. */
+  retryStartup?(error: unknown, connection: Connection): boolean;
 }

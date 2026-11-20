@@ -1,7 +1,7 @@
 /** Portable contracts used by optional engine packages. No native runtime imports. */
 export { transactionDatabase } from "../database.ts";
 export type { WriteDatabase } from "../database.ts";
-export { DatabaseError } from "../error.ts";
+export { DatabaseError, failStorageStartup } from "../error.ts";
 export { compileSchema } from "../schema.ts";
 export type { SchemaDefinition, CompiledTable } from "../schema.ts";
 export { schemaDescriptor } from "../schema-contract.ts";

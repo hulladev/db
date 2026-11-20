@@ -69,6 +69,22 @@ export class DatabaseError extends Error {
   }
 }
 
+/** A failed open with no confirmed release of its storage resources. */
+export class StorageStartupCleanupError extends Error {
+  readonly cleanup: unknown;
+
+  constructor(error: unknown, cleanup: unknown) {
+    super("Could not release storage after database startup failed", { cause: error });
+    this.cleanup = cleanup;
+  }
+}
+
+export async function failStorageStartup(error: unknown, close: () => void | PromiseLike<void>): Promise<never> {
+  try { await close(); }
+  catch (cleanup) { throw new StorageStartupCleanupError(error, cleanup); }
+  throw error;
+}
+
 const applicationErrors = new WeakSet<DatabaseError>();
 /** Internal provenance: caller-chosen codes cannot control the transport. */
 export function applicationError(options: DatabaseErrorOptions): DatabaseError {

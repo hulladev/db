@@ -3,7 +3,7 @@ export type { SQLiteConnection } from "./descriptor.ts";
 export type { SQLiteDriver, SQLiteValue, SQLiteRecord } from "./driver.ts";
 
 export const sqlite = sqliteFactory(async (schema, settings, initialize) => {
-    if (!settings || typeof settings !== "object" || Reflect.ownKeys(settings).some(key => !["filename", "open", "randomBytes", "transactionTimeoutMs"].includes(key as string))
+    if (!settings || typeof settings !== "object" || Reflect.ownKeys(settings).some(key => !["filename", "open", "randomBytes", "transactionTimeoutMs", "startupRetry"].includes(key as string))
       || (settings.filename === undefined) === (settings.open === undefined)) throw new TypeError("SQLite requires exactly one of filename or open");
     let driver;
     if (settings.open !== undefined) {

@@ -1,5 +1,11 @@
 import { expect, test } from 'bun:test';
+import { Database as NativeSQLite } from 'bun:sqlite';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { sqlite } from '@hulla/db-sqlite';
+import { bunSQLiteDriver } from '@hulla/db-sqlite/bun';
+import { expoSQLiteDriver, sqlite as expoSQLite } from '@hulla/db-sqlite/expo';
 import { postgres } from '@hulla/db-postgres';
 import { schema } from './fixtures/local-schema.ts';
 import * as declarations from './fixtures/local-functions.ts';
@@ -111,6 +117,135 @@ test('an embedded screen can observe its static catalogue before the database op
     await db.close();
     await retired.promise;
   } finally { stop?.(); await db.close(); }
+});
+
+test('SQLite startup survives lock contention and runs waiting operations once', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'hulladb-startup-'));
+  const filename = join(directory, 'journal.sqlite');
+  const blocker = new NativeSQLite(filename);
+  blocker.exec('BEGIN EXCLUSIVE');
+  let opens = 0;
+  let released = false;
+  const db = sqlite.initialize({
+    schema, functions: declarations,
+    async open() {
+      const driver = await bunSQLiteDriver(filename);
+      const first = ++opens === 1;
+      if (!first && !released) throw new Error('Opened before the failed lease was released');
+      return {
+        execute(sql, parameters) {
+          // Make the real lock error immediate so this test exercises the SDK retry.
+          return driver.execute(sql.startsWith('PRAGMA busy_timeout') ? 'PRAGMA busy_timeout = 0' : sql, parameters);
+        },
+        async close() {
+          await driver.close();
+          if (first) { blocker.exec('ROLLBACK'); released = true; }
+        },
+      };
+    },
+  });
+  const states: string[] = [];
+  const stop = db.subscribe(state => states.push(state.status));
+  try {
+    const created = await db.functions.create({ title: 'Saved once' });
+    expect(await db.functions.list()).toEqual([created]);
+    expect(opens).toBe(2);
+    expect(states).toEqual(['initializing', 'ready']);
+  } finally {
+    stop();
+    await db.close();
+    blocker.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('manual startup recovery keeps mounted observers and never replays a rejected write', async () => {
+  const busy = Object.assign(new Error('database is locked'), { code: 'SQLITE_BUSY' });
+  const release = Promise.withResolvers<void>();
+  let opens = 0;
+  const db = sqlite.initialize({
+    schema, functions: declarations, startupRetry: false,
+    async open() {
+      if (++opens === 1) throw busy;
+      await release.promise;
+      return bunSQLiteDriver(':memory:');
+    },
+  });
+  const api = db.functions;
+  const failed = Promise.withResolvers<void>(), recovered = Promise.withResolvers<void>();
+  const observer = createQueryObserver(api.list);
+  const stop = observer.subscribe(() => {
+    const state = observer.getSnapshot();
+    if (state.status === 'error') failed.resolve();
+    if (state.status === 'success') recovered.resolve();
+  });
+  try {
+    const write = api.create({ title: 'Must not replay' });
+    await expect(Promise.resolve(write)).rejects.toBe(busy);
+    await failed.promise;
+    expect(opens).toBe(1);
+    const first = db.retry(), second = db.retry();
+    expect(db.state.status).toBe('initializing');
+    release.resolve();
+    await Promise.all([first, second, recovered.promise]);
+    expect(db.functions).toBe(api);
+    expect(observer.getSnapshot()).toMatchObject({ status: 'success', data: [] });
+    expect(opens).toBe(2);
+  } finally { stop(); release.resolve(); await db.close(); }
+});
+
+test('Expo lock errors get one startup retry and then surface through readiness', async () => {
+  const busy = Object.assign(new Error('Calling getAllAsync failed\n→ Caused by: Error code 5: database is locked'), {
+    code: 'ERR_INTERNAL_SQLITE_ERROR',
+  });
+  let opens = 0, closes = 0;
+  const db = expoSQLite({ schema, open() {
+    opens++;
+    return expoSQLiteDriver({
+      async getAllAsync() { throw busy; },
+      async closeAsync() { closes++; },
+    });
+  } });
+  try {
+    await expect(db.ready()).rejects.toBe(busy);
+    expect(db.state).toEqual({ status: 'error', error: busy });
+    expect([opens, closes]).toEqual([2, 2]);
+  } finally { await db.close(); }
+});
+
+test('closing during startup retry cancels the pending reopen', async () => {
+  const driverError = new Error('Temporarily unavailable');
+  const retryDecided = Promise.withResolvers<void>();
+  let opens = 0;
+  const db = sqlite.initialize({
+    schema,
+    open() { opens++; throw driverError; },
+    startupRetry(error) { expect(error).toBe(driverError); retryDecided.resolve(); return true; },
+  });
+  try {
+    await retryDecided.promise;
+    await db.close();
+    expect(opens).toBe(1);
+    await expect(db.retry()).rejects.toMatchObject({ code: 'disposed' });
+  } finally { await db.close(); }
+});
+
+test('a failed SQLite driver close prevents opening another lease', async () => {
+  const busy = Object.assign(new Error('database is locked'), { code: 'SQLITE_BUSY' });
+  const cleanup = new Error('Unable to release the failed lease');
+  let opens = 0;
+  const db = sqlite.initialize({
+    schema, startupRetry: () => true,
+    open() {
+      opens++;
+      return { execute() { throw busy; }, close() { throw cleanup; } };
+    },
+  });
+  try {
+    await expect(db.ready()).rejects.toMatchObject({ cause: busy, cleanup });
+    await expect(db.retry()).rejects.toMatchObject({ cause: busy, cleanup });
+    expect(opens).toBe(1);
+  } finally { await db.close(); }
 });
 
 test('schema ownership and malformed selectors fail before invoking a storage opener', async () => {

@@ -19,6 +19,8 @@ an application glob compiled by [`@hulla/db/build`](../../docs/build.md);
 combine shared/app handlers using ordinary exports.
 
 The browser and Expo entrypoints accept `open`, which supplies a dedicated driver.
+Expo can use the optional `expo-crypto` peer for secure UUID generation when
+Web Crypto is unavailable.
 Readonly replicas require explicit source URL bindings. Offline mutations queue
 server calls with mandatory device-side conflict callbacks and optional optimistic
 feedback. Native Rust SQLite storage and SQLite managed HTTP hosting remain work.

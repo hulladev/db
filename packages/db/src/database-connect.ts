@@ -11,7 +11,7 @@ import type { ConnectedDefinition, DatabaseEngine } from "./engine.ts";
 import type { SchemaDefinition } from "./schema.ts";
 import type { ReplicaConnection } from "./device-connection.ts";
 import { bindingInfo } from "./callable.ts";
-import { DatabaseError } from "./error.ts";
+import { DatabaseError, failStorageStartup, StorageStartupCleanupError } from "./error.ts";
 import { inheritStorageExecution } from "./storage-execution.ts";
 
 const runtimes = new WeakMap<object, (source: DatabaseIdentity) => HttpRuntime>();
@@ -22,7 +22,7 @@ export function sourceRuntime(database: object, source: DatabaseIdentity): HttpR
 }
 
 /** Validate every source identity before handing settings to a driver. */
-export async function openDatabase<S extends SchemaDefinition>(definition: DatabaseConfiguration<S>, connection: unknown, initialize = false): Promise<ConnectedDefinition<S>> {
+export async function openDatabase<S extends SchemaDefinition>(definition: DatabaseConfiguration<S>, connection: unknown, initialize: boolean, signal: AbortSignal): Promise<ConnectedDefinition<S>> {
   const required = new Map<DatabaseIdentity, string[]>();
   for (const [name, table] of Object.entries(definition.schema.tables)) {
     const source = replicaSources.get(table)?.database;
@@ -46,7 +46,22 @@ export async function openDatabase<S extends SchemaDefinition>(definition: Datab
   try {
     let settings = connection;
     if (options && Object.hasOwn(options, "sources")) { const { sources: _sources, ...driver } = options; settings = driver; }
-    local = await (initialize ? definition.engine.initialize(definition.schema, settings as never) : definition.engine.connect(definition.schema, settings as never)) as typeof local;
+    const open = () => initialize
+      ? definition.engine.initialize(definition.schema, settings as never)
+      : definition.engine.connect(definition.schema, settings as never);
+    try {
+      local = await open();
+    } catch (error) {
+      if (signal.aborted || error instanceof StorageStartupCleanupError || !definition.engine.retryStartup?.(error, settings as never)) throw error;
+      await new Promise<void>((resolve, reject) => {
+        signal.throwIfAborted();
+        const abort = () => { clearTimeout(timer); reject(signal.reason); };
+        const timer = setTimeout(() => { signal.removeEventListener("abort", abort); resolve(); }, 100);
+        signal.addEventListener("abort", abort, { once: true });
+      });
+      signal.throwIfAborted();
+      local = await open();
+    }
     const scoped = scopeDatabase(local!, definition.identity);
     if (!sources.length) return scoped as ConnectedDefinition<S>;
     const { HttpRuntime } = await import('./http.ts');
@@ -141,7 +156,6 @@ export async function openDatabase<S extends SchemaDefinition>(definition: Datab
     return result as unknown as ConnectedDefinition<S>;
   } catch (error) {
     await Promise.allSettled(owned.map(runtime => runtime.dispose()));
-    await local?.close();
-    throw error;
+    return failStorageStartup(error, () => local?.close());
   }
 }
