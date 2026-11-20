@@ -12,13 +12,20 @@ const quote = (value: string) => '"' + value.replaceAll('"', '""') + '"';
 const literal = (value: SQLiteValue) => value === null ? "NULL" : typeof value === "number" ? String(value) : "'" + value.replaceAll("'", "''") + "'";
 const checkLiteral = (value: string | number | bigint | boolean | null) => typeof value === "bigint" ? String(value) : typeof value === "boolean" ? String(Number(value)) : literal(value);
 type Sort = { field: string; direction: "asc" | "desc" };
+type TableLayout = {
+  table: CompiledTable;
+  physical: string;
+  columns: Map<string, string>;
+  fields: [string, CompiledTable["fields"][string]][];
+  selection: string;
+};
 
 export class SQLiteEngine {
   readonly tables: readonly CompiledTable[];
   readonly contract: string;
   readonly driver: SQLiteDriver;
   readonly randomBytes: (length: number) => Uint8Array;
-  readonly #layout: Map<string, { table: CompiledTable; physical: string; columns: Map<string, string> }>;
+  readonly #layout: Map<string, TableLayout>;
   source = "";
   constructor(driver: SQLiteDriver, schema: SchemaDefinition, randomBytes: (length: number) => Uint8Array = length => {
     if (!globalThis.crypto?.getRandomValues) throw new TypeError("Supply randomBytes using a cryptographically secure platform RNG (for example expo-crypto)");
@@ -27,10 +34,15 @@ export class SQLiteEngine {
     this.driver = driver;
     this.randomBytes = randomBytes;
     this.tables = compileSchema(schema);
-    this.#layout = new Map(this.tables.map((table, index) => [table.name, {
-      table, physical: quote(`_hulla_t${index}`),
-      columns: new Map(Object.keys(table.fields).map((name, index) => [name, quote(`c${index}`)])),
-    }]));
+    this.#layout = new Map(this.tables.map((table, index) => {
+      const fields = Object.entries(table.fields);
+      const columns = new Map(fields.map(([name], index) => [name, quote(`c${index}`)]));
+      const selection = fields.map(([name, field]) => {
+        const column = columns.get(name)!;
+        return `${field.scalar === "int64" ? `CAST(${column} AS TEXT)` : column} AS ${quote(name)}`;
+      }).join(", ");
+      return [table.name, { table, physical: quote(`_hulla_t${index}`), columns, fields, selection }];
+    }));
     this.contract = JSON.stringify(schemaDescriptor(schema));
     if (this.tables.some(table => typeof table.keyGeneration === "object"))
       throw new TypeError("SQLite custom key handlers are not supported; supply explicit keys with keyGeneration: 'none'");
@@ -56,14 +68,11 @@ export class SQLiteEngine {
     else throw new TypeError("Invalid SQLite wire value");
     return field.scalar === "int64" ? "CAST(? AS INTEGER)" : "?";
   }
-  fields(table: CompiledTable, prefix = "") {
-    return [...this.#layout.get(table.name)!.columns].map(([name, physical]) => {
-      const column = prefix + physical;
-      return `${table.fields[name]!.scalar === "int64" ? `CAST(${column} AS TEXT)` : column} AS ${quote(name)}`;
-    }).join(", ");
+  fields(table: CompiledTable) {
+    return this.#layout.get(table.name)!.selection;
   }
   decode(table: CompiledTable, value: SQLiteRecord): StoredRow {
-    return Object.fromEntries(Object.entries(table.fields).map(([name, field]) => {
+    return Object.fromEntries(this.#layout.get(table.name)!.fields.map(([name, field]) => {
       let item: unknown = value[name];
       if (item !== null && field.scalar === "json") item = JSON.parse(item as string);
       if (item !== null && field.scalar === "boolean") item = item === 1;
