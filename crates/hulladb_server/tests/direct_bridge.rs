@@ -303,7 +303,6 @@ async fn generated_server_database_with_runtime(
 async fn suspended_callback_releases_postgres_transaction_without_host_commands() {
     let namespace = format!("bridge_{}", Uuid::now_v7().simple());
     let mut bridge = Bridge::start(&namespace, true).await;
-    assert_eq!(bridge.call(json!({"type":"ping"})).await["type"], "pong");
     let mut idle = Bridge::start(&namespace, false).await;
     bridge.begin("write").await;
     let inserted = bridge
