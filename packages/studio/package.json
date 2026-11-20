@@ -1,6 +1,6 @@
 {
   "name": "@hulla/db-studio",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Optional local database workbench for @hulla/db",
   "license": "MIT",
   "repository": {
@@ -42,8 +42,8 @@
     "@hulla/db-postgres": "workspace:*"
   },
   "peerDependencies": {
-    "@hulla/db": "^0.3.3",
-    "@hulla/db-postgres": "^0.3.3"
+    "@hulla/db": "^0.3.4",
+    "@hulla/db-postgres": "^0.3.4"
   },
   "engines": {
     "node": ">=22.18.0"

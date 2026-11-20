@@ -1,6 +1,6 @@
 {
   "name": "@hulla/db-local-postgres",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Optional PostgreSQL binaries for managed local development with @hulla/db-cli",
   "license": "MIT",
   "exports": {
