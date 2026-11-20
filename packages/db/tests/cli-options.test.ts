@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { parseCLI } from "../src/cli-options.ts";
+import { parseCLI } from "../../db-cli/src/cli-options.ts";
 
 test("Studio flags are explicit and production access defaults to read-only", () => {
   expect(parseCLI(["dev", "app/db.config.ts", "--studio", "--studio-port", "0"])).toEqual({

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { runInNewContext } from "node:vm";
-import { compileWorker } from "../src/worker-codegen.ts";
+import { compileWorker } from "../../db-cli/src/worker-codegen.ts";
 
 // Bundle execution here protects library interoperability. Native integration
 // tests separately enforce the capability boundary and transaction guarantees.

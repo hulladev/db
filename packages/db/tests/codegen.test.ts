@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile, access, symlink } from "node:f
 import { resolve } from "node:path";
 import { expect, test } from "bun:test";
 import { API } from "typescript/unstable/async";
-import { discoverFunctions, generateFunctions, generateSchema } from "../src/codegen.ts";
+import { discoverFunctions, generateFunctions, generateSchema } from "../../db-cli/src/codegen.ts";
 import { valueCodec } from "../src/codec.ts";
 import type { ValueShape } from "../src/codec.ts";
 import { executeDefinition } from "../src/declarations.ts";
@@ -11,7 +11,7 @@ import { contracts as generatedContracts, runtime as scope } from "./generated/r
 import { runtime, queryBinding, $definitions } from "./generated/names.ts";
 import * as names from "./fixtures/names.ts";
 import { fieldMetadata, tableName } from "../src/fields.ts";
-import { runtimeExportConditions } from "../src/runtime-conditions.ts";
+import { runtimeExportConditions } from "../../db-cli/src/runtime-conditions.ts";
 
 const source = new URL("./fixtures/notes.ts", import.meta.url).pathname;
 

@@ -25,6 +25,11 @@ export type { SchemaDefinition, DefinedSchema, TableDefinition, TableOptions, Ro
 export type { ConnectedDatabase, ConnectedDefinition, DatabaseEngine } from "./engine.ts";
 export type { PendingMutation, ReplicaConnection } from "./device-connection.ts";
 export type { ReadDatabase, WriteDatabase, QueryContext, MutationContext } from "./database.ts";
+export type { DatabaseOperation, SelectQuery, WriteQuery, PendingWrite, InsertQuery, RowExpectation, ConflictSelector, ConflictPolicy, ConflictTargets, UpdateInput, WriteReferences, WriteReference, WriteValue, WritePatch } from "./database.ts";
+export type { Projection, Projected } from "./projection.ts";
+export type { Aggregates, AggregateValue, AggregateResult, GroupedQuery, GroupedAggregate } from "./aggregate.ts";
+export type { PageOptions } from "./page.ts";
+export type { Expressions, Predicate } from "./filters.ts";
 export type { OfflineConflict, OfflineResolution, OfflineResolver } from "./offline.ts";
 export type { SourceConnection } from "./connection-options.ts";
 export { defineConfig } from "./config.ts";

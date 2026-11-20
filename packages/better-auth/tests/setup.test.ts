@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { runInNewContext } from "node:vm";
 import { API } from "typescript/unstable/async";
 import type { SchemaDefinition } from "@hulla/db/schema";
-import { generateProject } from "../../db/src/project-codegen.ts";
+import { generateProject } from "../../db-cli/src/project-codegen.ts";
 import { schemaDescriptor } from "../../db/src/schema-contract.ts";
 
 test("Better Auth setup bootstraps generation, infers auth rows and executes the restricted worker", async () => {

@@ -1,9 +1,9 @@
 import { expect, test } from 'bun:test';
 import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { functionGlobs } from '../src/build.ts';
+import { functionGlobs } from '../../db-cli/src/build.ts';
 import { parse } from 'acorn';
-import { runtimeExportConditions } from '../src/runtime-conditions.ts';
+import { runtimeExportConditions } from '../../db-cli/src/runtime-conditions.ts';
 
 async function fixture(legacy = false) {
   const directory = await mkdtemp(new URL('./.glob-build-', import.meta.url).pathname);
@@ -55,7 +55,7 @@ test('Node build hooks transform CommonJS declarations and track additions witho
     await plugin.closeBundle();
     expect(events.size).toBe(0);
     const host = join(directory, 'node-host.ts');
-    await Bun.write(host, `import {functionGlobs}from ${JSON.stringify(new URL('../src/build.ts', import.meta.url).pathname)};import{readFile}from'node:fs/promises';import{parse}from'acorn';const p=${JSON.stringify(entry)};const result=await functionGlobs().transform.call({parse:code=>parse(code,{ecmaVersion:'latest',sourceType:'module'})},await readFile(p,'utf8'),p);if(!result?.code.includes('Promise.resolve'))throw new Error('No transform');`);
+    await Bun.write(host, `import {functionGlobs}from ${JSON.stringify(new URL('../../db-cli/src/build.ts', import.meta.url).pathname)};import{readFile}from'node:fs/promises';import{parse}from'acorn';const p=${JSON.stringify(entry)};const result=await functionGlobs().transform.call({parse:code=>parse(code,{ecmaVersion:'latest',sourceType:'module'})},await readFile(p,'utf8'),p);if(!result?.code.includes('Promise.resolve'))throw new Error('No transform');`);
     const built = await Bun.build({ entrypoints: [host], target: 'node', packages: 'external', conditions: runtimeExportConditions() });
     expect(built.success).toBe(true);
     const hostPath = join(directory, 'node-host.mjs'); await Bun.write(hostPath, built.outputs[0]!);

@@ -1,8 +1,8 @@
 /** @type {import('next').NextConfig} */
 export default {
   output: 'standalone',
-  serverExternalPackages: ['@hulla/db'],
-  outputFileTracingIncludes: { '/*': ['node_modules/@hulla/db/native/**/*'] },
+  serverExternalPackages: ['@hulla/db', '@hulla/db-postgres'],
+  outputFileTracingIncludes: { '/*': ['node_modules/@hulla/db-postgres/native/**/*'] },
   // Hosted cookie sessions can use /db on the app origin. The destination is
   // server-only; local proofs may still connect directly to the service.
   async rewrites() {

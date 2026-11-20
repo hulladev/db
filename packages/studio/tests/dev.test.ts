@@ -23,7 +23,7 @@ test("dev owns Studio, reloads schema and retains browser access across worker r
 import {createInterface} from 'node:readline';
 for await(const line of createInterface({input:process.stdin})) {const frame=JSON.parse(line);if(frame.type==='init') console.log(JSON.stringify({type:'ready',url:'http://127.0.0.1:39999'}));if(frame.type==='shutdown') process.exit(0);}
 `, { mode: 0o700 });
-    child = spawn(process.execPath, ["--conditions=hulladb-source", fileURLToPath(new URL("../../db/src/cli.ts", import.meta.url)), "dev", `${root}/db.config.ts`, "--studio", "--studio-port", "0"], {
+    child = spawn(process.execPath, ["--conditions=hulladb-source", fileURLToPath(new URL("../../db-cli/src/cli.ts", import.meta.url)), "dev", `${root}/db.config.ts`, "--studio", "--studio-port", "0"], {
       env: { ...process.env, HULLADB_SERVICE: `${root}/service` }, stdio: ["ignore", "pipe", "pipe"],
     });
     exited = new Promise((resolve, reject) => { child!.on("error", reject); child!.on("close", resolve); });

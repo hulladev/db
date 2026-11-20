@@ -176,7 +176,7 @@ function createInstance<S extends SchemaDefinition, F extends FunctionSource | u
   };
   const catalogueLoading = (async () => {
     // Validate the selected handlers before a driver acquires storage.
-    if (typeof functions === "string") throw new TypeError("Function globs require the @hulla/db/build integration, or managed-service generation");
+    if (typeof functions === "string") throw new TypeError("Function globs require the @hulla/db-cli/build integration, or managed-service generation");
     const selected = typeof functions === "function" ? await functions() : functions ?? {};
     assertOpen();
     catalogue = buildCatalogue(selected);

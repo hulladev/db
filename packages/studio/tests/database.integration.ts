@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { createDatabase } from "@hulla/db/server";
+import { createDatabase } from "@hulla/db-postgres/server";
 import { runCommand } from "../../db/tests/integration-runtime.ts";
 import { startStudio, type StudioPage, type StudioRow } from "../src/index.ts";
 import schema from "./fixtures/schema.ts";
@@ -14,7 +14,7 @@ let studio: Awaited<ReturnType<typeof startStudio>> | undefined;
 try {
   const config = `${root}/db.config.ts`;
   await writeFile(config, `export default ${JSON.stringify({ database: { server: connection }, schema: fileURLToPath(new URL("./fixtures/schema.ts", import.meta.url)) })};`);
-  const initialized = await runCommand(process.execPath, [fileURLToPath(new URL("../../db/src/cli.ts", import.meta.url)), "init", config]);
+  const initialized = await runCommand(process.execPath, [fileURLToPath(new URL("../../db-cli/src/cli.ts", import.meta.url)), "init", config]);
   assert.equal(initialized.code, 0, initialized.stderr);
   await database.insert("folders", { slug: "work" });
   const entries = await database.insert("entries", Array.from({ length: 5 }, (_, index) => ({

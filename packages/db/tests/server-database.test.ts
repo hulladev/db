@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { createDatabase } from "../src/server-database.ts";
+import { createDatabase } from "../../db-postgres/src/server-database.ts";
 import { defineSchema, defineTable, v } from "../src/schema.ts";
 
 test("broken commit acknowledgements preserve uncertainty and never replay callbacks", async () => {
@@ -107,12 +107,12 @@ test("a Node host exits after its idle engine drains without explicit close", as
   try {
     await writeFile(engine, `#!${process.execPath}\nimport { createInterface } from 'node:readline';\nfor await (const line of createInterface({input:process.stdin})) {const frame=JSON.parse(line); console.log(JSON.stringify({type:({init:'ready',begin:'begun',commit:'committed'})[frame.type]}));}\n`);
     await chmod(engine, 0o700);
-    await writeFile(host, `import {createDatabase} from ${JSON.stringify(new URL("../src/server-database.ts", import.meta.url).href)};
+    await writeFile(host, `import {createDatabase} from ${JSON.stringify(new URL("../../db-postgres/src/server-database.ts", import.meta.url).href)};
 import {defineSchema,defineTable,v} from ${JSON.stringify(new URL("../src/schema.ts", import.meta.url).href)};
 const db=createDatabase(defineSchema({tasks:defineTable({title:v.string()})}),{url:'postgresql://unused/unused'});
 await db.transaction(()=> 'finished');
 `);
-    const child = spawn(process.env.NODE ?? "node", [host], { env: { ...process.env, HULLADB_ENGINE: engine }, stdio: ["ignore", "ignore", "pipe"] });
+    const child = spawn(process.env.NODE ?? "node", ["--conditions=hulladb-source", host], { env: { ...process.env, HULLADB_ENGINE: engine }, stdio: ["ignore", "ignore", "pipe"] });
     let stderr = "";
     child.stderr.on("data", chunk => { stderr += chunk; });
     const timer = setTimeout(() => child.kill("SIGKILL"), 14_000);
@@ -138,7 +138,7 @@ for await (const line of createInterface({input:process.stdin})) {const frame=JS
 `);
     await chmod(engine, 0o700);
     await writeFile(host, `import assert from 'node:assert/strict';
-import {createDatabase} from ${JSON.stringify(new URL("../src/server-database.ts", import.meta.url).href)};
+import {createDatabase} from ${JSON.stringify(new URL("../../db-postgres/src/server-database.ts", import.meta.url).href)};
 import {defineSchema,defineTable,v} from ${JSON.stringify(new URL("../src/schema.ts", import.meta.url).href)};
 const schema=defineSchema({tasks:defineTable({title:v.string()})});
 const open=()=>createDatabase(schema,{url:'postgresql://unused/unused'},{executionMs:30000});
@@ -165,7 +165,7 @@ try {
 } finally {globalThis.setTimeout=schedule;globalThis.clearTimeout=clear;await next.close();}
 `);
     for (const executable of [process.env.NODE ?? "node", process.execPath]) {
-      const child = spawn(executable, [host], { env: { ...process.env, HULLADB_ENGINE: engine }, stdio: ["ignore", "ignore", "pipe"] });
+      const child = spawn(executable, ["--conditions=hulladb-source", host], { env: { ...process.env, HULLADB_ENGINE: engine }, stdio: ["ignore", "ignore", "pipe"] });
       let stderr = "";
       child.stderr.on("data", chunk => { stderr += chunk; });
       const timer = setTimeout(() => child.kill("SIGKILL"), 10_000);

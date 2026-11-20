@@ -18,16 +18,32 @@
       "hulladb-source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./server": {
+      "hulladb-source": "./src/server.ts",
+      "types": "./dist/server.d.ts",
+      "default": "./dist/server.js"
+    },
+    "./service": {
+      "hulladb-source": "./src/service.ts",
+      "types": "./dist/service.d.ts",
+      "default": "./dist/service.js"
+    },
+    "./internal/host": {
+      "hulladb-source": "./src/host-configuration.ts",
+      "types": "./dist/host-configuration.d.ts",
+      "default": "./dist/host-configuration.js"
     }
   },
   "scripts": {
-    "build": "bun ../db/scripts/build-binding.ts",
+    "build": "bun ../db/scripts/build-binding.ts serve.js",
     "typecheck": "tsc --noEmit"
   },
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "native"
   ],
   "peerDependencies": {
     "@hulla/db": "^0.3.3"
@@ -58,5 +74,8 @@
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/"
+  },
+  "bin": {
+    "hulla-db-serve": "./dist/serve.js"
   }
 }

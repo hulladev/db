@@ -34,7 +34,7 @@ try {
   command(["./configure", `--prefix=${install}`, "--without-icu", "--without-readline", "--without-zlib", "--without-lz4", "--without-zstd", "--disable-nls"], source);
   command(["make", `-j${Math.min(cpus().length, 8)}`], source);
   command(["make", "install"], source);
-  const destination = Bun.fileURLToPath(new URL(`../native/${platform}/postgres/`, import.meta.url));
+  const destination = Bun.fileURLToPath(new URL(`../../db-local-postgres/native/${platform}/postgres/`, import.meta.url));
   await mkdir(destination, { recursive: true });
   for (const name of ["bin", "lib", "share"]) await rm(join(destination, name), { recursive: true, force: true });
   await mkdir(join(destination, "bin"));

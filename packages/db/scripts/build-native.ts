@@ -20,7 +20,7 @@ if (!from) {
   from = resolve(workspace, "target/release");
 }
 for (const name of executables) await verifyNative(resolve(from, name), platform);
-const destination = new URL(`../native/${platform}/`, import.meta.url);
+const destination = new URL(`../../db-postgres/native/${platform}/`, import.meta.url);
 await mkdir(destination, { recursive: true });
 for (const name of executables) {
   await Bun.write(new URL(name, destination), Bun.file(resolve(from, name)));

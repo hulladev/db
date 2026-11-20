@@ -43,13 +43,11 @@ jobs:
       - run: cargo build -p hulladb_js --locked
       - run: make sdk-check
       - run: bun run --cwd packages/db-sqlite test
-      - run: bun run --cwd packages/db-expo typecheck
-      - run: bun run --cwd packages/db-expo test
       - run: bun run test:bindings
       - run: bun run test:auth
       - name: Check framework and auth types
         run: |
-          for package in react vue svelte solid better-auth studio; do
+          for package in db-cli db-postgres db-sqlite react vue svelte solid better-auth studio; do
             bun run --cwd "packages/$package" typecheck
           done
       - run: bun run build
@@ -88,8 +86,8 @@ jobs:
         run: |
           bun run --cwd packages/db build:native --from "$GITHUB_WORKSPACE/target/debug" --platform linux-x64
           bun run --cwd packages/db build:postgres
-          bun run --cwd packages/db build:development
           bun run --cwd packages/db build
+          bun run --cwd packages/db-cli build
           bun run --cwd packages/db-postgres build
           bun packages/db/tests/development.integration.ts
       - name: Exercise backup and restore with matching PostgreSQL tools

@@ -3,7 +3,8 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { defineSchema, defineTable, sql, v, type TableReference } from "../src/schema.ts";
-import type { Database, WriteDatabase } from "../src/server.ts";
+import type { Database } from "../../db-postgres/src/server.ts";
+import type { WriteDatabase } from "../src/database.ts";
 import { runCommand } from "./integration-runtime.ts";
 
 const url = process.env.HULLADB_TEST_URL!, namespace = process.env.HULLADB_TEST_NAMESPACE!;
@@ -30,7 +31,7 @@ const events = defineTable({ safe: v.int64(), at: v.timestamp(), precise: v.time
 export default defineSchema({ Folders: folders, links, bookmarks, events, metrics: defineTable({ category: v.string().nullable(), amount: v.int64({ mode: "bigint" }).nullable(), score: v.number().nullable() }), documents: defineTable({ score: v.number(), settings: v.json({ theme: v.string().nullable().optional(), tags: v.array(v.string()), members: v.array(v.object({ name: v.string() })) }) }), tasks: defineTable({ title: v.string(), done: v.boolean().default(false) }, { unique: { title: { fields: ['title'] } } }) });`);
   async function command(name: string, succeeds = true) {
     const executable = name === "generate" ? process.env.BUN ?? "bun" : process.execPath;
-    const { code, stdout, stderr } = await runCommand(executable, [fileURLToPath(new URL("../src/cli.ts", import.meta.url)), name, resolve(root, "db.config.ts")]);
+    const { code, stdout, stderr } = await runCommand(executable, [fileURLToPath(new URL("../../db-cli/src/cli.ts", import.meta.url)), name, resolve(root, "db.config.ts")]);
     assert.equal(code === 0, succeeds, stderr);
     assert.equal((stdout + stderr).includes(url), false, "setup must not print the connection URL");
   }

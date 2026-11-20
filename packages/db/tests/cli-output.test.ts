@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { tmpdir } from "node:os";
-import { createCLIOutput } from "../src/cli-output.ts";
+import { createCLIOutput } from "../../db-cli/src/cli-output.ts";
 
 function capture(isTTY: boolean, env: NodeJS.ProcessEnv) {
   let text = "";
@@ -51,7 +51,7 @@ test("link labels and destinations cannot inject terminal control sequences", ()
 test("CLI help runs without project or development assets on Node and Bun; invalid usage still fails", () => {
   const node = Bun.which("node");
   expect(node).not.toBeNull();
-  const cli = Bun.fileURLToPath(new URL("../src/cli.ts", import.meta.url));
+  const cli = Bun.fileURLToPath(new URL("../../db-cli/src/cli.ts", import.meta.url));
   for (const runtime of [process.execPath, node!]) {
     for (const args of [[], ["--help"], ["dev", "/missing/db.config.ts", "-h"], ["unknown-command"]]) {
       const child = Bun.spawnSync([runtime, cli, ...args], {

@@ -1,9 +1,9 @@
 import { strict as assert } from "node:assert";
 import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { parseSetCookieHeader } from "better-auth/cookies";
-import { createDatabase } from "@hulla/db/server";
+import { createDatabase } from "@hulla/db-postgres/server";
 import { defineSchema } from "@hulla/db/schema";
-import { initializeDatabase } from "../../db/src/server-database.ts";
+import { initializeDatabase } from "../../db-postgres/src/server-database.ts";
 import { hullaAdapter } from "../src/index.ts";
 import { betterAuthTables } from "../src/schema.ts";
 

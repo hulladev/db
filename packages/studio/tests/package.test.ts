@@ -17,9 +17,9 @@ test("compiled standalone CLI resolves optional Studio from the application outs
     expect(runtime.exitCode).toBe(0);
     const node = runtime.stdout.toString().trim();
     await mkdir(scope, { recursive: true });
-    for (const name of ["db", "studio"]) {
+    for (const name of ["db", "db-cli", "db-postgres", "studio"]) {
       const source = fileURLToPath(new URL(`../../${name}/`, import.meta.url));
-      const target = join(scope, name === "db" ? "db" : "db-studio");
+      const target = join(scope, name === "studio" ? "db-studio" : name);
       await cp(join(source, "dist"), join(target, "dist"), { recursive: true });
       const manifest = await Bun.file(join(source, "package.json")).json();
       delete manifest.devDependencies; delete manifest.scripts;
@@ -29,7 +29,7 @@ test("compiled standalone CLI resolves optional Studio from the application outs
     await Bun.write(join(root, "package.json"), '{"type":"module","private":true}');
     await Bun.write(join(root, "db.config.js"), "export default {database:{server:{url:'postgresql://unused@127.0.0.1:1/unused'}},schema:'schema.js'};");
     await Bun.write(join(root, "schema.js"), "import {defineSchema,defineTable,v} from '@hulla/db/schema'; export default defineSchema({tasks:defineTable({title:v.string()})});");
-    const cli = join(scope, "db/dist/cli.js");
+    const cli = join(scope, "db-cli/dist/cli.js");
     child = Bun.spawn([node, cli, "studio", "db.config.js", "--studio-port", "0"], {
       cwd: root, env: { ...process.env, NODE_ENV: "production" }, stdin: "ignore", stdout: "pipe", stderr: "pipe",
     });
@@ -62,7 +62,7 @@ test("compiled standalone CLI resolves optional Studio from the application outs
     const error = await new Response(missing.stderr).text();
     expect(await missing.exited).toBe(1);
     expect(error).toContain("Studio requires @hulla/db-studio");
-    const inert = Bun.spawn([node, "--input-type=module", "-e", "await import('@hulla/db/server')"], { cwd: root, stdout: "pipe", stderr: "pipe" });
+    const inert = Bun.spawn([node, "--input-type=module", "-e", "await import('@hulla/db-postgres/server')"], { cwd: root, stdout: "pipe", stderr: "pipe" });
     expect(await inert.exited).toBe(0);
   } finally {
     if (child && child.exitCode === null && child.signalCode === null) {

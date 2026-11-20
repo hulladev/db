@@ -1,14 +1,14 @@
 import { expect, test } from "bun:test";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { generateDatabase } from "../src/database-codegen.ts";
+import { generateDatabase } from "../../db-cli/src/database-codegen.ts";
 import { initializeDatabase } from "./fixtures/sqlite.ts";
 import { executeDefinition } from "../src/declarations.ts";
-import { runtimeExportConditions } from "../src/runtime-conditions.ts";
-import { FunctionAnalysis } from "../src/function-analysis.ts";
+import { runtimeExportConditions } from "../../db-cli/src/runtime-conditions.ts";
+import { FunctionAnalysis } from "../../db-cli/src/function-analysis.ts";
 import { defineSchema, defineTable, v } from "../src/schema.ts";
 import type { Operation } from "../src/contracts.ts";
-import { preparedSchema } from '../src/prepared-schema.ts';
+import { preparedSchema } from '../../db-postgres/src/prepared-schema.ts';
 
 const fixtureSchema = defineSchema({ drafts: defineTable({ title: v.string() }) });
 type FixtureSchema = typeof fixtureSchema;

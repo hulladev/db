@@ -57,7 +57,7 @@ export interface ServiceOptions {
 }
 
 /** Public build-time settings copied into generated browser modules. */
-export type ClientConnection = Omit<BrowserOptions, "auth" | "headers">;
+export type ClientConnection = Omit<BrowserOptions, "auth" | "headers" | "fetch" | "createRequestId">;
 export function clientConnection(value: ClientConnection): Readonly<ClientConnection> {
   record(value, ["url", "credentials", "operationTimeoutMs", "queryTimeoutMs", "streamIdleTimeoutMs", "confirmationTimeoutMs"], "database.client");
   if (typeof value.url !== "string") throw new TypeError("database.client.url must be an HTTP endpoint or root-relative path");

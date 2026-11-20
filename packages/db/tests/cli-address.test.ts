@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { createServer, type Server } from "node:net";
 import { PassThrough, Writable } from "node:stream";
-import { AddressConflict, startCLIListener, StartupCancelled } from "../src/cli-address.ts";
+import { AddressConflict, startCLIListener, StartupCancelled } from "../../db-cli/src/cli-address.ts";
 
 async function listen(host = "127.0.0.1", port = 0): Promise<Server> {
   const server = createServer();
@@ -111,7 +111,7 @@ test("exit, EOF, Ctrl-C and shutdown cancel a pending prompt without opening ano
 test("Node can recover a real bind conflict using the default prompt selection", () => {
   const node = Bun.which("node");
   expect(node).not.toBeNull();
-  const module = new URL("../src/cli-address.ts", import.meta.url).href;
+  const module = new URL("../../db-cli/src/cli-address.ts", import.meta.url).href;
   const child = Bun.spawnSync([node!, "--input-type=module", "-e", `
     import assert from 'node:assert/strict';
     import {createServer} from 'node:net';

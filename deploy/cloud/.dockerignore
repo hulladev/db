@@ -4,4 +4,4 @@
 **/.env*
 **/next-env.d.ts
 **/*.tsbuildinfo
-next-app/hulla-db.tgz
+next-app/hulla-db*.tgz

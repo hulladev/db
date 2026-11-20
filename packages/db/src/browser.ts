@@ -2,7 +2,7 @@ import { HttpRuntime, type HttpRuntimeOptions } from "./http.ts";
 import { createRuntimeScope, type RuntimeScope } from "./runtime.ts";
 import { bindingInfo } from "./callable.ts";
 
-export interface BrowserOptions extends Pick<HttpRuntimeOptions, "auth" | "headers" | "credentials" | "operationTimeoutMs" | "queryTimeoutMs" | "streamIdleTimeoutMs" | "confirmationTimeoutMs"> {
+export interface BrowserOptions extends Pick<HttpRuntimeOptions, "auth" | "headers" | "credentials" | "fetch" | "createRequestId" | "operationTimeoutMs" | "queryTimeoutMs" | "streamIdleTimeoutMs" | "confirmationTimeoutMs"> {
   readonly url: string;
 }
 

@@ -49,10 +49,15 @@
       "types": "./dist/browser.d.ts",
       "default": "./dist/browser.js"
     },
-    "./portable": {
-      "hulladb-source": "./src/portable.ts",
-      "types": "./dist/portable.d.ts",
-      "default": "./dist/portable.js"
+    "./expo": {
+      "hulladb-worker": {
+        "hulladb-source": "./src/worker.ts",
+        "types": "./dist/worker.d.ts",
+        "default": "./dist/worker.js"
+      },
+      "hulladb-source": "./src/expo.ts",
+      "types": "./dist/expo.d.ts",
+      "default": "./dist/expo.js"
     }
   },
   "scripts": {
@@ -66,7 +71,9 @@
     "LICENSE"
   ],
   "peerDependencies": {
-    "@hulla/db": "^0.3.3"
+    "@hulla/db": "^0.3.3",
+    "expo-crypto": "*",
+    "expo-sqlite": "*"
   },
   "devDependencies": {
     "@hulla/db": "workspace:*",
@@ -94,5 +101,13 @@
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/"
+  },
+  "peerDependenciesMeta": {
+    "expo-crypto": {
+      "optional": true
+    },
+    "expo-sqlite": {
+      "optional": true
+    }
   }
 }

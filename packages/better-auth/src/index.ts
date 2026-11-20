@@ -1,7 +1,7 @@
 import type { BetterAuthOptions } from "better-auth";
 import { createAdapterFactory, type AdapterFactory, type CustomAdapter } from "better-auth/adapters";
 import type { SchemaDefinition } from "@hulla/db/schema";
-import type { Database, Expressions, PendingWrite, Predicate, SelectQuery } from "@hulla/db/server";
+import type { ConnectedDatabase as Database, Expressions, PendingWrite, Predicate, SelectQuery } from "@hulla/db";
 import { generateAuthSchema } from "./schema.ts";
 
 // Better Auth discovers plugin models at runtime. Erasure stays at this boundary;

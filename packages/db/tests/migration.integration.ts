@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createDatabase, initializeDatabase } from "../src/server-database.ts";
+import { createDatabase, initializeDatabase } from "../../db-postgres/src/server-database.ts";
 import { defineSchema, defineTable, v } from "../src/schema.ts";
 
 const url = process.env.HULLADB_TEST_URL, namespace = process.env.HULLADB_TEST_NAMESPACE;
@@ -29,7 +29,7 @@ const configImport = new URL("../src/config.ts", import.meta.url).href;
 await Bun.write(config, `import {defineConfig} from ${JSON.stringify(configImport)}; export default defineConfig({schema:'./schema.ts',database:{server:${JSON.stringify(connection)}}});`);
 await Bun.write(schemaFile, `import {defineSchema,defineTable,v} from ${JSON.stringify(schemaImport)}; export default defineSchema({tasks:defineTable({priority:v.int64({mode:'bigint'}).default(9223372036854775807n),title:v.string(),note:v.string().nullable(),settings:v.json().default({quote:"'\\\\; --",values:[1,true]}),done:v.boolean().default(false)}),audit:defineTable({message:v.string()})});`);
 async function cli(...args: string[]) {
-  const child = Bun.spawn([runtime, "--conditions=hulladb-source", fileURLToPath(new URL("../src/cli.ts", import.meta.url)), "migrate", config, ...args], { env: { ...process.env, NODE_ENV: "production" }, stdout: "pipe", stderr: "pipe" });
+  const child = Bun.spawn([runtime, "--conditions=hulladb-source", fileURLToPath(new URL("../../db-cli/src/cli.ts", import.meta.url)), "migrate", config, ...args], { env: { ...process.env, NODE_ENV: "production" }, stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   return { stdout, stderr, code };
 }

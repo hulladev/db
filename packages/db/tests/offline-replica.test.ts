@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { defineSchema, defineTable, v } from "../src/index.ts";
-import { generateDatabase } from "../src/codegen.ts";
+import { generateDatabase } from "../../db-cli/src/codegen.ts";
 import type { primary } from "./fixtures/database-server.ts";
 import type { DatabaseSource } from "../src/database-configuration.ts";
 import type * as definitions from "./fixtures/database-functions.ts";

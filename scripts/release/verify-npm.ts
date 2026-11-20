@@ -52,16 +52,16 @@ try {
     assert(await Bun.file(join(packageRoot, "LICENSE")).exists());
     await verifyExports(name, packageRoot, manifest.exports);
   }
-  const core = join(consumer, "node_modules/@hulla/db");
-  const notices = await Bun.file(join(core, "THIRD_PARTY_NOTICES.md")).text();
-  for (const match of notices.matchAll(/\]\((licenses\/[^)]+)\)/g)) assert(await Bun.file(join(core, match[1]!)).exists());
+  const postgres = join(consumer, "node_modules/@hulla/db-postgres");
+  const notices = await Bun.file(join(postgres, "THIRD_PARTY_NOTICES.md")).text();
+  for (const match of notices.matchAll(/\]\((licenses\/[^)]+)\)/g)) assert(await Bun.file(join(postgres, match[1]!)).exists());
   assert(notices.includes("rquickjs-sys"), "QuickJS native notices missing");
   assert(notices.includes("ring"), "TLS native notices missing");
   await mkdir(join(consumer, "db"));
   await Bun.write(join(consumer, "db/schema.ts"), `import { defineSchema, defineTable, v } from '@hulla/db/schema';\nimport {betterAuthTables} from '@hulla/db-better-auth/schema';\nexport default defineSchema({ ...betterAuthTables(), notes: defineTable({ title: v.string(), data: v.object({ rank: v.number() }) }) });\n`);
   await Bun.write(join(consumer, "db.config.ts"), `import {defineConfig} from '@hulla/db/config';\nexport default defineConfig({database:{server:{url:'postgresql://unused@127.0.0.1:1/unused'},client:{url:'https://database.example.com'}}});\n`);
   await Bun.write(join(consumer, "db/notes.ts"), `import {query,mutation} from './_generated/functions';\nexport const list=query(ctx=>ctx.db.select('notes'));\nexport const create=mutation(ctx=>ctx.db.insert('notes',{title:'Packaged',data:{rank:1}}));\n`);
-  command(["node", "node_modules/@hulla/db/dist/cli.js", "generate"]);
+  command(["node", "node_modules/@hulla/db-cli/dist/cli.js", "generate"]);
   await cp(join(root, "scripts/release/consumer.ts.txt"), join(consumer, "consumer.ts"));
   await Bun.write(join(consumer, "tsconfig.json"), JSON.stringify({ compilerOptions: { target: "ES2023", module: "ESNext", moduleResolution: "Bundler", strict: true, skipLibCheck: true, noEmit: true, allowImportingTsExtensions: true }, include: ["consumer.ts", "db"] }));
   await Bun.write(join(consumer, "server-consumer.ts"), `import {hullaAdapter} from '@hulla/db-better-auth';\nimport type {BetterAuthOptions} from 'better-auth';\nimport {db} from './db/_generated/server';\nexport const options: BetterAuthOptions = { database: hullaAdapter(db) };\n`);
@@ -78,6 +78,7 @@ try {
   console.log("Installed generation, all UI declaration consumers, browser boundaries and native license files passed.");
   // Existing behavioral smoke checks launch the packaged native processes under
   // Node with Cargo, checkout executables and PATH fallbacks unavailable.
-  command([process.execPath, join(root, "packages/db/tests/package.integration.ts"), join(archives, `hulla-db-${version}.tgz`)], root);
+  command([process.execPath, join(root, "packages/db/tests/package.integration.ts"),
+    ...["db", "db-sqlite", "db-postgres", "db-cli"].map(name => join(archives, `hulla-${name}-${version}.tgz`))], root);
   console.log("Installed native process and missing-asset recovery checks passed.");
 } finally { await rm(consumer, { recursive: true, force: true }); }
