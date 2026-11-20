@@ -4,7 +4,7 @@ export function sourceRuntime(..._args: unknown[]): never { throw new Error("Sou
 import type { ConnectedDefinition } from "./engine.ts";
 
 export async function openDatabase<S extends SchemaDefinition>(
-  _definition: DatabaseConfiguration<S>, _connection: unknown, _initialize = false,
+  _definition: DatabaseConfiguration<S>, _connection: unknown, _initialize: boolean, _signal: AbortSignal,
 ): Promise<ConnectedDefinition<S>> {
   throw new Error("Database declarations are inert in restricted workers; use ctx.db inside handlers");
 }

@@ -10,7 +10,7 @@ import type { FunctionSignature, FunctionRuntime } from "./contracts.ts";
 import { bindingInfo, queryBinding, mutationBinding, type QueryCallable, type MutationCallable } from "./callable.ts";
 import { createRuntimeScope, type RuntimeScope } from "./runtime.ts";
 import { deferredFunctions } from "./deferred.ts";
-import { DatabaseError } from "./error.ts";
+import { DatabaseError, failStorageStartup, StorageStartupCleanupError } from "./error.ts";
 import { executeStorageOperation, observeStorageChanges } from "./storage-execution.ts";
 import { transactionDatabase } from "./database.ts";
 import { captureInput } from "./function-input.ts";
@@ -32,6 +32,8 @@ export type Database<S extends SchemaDefinition = SchemaDefinition, F extends Fu
   readonly state: DatabaseState;
   readonly functions: SourceFunctions<F>;
   ready(): Promise<void>;
+  /** Retry failed storage startup in place. Active startup is shared. */
+  retry(): Promise<void>;
   subscribe(listener: (state: DatabaseState) => void): () => void;
   bind<T extends object>(reference: T): BoundFunctions<T>;
 };
@@ -172,33 +174,45 @@ function createInstance<S extends SchemaDefinition, F extends FunctionSource | u
     }
     return Object.freeze(result);
   };
-  const opening = (async () => {
+  const catalogueLoading = (async () => {
+    // Validate the selected handlers before a driver acquires storage.
+    if (typeof functions === "string") throw new TypeError("Function globs require the @hulla/db/build integration, or managed-service generation");
+    const selected = typeof functions === "function" ? await functions() : functions ?? {};
+    assertOpen();
+    catalogue = buildCatalogue(selected);
+    return catalogue;
+  })();
+  async function openStorage(retrying = false) {
     try {
-      // Validate the selected handlers before a driver acquires storage.
-      if (typeof functions === "string") throw new TypeError("Function globs require the @hulla/db/build integration, or managed-service generation");
-      const selected = typeof functions === "function" ? await functions() : functions ?? {};
+      await catalogueLoading;
       assertOpen();
-      catalogue = buildCatalogue(selected);
-      local = await openDatabase(configuration, configuration.connection, initialize);
+      const storage = await openDatabase(configuration, configuration.connection, initialize, lifetime.signal);
+      if (!closed) {
+        try {
+          inheritClientStorage(storage, result);
+          stopChanges = observeStorageChanges(storage, change => {
+            if (closed) return;
+            if (change === 'scope') {
+              const previous = localView;
+              localEpoch = {}; localView = new AbortController();
+              previous.abort(new DatabaseError({ code: 'context_changed', message: 'A replica authorization scope changed' }));
+              localScope.refresh();
+            }
+            changed();
+          });
+        } catch (error) { await failStorageStartup(error, () => storage.close()); }
+      }
+      local = storage;
       if (closed) return;
-      inheritClientStorage(local, result);
-      stopChanges = observeStorageChanges(local, change => {
-        if (closed) return;
-        if (change === 'scope') {
-          const previous = localView;
-          localEpoch = {}; localView = new AbortController();
-          previous.abort(new DatabaseError({ code: 'context_changed', message: 'A replica authorization scope changed' }));
-          localScope.refresh();
-          changed();
-        } else changed();
-      });
       publish({ status: "ready" });
       for (const scope of scopes.values()) scope.refresh();
+      if (retrying) changed();
     } catch (error) { if (!closed) publish({ status: "error", error }); throw error; }
-  })();
+  }
+  let opening = openStorage();
   void opening.catch(() => {});
   const getLocal = async () => { assertOpen(); await opening; assertOpen(); return local!; };
-  const deferred = deferredFunctions(async () => { await getLocal(); return catalogue!; });
+  const deferred = deferredFunctions(async () => { const selected = await catalogueLoading; assertOpen(); return selected; });
   let closing: Promise<void> | undefined;
   const closeInstance = () => {
     if (publicTransactions) return Promise.reject(new DatabaseError({ code: 'transaction_scope', message: 'Close the database after its explicit transaction completes' }));
@@ -228,6 +242,15 @@ function createInstance<S extends SchemaDefinition, F extends FunctionSource | u
     get state() { return state; },
     get functions() { return catalogue ?? deferred; },
     async ready() { await getLocal(); },
+    async retry() {
+      assertOpen();
+      if (state.status === "error" && catalogue && !(state.error instanceof StorageStartupCleanupError)) {
+        opening = openStorage(true);
+        void opening.catch(() => {});
+        publish({ status: "initializing" });
+      }
+      await getLocal();
+    },
     subscribe(listener: (state: DatabaseState) => void) {
       if (typeof listener !== "function") throw new TypeError("A state subscription requires a callback");
       if (!closed) listeners.add(listener);

@@ -30,3 +30,10 @@ test("browser and Expo entrypoints bundle without native Node or Bun drivers", a
     expect(output).not.toContain("bun:sqlite");
   }
 });
+
+test("Expo generates UUIDs without a global Web Crypto API or an application override", async () => {
+  const path = new URL("./fixtures/expo-random.ts", import.meta.url).pathname;
+  const child = Bun.spawn([process.execPath, "--conditions=hulladb-source", path], { stdout: "pipe", stderr: "pipe", timeout: 15_000 });
+  const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+  expect({ exit, stdout, stderr }).toEqual({ exit: 0, stdout: "", stderr: "" });
+});

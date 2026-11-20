@@ -1,4 +1,4 @@
-import { registerClientStorage, registerStorageExecution, registerStorageChanges, transactionDatabase, type WriteDatabase, type StorageExecution, type StorageChange } from "@hulla/db/internal/engine";
+import { failStorageStartup, registerClientStorage, registerStorageExecution, registerStorageChanges, transactionDatabase, type WriteDatabase, type StorageExecution, type StorageChange } from "@hulla/db/internal/engine";
 import type { SchemaDefinition } from "@hulla/db";
 import type { SQLiteDriver } from "./driver.ts";
 import { SQLiteEngine, sqliteFailure } from "./engine.ts";
@@ -19,13 +19,14 @@ export interface SQLiteDatabase<S extends SchemaDefinition> extends WriteDatabas
 
 /** Open schema-typed local storage. The driver belongs exclusively to the returned handle. */
 export async function openSQLiteDatabase<S extends SchemaDefinition>(schema: S, driver: SQLiteDriver, options: SQLiteOptions = {}, initialize = false): Promise<SQLiteDatabase<S>> {
+  const failOpen = (error: unknown) => failStorageStartup(error, () => driver.close());
   let engine: SQLiteEngine;
   const timeoutMs = options.transactionTimeoutMs ?? 5000;
   try {
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000) throw new TypeError("transactionTimeoutMs must be an integer from 1 to 60000");
     engine = new SQLiteEngine(driver, schema, options.randomBytes);
   }
-  catch (error) { await driver.close(); throw error; }
+  catch (error) { return failOpen(error); }
   let closed = false, userTransaction = false, queued = 0;
   let tail: Promise<unknown> = Promise.resolve();
   function enqueue<T>(handler: () => T | PromiseLike<T>, internal = false): Promise<T> {
@@ -56,8 +57,9 @@ export async function openSQLiteDatabase<S extends SchemaDefinition>(schema: S, 
   const notify = (change: StorageChange) => { for (const listener of [...listeners]) listener(change); };
   let storage: ReturnType<typeof sqliteClientStorage>;
   try { storage = sqliteClientStorage(engine, schema, handler => enqueue(handler, true), notify); }
-  catch (error) { await driver.close(); throw error; }
-  try { if (initialize) await engine.initialize(); else await engine.verify(); } catch(error) { await driver.close(); throw error; }
+  catch (error) { return failOpen(error); }
+  try { if (initialize) await engine.initialize(); else await engine.verify(); }
+  catch (error) { return failOpen(error); }
   function guard(operation: Record<string, unknown>) {
     if (typeof operation.table === "string" && storage.isReplica(operation.table)) {
       if (["insert", "update", "delete"].includes(String(operation.method))) throw sqliteFailure("replica_read_only", "Write through a server mutation; offline calls queue that mutation explicitly");

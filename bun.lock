@@ -74,7 +74,11 @@
       },
       "peerDependencies": {
         "@hulla/db": "^0.3.2",
+        "expo-crypto": "*",
       },
+      "optionalPeers": [
+        "expo-crypto",
+      ],
     },
     "packages/react": {
       "name": "@hulla/db-react",
