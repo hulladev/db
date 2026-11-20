@@ -200,9 +200,9 @@ to TypeScript; use `db.bind(...)` when authoring typed calls with a glob.
 
 ## Browser and Expo storage
 
-Applications supply a dedicated driver connection and manage their chosen SQLite
-runtime's own setup. `@hulla/db-sqlite` does not download a WASM runtime or add an
-Expo SQLite dependency.
+Browser applications supply a dedicated driver connection and manage the WASM
+runtime's setup. The root SQLite package selects the browser entrypoint in browser
+bundles. OPFS availability and workers belong to the chosen WASM runtime.
 
 ```ts
 import { sqlite, wasmSQLiteDriver } from '@hulla/db-sqlite/browser'
@@ -213,22 +213,25 @@ const db = sqlite({
 })
 ```
 
+For Expo, install `@hulla/db-expo` with the matching `@hulla/db` and
+`@hulla/db-sqlite` release. Run `npx expo install expo-sqlite expo-crypto` to
+match the application's Expo SDK. The adapter opens a dedicated connection and
+uses Expo Crypto when Web Crypto is unavailable.
+
 ```ts
-import { sqlite, expoSQLiteDriver } from '@hulla/db-sqlite/expo'
-import * as SQLite from 'expo-sqlite'
+import { sqlite } from '@hulla/db-expo'
 
 const db = sqlite({
   schema,
-  open: async () => expoSQLiteDriver(await SQLite.openDatabaseAsync('app.sqlite')),
+  filename: 'app.sqlite',
 })
 ```
 
-The root SQLite package selects the browser entrypoint in browser bundles. OPFS
-availability and workers belong to the chosen WASM runtime. SQLite generates UUIDs
-from Web Crypto by default. The Expo entrypoint uses the optional `expo-crypto`
-peer when Web Crypto is unavailable. Install that peer with `npx expo install expo-crypto`
-to match the application's Expo SDK. `randomBytes` supplies an explicit secure
-provider for a custom runtime or overrides the platform default.
+Starting with 0.4.0, migrate imports from `@hulla/db-sqlite/expo` to
+`@hulla/db-expo`. Keep the existing filename and schema to preserve saved data.
+If the connection needs custom options, pass `open` instead of `filename` and
+wrap a fresh native connection with `expoSQLiteDriver` from `@hulla/db-expo`.
+Use `randomBytes` to supply a custom secure entropy provider.
 
 SQLite supports scalar/JSON columns, defaults, codecs, UUIDs, scalar filters,
 ordering, CRUD, bulk writes, upserts and ungrouped aggregates. Exact `int64` values
