@@ -28,7 +28,7 @@ export class SQLiteEngine {
   readonly #layout: Map<string, TableLayout>;
   source = "";
   constructor(driver: SQLiteDriver, schema: SchemaDefinition, randomBytes: (length: number) => Uint8Array = length => {
-    if (!globalThis.crypto?.getRandomValues) throw new TypeError("Supply randomBytes using a cryptographically secure platform RNG (for example expo-crypto)");
+    if (!globalThis.crypto?.getRandomValues) throw new TypeError("Supply randomBytes using a cryptographically secure platform RNG");
     return globalThis.crypto.getRandomValues(new Uint8Array(length));
   }) {
     this.driver = driver;

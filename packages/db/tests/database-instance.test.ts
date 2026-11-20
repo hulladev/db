@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { sqlite } from '@hulla/db-sqlite';
 import { bunSQLiteDriver } from '@hulla/db-sqlite/bun';
-import { expoSQLiteDriver, sqlite as expoSQLite } from '@hulla/db-sqlite/expo';
 import { postgres } from '@hulla/db-postgres';
 import { schema } from './fixtures/local-schema.ts';
 import * as declarations from './fixtures/local-functions.ts';
@@ -192,25 +191,6 @@ test('manual startup recovery keeps mounted observers and never replays a reject
     expect(observer.getSnapshot()).toMatchObject({ status: 'success', data: [] });
     expect(opens).toBe(2);
   } finally { stop(); release.resolve(); await db.close(); }
-});
-
-test('Expo lock errors get one startup retry and then surface through readiness', async () => {
-  const busy = Object.assign(new Error('Calling getAllAsync failed\n→ Caused by: Error code 5: database is locked'), {
-    code: 'ERR_INTERNAL_SQLITE_ERROR',
-  });
-  let opens = 0, closes = 0;
-  const db = expoSQLite({ schema, open() {
-    opens++;
-    return expoSQLiteDriver({
-      async getAllAsync() { throw busy; },
-      async closeAsync() { closes++; },
-    });
-  } });
-  try {
-    await expect(db.ready()).rejects.toBe(busy);
-    expect(db.state).toEqual({ status: 'error', error: busy });
-    expect([opens, closes]).toEqual([2, 2]);
-  } finally { await db.close(); }
 });
 
 test('closing during startup retry cancels the pending reopen', async () => {

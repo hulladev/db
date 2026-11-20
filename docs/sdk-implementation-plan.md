@@ -28,16 +28,10 @@ managed PostgreSQL worker sandbox, authorization setup or retry policy.
 
 ### Simplify the application API first
 
-1. **Expo setup.** Add filename-based setup to `@hulla/db-sqlite/expo`. The
-   Expo entrypoint owns the dedicated native connection, its cleanup and secure
-   randomness. Keep driver injection for applications that supply a connection.
-   Keep the existing open/provision lifecycle and database filename. Verify
-   reopening a file created with the published API preserves its rows, IDs and
-   constraints. Build iOS and Android bundles and exercise a native device or
-   simulator. Check that core, Node/Bun and browser consumers can load their
-   entrypoints without Expo dependencies. Share failed-open recovery at the
-   instance boundary. Test that retries release partial connections, share one
-   in-flight attempt, and let an existing observer recover without rebinding.
+1. **Expo setup.** `@hulla/db-expo` owns filename-based native connection setup
+   and secure randomness. It accepts custom connections and shares the existing
+   open, provision, and recovery lifecycle. Verify iOS and Android builds and
+   exercise reopening saved data on a native device or simulator.
 2. **Adopt the API in apps by data ownership.** Use PostgreSQL for the main data
    and add device SQLite where a feature needs local ownership or offline storage.
    For Fitness, settle which entries belong to the user's account and which are
