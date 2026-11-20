@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { test } from "node:test";
-import { assertExistingPackage, ensureGitTag, main, orderPackages, registryVersion, waitForPublication } from "./release.mjs";
+import { assertExistingPackage, ensureGitTag, main, orderPackages, registryVersion, requireRegisteredPackages, waitForPublication } from "./release.mjs";
 
 test("dependencies and peers are published before adapters, independent of input order", () => {
   const packages = [
@@ -40,6 +40,13 @@ test("only a registry 404 means unpublished; auth failures and outages stop the 
     }),
     /offline/,
   );
+});
+
+test("trusted publishing reports all new package names before uploading the family", async () => {
+  const packages = [{ name: "@test/core" }, { name: "@test/tools" }, { name: "@test/local" }];
+  const lookup = async url => new Response(null, { status: url.endsWith("%2Fcore") ? 200 : 404 });
+  await assert.rejects(requireRegisteredPackages(packages, lookup), /First publish required for @test\/tools, @test\/local/);
+  await requireRegisteredPackages(packages, async () => new Response(null, { status: 200 }));
 });
 
 test('publication waits for both version and install metadata, with a bounded wait', async () => {

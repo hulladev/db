@@ -63,6 +63,21 @@ export async function registryVersion(name, version, request = globalThis.fetch)
   return response.json();
 }
 
+export async function requireRegisteredPackages(packages, request = globalThis.fetch) {
+  const missing = [];
+  for (const { name } of packages) {
+    const response = await request(`${registry}/${encodeURIComponent(name)}`, {
+      method: "HEAD",
+      signal: globalThis.AbortSignal.timeout(30_000),
+      headers: { "cache-control": "no-cache" },
+    });
+    if (response.status === 404) missing.push(name);
+    else assert(response.ok, `Registry lookup failed for ${name}: HTTP ${response.status}`);
+  }
+  assert.equal(missing.length, 0,
+    `First publish required for ${missing.join(", ")}. Publish those exact archives from this run's npm-release artifact, then rerun the failed job.`);
+}
+
 export async function waitForPublication(pkg, request = globalThis.fetch, wait = setTimeout) {
   for (let attempt = 0; attempt < 120; attempt++) {
     const visible = await registryVersion(pkg.name, pkg.version, request)
@@ -284,6 +299,7 @@ async function publish(config) {
   );
   assert(process.env.ACTIONS_ID_TOKEN_REQUEST_URL, "Trusted publishing OIDC is unavailable");
   const manifest = await artifacts(config);
+  await requireRegisteredPackages(manifest.packages);
   for (const pkg of manifest.packages) {
     const existing = await registryVersion(pkg.name, pkg.version);
     if (existing) {
