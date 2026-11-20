@@ -35,7 +35,7 @@ test("idle drain retires unused engines while a concurrent callback keeps its le
   let release!: () => void;
   const barrier = new Promise<void>(resolve => { release = resolve; });
   try {
-    await writeFile(engine, `#!${process.execPath}\nimport { createInterface } from 'node:readline';\nimport { appendFileSync } from 'node:fs';\nprocess.on('SIGTERM',()=>{appendFileSync(${JSON.stringify(log)},'closed\\n');process.exit(0)});\nfor await (const line of createInterface({input:process.stdin})) {const frame=JSON.parse(line);const type=({init:'ready',begin:'begun',commit:'committed',rollback:'rolled_back',ping:'pong'})[frame.type]; console.log(JSON.stringify({type}));}\n`);
+    await writeFile(engine, `#!${process.execPath}\nimport { createInterface } from 'node:readline';\nimport { appendFileSync } from 'node:fs';\nprocess.on('SIGTERM',()=>{appendFileSync(${JSON.stringify(log)},'closed\\n');process.exit(0)});\nfor await (const line of createInterface({input:process.stdin})) {const frame=JSON.parse(line);const type=({init:'ready',begin:'begun',commit:'committed',rollback:'rolled_back'})[frame.type]; console.log(JSON.stringify({type}));}\n`);
     await chmod(engine, 0o700);
     process.env.HULLADB_ENGINE = engine;
     const db = createDatabase(defineSchema({ tasks: defineTable({ title: v.string() }) }), { url: "postgresql://unused/unused" }, { executionMs: 30000 });
@@ -62,18 +62,38 @@ test("idle drain retires unused engines while a concurrent callback keeps its le
 
 test("a disconnected idle connection is replaced before entering another callback", async () => {
   const directory = await mkdtemp(resolve(tmpdir(), "hulla-stale-pool-"));
-  const engine = resolve(directory, "engine");
+  const engine = resolve(directory, "engine"), log = resolve(directory, "begins");
   const previous = process.env.HULLADB_ENGINE;
   try {
-    await writeFile(engine, `#!${process.execPath}\nimport { createInterface } from 'node:readline';\nfor await (const line of createInterface({input:process.stdin})) {const frame=JSON.parse(line);if(frame.type==='ping'){process.exit(0)}const type=({init:'ready',begin:'begun',commit:'committed',rollback:'rolled_back'})[frame.type];console.log(JSON.stringify({type}));}\n`);
+    await Bun.write(engine, `#!${process.execPath}
+import { createInterface } from 'node:readline';
+import { appendFileSync } from 'node:fs';
+let begins = 0;
+for await (const line of createInterface({ input: process.stdin })) {
+  const frame = JSON.parse(line);
+  if (frame.type === 'begin') {
+    appendFileSync(${JSON.stringify(log)}, process.pid + '\\n');
+    if (++begins === 3) process.exit(0);
+  }
+  const type = { init: 'ready', begin: 'begun', commit: 'committed' }[frame.type];
+  if (!type) process.exit(1);
+  console.log(JSON.stringify({ type }));
+}
+`);
     await chmod(engine, 0o700);
     process.env.HULLADB_ENGINE = engine;
     const db = createDatabase(defineSchema({ tasks: defineTable({ title: v.string() }) }), { url: "postgresql://unused/unused" }, { executionMs: 30000 });
     try {
       await db.transaction(() => "first");
+      await db.transaction(() => "reused");
       let attempts = 0;
       expect(await db.transaction(() => { attempts++; return "replacement"; })).toBe("replacement");
       expect(attempts).toBe(1);
+      const [first, reused, disconnected, replacement, ...extra] = (await Bun.file(log).text()).trim().split("\n");
+      expect([reused, disconnected]).toEqual([first, first]);
+      expect(replacement).toMatch(/^\d+$/);
+      expect(replacement).not.toBe(first);
+      expect(extra).toEqual([]);
     } finally { await db.close(); }
   } finally {
     if (previous === undefined) delete process.env.HULLADB_ENGINE; else process.env.HULLADB_ENGINE = previous;
@@ -114,7 +134,7 @@ test("Node and Bun bound bridge admission and release blocked callbacks on close
   try {
     await writeFile(engine, `#!${process.execPath}\nimport { createInterface } from 'node:readline';
 process.on('SIGTERM',()=>{});
-for await (const line of createInterface({input:process.stdin})) {const frame=JSON.parse(line); console.log(JSON.stringify({type:({init:'ready',begin:'begun',commit:'committed',rollback:'rolled_back',ping:'pong'})[frame.type]}));}
+for await (const line of createInterface({input:process.stdin})) {const frame=JSON.parse(line); console.log(JSON.stringify({type:({init:'ready',begin:'begun',commit:'committed',rollback:'rolled_back'})[frame.type]}));}
 `);
     await chmod(engine, 0o700);
     await writeFile(host, `import assert from 'node:assert/strict';

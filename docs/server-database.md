@@ -457,8 +457,10 @@ have the browser mutation receipt-confirmation lifecycle.
 The current engine uses a small lazy connection pool with a private local process
 protocol. It does not open a network endpoint for direct database access. Call
 `await db.close()` during application shutdown; an HTTP request finishing is not
-application shutdown. Up to four native sessions are reused per database handle. Unused sessions drain
-after ten seconds; reuse checks the connection before starting application work.
+application shutdown. Up to four native sessions are reused per database handle.
+Unused sessions drain after ten seconds. Starting the transaction checks a reused
+session before running application code. If startup fails, the SDK retires the
+session and tries another connection before entering the callback.
 Outside a transaction, the bridge also retires after thirty seconds without a
 command. A transaction callback instead uses its configured execution deadline
 (five seconds by default), including time spent waiting between statements.

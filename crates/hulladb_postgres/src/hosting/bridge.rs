@@ -37,7 +37,6 @@ enum Command {
         id: u64,
         operation: Value,
     },
-    Ping,
     Commit,
     Rollback,
 }
@@ -237,11 +236,6 @@ async fn run() -> Result<(), Error> {
         }) else {
             return Ok(());
         };
-        if matches!(command, Command::Ping) {
-            store.managed_head(&context).await?;
-            io.lock().await.send(json!({"type":"pong"})).await?;
-            continue;
-        }
         let Command::Begin { mode } = command else {
             return Err(Error::InvalidInput(
                 "begin is required outside a transaction".into(),

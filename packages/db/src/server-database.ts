@@ -141,7 +141,22 @@ export function createDatabase<S extends SchemaDefinition>(schema: S, connection
     const next = waiters.shift();
     if (next) next.resolve(); else available++;
   };
-  async function acquire(): Promise<Bridge> {
+  async function retire(session: Bridge): Promise<void> {
+    session.destroy();
+    await session.exited;
+    sessions.delete(session);
+  }
+  async function begin(session: Bridge, writable: boolean) {
+    const deadline = setTimeout(() => session.destroy(failure("transaction_timeout", "Database transaction exceeded its execution deadline")), limits.executionMs);
+    try {
+      await session.command({ type: "begin", mode: writable ? "write" : "read" }, "begun");
+      return { session, deadline };
+    } catch (error) {
+      clearTimeout(deadline);
+      throw error;
+    }
+  }
+  async function acquire(writable: boolean) {
     if (available > 0) available--;
     else {
       if (waiters.length >= maxWaiting) throw failure("capacity", "Database connection queue is full");
@@ -164,17 +179,18 @@ export function createDatabase<S extends SchemaDefinition>(schema: S, connection
       while ((session = idle.pop())) {
         clearTimeout(session.idleTimer);
         if (!session.dead && Date.now() - session.idleSince < idleMilliseconds) {
-          try { await session.command({ type: "ping" }, "pong"); return session; }
-          catch { session.destroy(); }
+          // BEGIN checks the connection and scope before any application work can run.
+          try { return await begin(session, writable); }
+          catch { /* Retire the failed lease and try another before entering the callback. */ }
         }
-        session.destroy(); await session.exited; sessions.delete(session);
+        await retire(session);
       }
       if (closed) throw failure("database_closed", "Database is closed");
       session = new Bridge(limits); sessions.add(session);
       try {
         await session.command({ type: "init", url: config.url, namespace: config.namespace ?? "hulla", schema: descriptor, limits, development: process.env.NODE_ENV !== "production" }, "ready");
-        return session;
-      } catch (error) { session.destroy(); await session.exited; sessions.delete(session); throw error; }
+        return await begin(session, writable);
+      } catch (error) { await retire(session); throw error; }
     } catch (error) { releasePermit(); throw error; }
   }
   async function release(session: Bridge): Promise<void> {
@@ -189,18 +205,17 @@ export function createDatabase<S extends SchemaDefinition>(schema: S, connection
       }, idleMilliseconds);
       session.idleTimer.unref();
     }
-    else { session.destroy(); await session.exited; sessions.delete(session); }
+    else await retire(session);
     releasePermit();
   }
   async function execute<T>(writable: boolean, handler: (tx: WriteDatabase<S>, request: (operation: Record<string, unknown>, validate?: (result: unknown) => void) => Promise<unknown>) => T | PromiseLike<T>, scoped: boolean): Promise<T> {
     assertRoot();
-    const session = await acquire();
+    const { session, deadline } = await acquire(writable);
     let active = true, pending = 0, sequence = 0;
     const token = {};
     let tail: Promise<unknown> = Promise.resolve();
     let statementError: unknown;
     let statementFailed = false;
-    const deadline = setTimeout(() => session.destroy(failure("transaction_timeout", "Database transaction exceeded its execution deadline")), limits.executionMs);
     const request = (operation: Record<string, unknown>, validate?: (result: unknown) => void): Promise<unknown> => {
       if (!active || closed) return Promise.reject(failure("transaction_closed", "Transaction handle is no longer active"));
       if (scoped && transactionScope.getStore() !== token) return Promise.reject(failure("transaction_scope", "Use the transaction handle only inside its callback"));
@@ -225,7 +240,6 @@ export function createDatabase<S extends SchemaDefinition>(schema: S, connection
       return result;
     };
     try {
-      await session.command({ type: "begin", mode: writable ? "write" : "read" }, "begun");
       const tx = transactionDatabase(schema, writable, request) as WriteDatabase<S>;
       const signal = session.stopped.signal;
       let stopped!: () => void;
