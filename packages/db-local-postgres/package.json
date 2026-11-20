@@ -1,0 +1,31 @@
+{
+  "name": "@hulla/db-local-postgres",
+  "version": "0.3.3",
+  "description": "Optional PostgreSQL binaries for managed local development with @hulla/db-cli",
+  "license": "MIT",
+  "exports": {
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "native",
+    "README.md",
+    "LICENSE"
+  ],
+  "author": {
+    "name": "Samuel Hulla",
+    "url": "https://hulla.dev"
+  },
+  "homepage": "https://github.com/hulladev/db#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hulladev/db.git",
+    "directory": "packages/db-local-postgres"
+  },
+  "bugs": {
+    "url": "https://github.com/hulladev/db/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}

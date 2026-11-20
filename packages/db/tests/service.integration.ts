@@ -7,14 +7,14 @@ import { runCommand } from "./integration-runtime.ts";
 import { resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import type { Database } from "../src/server.ts";
+import type { Database } from "../../db-postgres/src/server.ts";
 import type { SchemaDefinition } from "../src/schema.ts";
 
 const url = process.env.HULLADB_TEST_URL!, namespace = process.env.HULLADB_TEST_NAMESPACE!;
 if (!url || !namespace || !process.env.HULLADB_SERVICE) throw new Error("Run through the native service integration target");
 const originalLocation = Object.getOwnPropertyDescriptor(globalThis, "location");
 const root = await mkdtemp(new URL("./service-project-", import.meta.url).pathname);
-const cli = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
+const cli = fileURLToPath(new URL("../../db-cli/src/cli.ts", import.meta.url));
 const generated = resolve(root, "db/_generated");
 const frozenDirectories: string[] = [];
 const config = resolve(root, "db.config.ts"), credentials = resolve(root, "credentials.json");

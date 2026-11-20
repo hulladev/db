@@ -6,7 +6,7 @@ import {
   type Insert as SchemaInsert,
 } from "../src/schema.ts";
 import type { Id, Insert, Patch, Row } from "./generated/types.ts";
-import type { QueryContext, MutationContext } from "../src/server.ts";
+import type { QueryContext, MutationContext } from "../src/database.ts";
 import authoredSchema from "./fixtures/schema.ts";
 
 function contracts(

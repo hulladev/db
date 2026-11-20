@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { DatabaseError } from "@hulla/db";
 import { defineConfig, type DatabaseConnection, type InvocationLimits } from "@hulla/db/config";
-import { createDatabase, type Database } from "@hulla/db/server";
+import { createDatabase, type Database } from "@hulla/db-postgres/server";
 import { compileSchema, type CompiledTable, type SchemaDefinition } from "@hulla/db/schema";
 import type { StudioDeleteResult, StudioPage, StudioRow, StudioSchema } from "./types.ts";
 export type { StudioField, StudioTable, StudioSchema, StudioRow, StudioPage, StudioDeleteResult } from "./types.ts";

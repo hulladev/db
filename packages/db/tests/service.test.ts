@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { defineConfig } from "../src/config.ts";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { startService, verifyServiceIdentity } from "../src/service.ts";
+import { startService, verifyServiceIdentity } from "../../db-postgres/src/service.ts";
 
 test("verified identity pins are stable across object order and change with claims or account", async () => {
   const headers = new Headers({ authorization: "Bearer app-credential" });

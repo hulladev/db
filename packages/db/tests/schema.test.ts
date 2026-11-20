@@ -14,7 +14,7 @@ import {
 import {
   generateFunctions,
   generateSchema,
-} from "../src/codegen.ts";
+} from "../../db-cli/src/codegen.ts";
 import schema from "./fixtures/schema.ts";
 
 const publication = "daily";

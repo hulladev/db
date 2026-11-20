@@ -25,7 +25,9 @@ export interface HttpRuntimeOptions {
   readonly contracts: FunctionContracts;
   /** Supplied by the connected device engine. */
   readonly storage?: ClientStorage;
-  readonly fetch?: typeof globalThis.fetch;
+  readonly fetch?: (url: string, init?: RequestInit) => Promise<Response>;
+  /** Return a fresh, cryptographically secure UUID for each new mutation attempt. */
+  readonly createRequestId?: () => string;
   readonly operationTimeoutMs?: number;
   /** Overall deadline for one-shot reads, including connection recovery. */
   readonly queryTimeoutMs?: number;
@@ -79,7 +81,7 @@ function abortable<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
 export class HttpRuntime implements FunctionRuntime {
   readonly #baseUrl: string;
   readonly #options: HttpRuntimeOptions;
-  readonly #fetch: typeof globalThis.fetch;
+  readonly #fetch: NonNullable<HttpRuntimeOptions["fetch"]>;
   readonly #timeout: number;
   readonly #queryTimeout: number;
   readonly #idleTimeout: number;
@@ -158,12 +160,19 @@ export class HttpRuntime implements FunctionRuntime {
         }
       },
       contract: name => this.#contract({ name, kind: "mutation" }),
+      createRequestId: () => this.#createRequestId(),
       send: (intent, session, recovering, receipt, onStatus) => {
         const pending: PendingMutation = { requestId: intent.requestId, name: intent.name, input: intent.input, source: intent.owner.source, ticket: intent.ticket! };
         this.#pending.set(pending.requestId, pending);
         return this.#track(this.#mutation(pending, this.#contract({ name: intent.name, kind: "mutation" }), session, this.#epoch, this.#lifetime.signal, onStatus, recovering, receipt));
       },
     });
+  }
+  #createRequestId(): string {
+    if (this.#options.createRequestId) return uuid(this.#options.createRequestId());
+    if (typeof globalThis.crypto?.randomUUID !== "function")
+      throw new TypeError("Supply createRequestId using a cryptographically secure UUID provider");
+    return globalThis.crypto.randomUUID();
   }
   registerOfflineResolver(name: string, resolver: OfflineResolver<unknown>): void {
     this.#contract({ name, kind: "mutation" });
@@ -504,7 +513,7 @@ export class HttpRuntime implements FunctionRuntime {
     }
     signal.throwIfAborted(); this.#check(epoch);
     const source = session.source;
-    const pending: PendingMutation = { requestId: crypto.randomUUID(), name: operation.name, input: operation.codecs!.input.encode(operation.input), source, ticket: session.ticket };
+    const pending: PendingMutation = { requestId: this.#createRequestId(), name: operation.name, input: operation.codecs!.input.encode(operation.input), source, ticket: session.ticket };
     try {
       this.#check(epoch); signal.throwIfAborted();
       if (options.optimistic) {

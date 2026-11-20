@@ -28,5 +28,7 @@ the adapter never starts a PostgreSQL server. Generation prepares server-only
 settings without opening the instance, and evaluates environment URLs at hosting
 time. Deploy the generated directory along with the application.
 
-This adapter currently delegates to the core PostgreSQL bridge. Complete native
-asset relocation remains work. See [schema authoring and SQLite](../../docs/sqlite.md).
+This package ships the native PostgreSQL bridge and managed service.
+Run `hulla-db-serve db/server.ts` to serve prepared artifacts in production.
+Generation and local provisioning use the separate `@hulla/db-cli` package.
+See the [deployment guide](../../docs/deployment.md).

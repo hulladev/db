@@ -48,14 +48,17 @@ endpoints and pooled endpoints need separate validation.
 
 ## Install the packages
 
-Install the core SDK and any framework/auth integrations from npm:
+Install the packages for the deployment's execution path. A remote-only client
+uses `@hulla/db`. A PostgreSQL executor adds `@hulla/db-postgres`. Install
+`@hulla/db-cli` in the build and provisioning environments.
 
 ```sh
-npm install @hulla/db@0.1.0
+npm install @hulla/db @hulla/db-postgres
+npm install --save-dev @hulla/db-cli
 ```
 
-The package includes JavaScript, TypeScript declarations and native executables
-for macOS arm64 and Linux x64/glibc. There are no installation-time native downloads
+The PostgreSQL package includes native executables for macOS arm64 and Linux
+x64/glibc. There are no installation-time native downloads
 or runtime Cargo builds. Linux musl/Alpine, Linux arm64 and macOS x64 need separate
 artifacts and execution validation. Missing native targets produce an explicit error.
 
@@ -70,14 +73,14 @@ service. Package maintainers can build and validate archives using the
 From the application with the package installed:
 
 ```sh
-# Build environment: the CLI uses its private runtime and compiler.
+# Build environment: install Bun and the database CLI.
 npx hulla-db generate db.config.ts
 
 # Explicit provisioning step, using an appropriate database credential.
-node node_modules/@hulla/db/dist/cli.js init db.config.ts
+node node_modules/@hulla/db-cli/dist/cli.js init db.config.ts
 
 # Persistent runtime: Node or Bun; no discovery or generation.
-node node_modules/@hulla/db/dist/cli.js serve db.config.ts
+npx --no-install hulla-db-serve db.config.ts
 ```
 
 Include the config, schema, generated artifacts and their dependencies in the
@@ -85,8 +88,30 @@ service deployment. `serve` reads prepared artifacts and verifies existing stora
 Initialization never silently resets incompatible development storage. Provisioning
 and application credentials should have distinct responsibilities.
 
-For local development, `npx hulla-db dev` can manage its own persistent PostgreSQL
-instance when no URL is configured. Production requires `database.server.url` or
+## Use the generated client on edge and serverless runtimes
+
+Generate the client during the build and deploy it alongside `@hulla/db`. Bind
+it to the service's absolute HTTPS URL. A Worker or Lambda handler can call
+the generated functions with request-scoped credentials. Put long-lived
+subscriptions on the service and keep its PostgreSQL pool close to the database.
+Validate the target runtime's HTTP and Web Streams behavior before enabling live
+queries there.
+
+Supply runtime-specific transport hooks at the application entrypoint when
+needed. For example, an Expo app can use its native secure UUID provider for
+mutation request IDs and its streaming fetch implementation.
+
+```ts
+import { fetch } from 'expo/fetch'
+import { randomUUID } from 'expo-crypto'
+import { createClient } from './db/_generated/server/_client'
+
+export const api = createClient({ url: 'https://db.example.com', fetch, createRequestId: randomUUID }).functions
+```
+
+For local development, install `@hulla/db-local-postgres` to let
+`npx hulla-db dev` manage a persistent PostgreSQL instance when no URL is
+configured. Production requires `database.server.url` or
 `DATABASE_URL` and never falls back to local development credentials. The private
 runtime, compiler and PostgreSQL live in separate development assets; production
 file tracing does not need to retain them. See [local setup](browser-service.md).

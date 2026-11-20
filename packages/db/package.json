@@ -2,9 +2,6 @@
   "name": "@hulla/db",
   "version": "0.3.3",
   "type": "module",
-  "bin": {
-    "hulla-db": "./dist/cli.js"
-  },
   "exports": {
     "./bindings": {
       "hulladb-source": "./src/bindings.ts",
@@ -25,21 +22,6 @@
       "hulladb-source": "./src/config.ts",
       "types": "./dist/config.d.ts",
       "default": "./dist/config.js"
-    },
-    "./server": {
-      "hulladb-source": "./src/server.ts",
-      "types": "./dist/server.d.ts",
-      "default": "./dist/server.js"
-    },
-    "./build": {
-      "hulladb-source": "./src/build.ts",
-      "types": "./dist/build.d.ts",
-      "default": "./dist/build.js"
-    },
-    "./codegen": {
-      "hulladb-source": "./src/codegen.ts",
-      "types": "./dist/codegen.d.ts",
-      "default": "./dist/codegen.js"
     },
     "./zod": {
       "hulladb-source": "./src/zod.ts",
@@ -81,10 +63,10 @@
       "types": "./dist/database-connect.d.ts",
       "default": "./dist/database-connect.js"
     },
-    "./internal/postgres": {
-      "hulladb-source": "./src/server-database.ts",
-      "types": "./dist/server-database.d.ts",
-      "default": "./dist/server-database.js"
+    "./internal/codegen": {
+      "hulladb-source": "./src/internal/codegen.ts",
+      "types": "./dist/internal/codegen.d.ts",
+      "default": "./dist/internal/codegen.js"
     }
   },
   "scripts": {
@@ -92,11 +74,9 @@
     "generate:test": "bun --conditions=hulladb-source tests/generate.ts",
     "typecheck": "bun run generate:test && tsc --noEmit",
     "test": "bun run generate:test && bun --conditions=hulladb-source test tests/*.test.ts",
-    "build": "bun scripts/build.ts",
+    "build": "bun scripts/build-binding.ts",
     "build:native": "bun scripts/build-native.ts",
-    "build:postgres": "bun scripts/build-postgres.ts",
-    "build:development": "bun scripts/build-development.ts",
-    "prepack": "bun run build && bun scripts/check-package.ts"
+    "build:postgres": "bun scripts/build-postgres.ts"
   },
   "devDependencies": {
     "acorn": "8.19.0",
@@ -107,12 +87,11 @@
     "zod": "4.6.7",
     "typescript": "7.0.2",
     "@hulla/db-postgres": "workspace:*",
-    "@hulla/db-sqlite": "workspace:*"
+    "@hulla/db-sqlite": "workspace:*",
+    "@hulla/db-cli": "workspace:*"
   },
   "files": [
     "dist",
-    "native",
-    "development",
     "README.md",
     "LICENSE"
   ],

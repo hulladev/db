@@ -10,6 +10,7 @@ export interface QueueGateway {
   context(): { readonly key: string; readonly signal: AbortSignal };
   session(): Promise<QueueSession>;
   contract(name: string): FunctionCodecs;
+  createRequestId(): string;
   send(intent: QueuedMutation, session: QueueSession, recovering: boolean, receipt: (receipt: Receipt) => Promise<void>, onStatus?: (status: "recovering") => void): Promise<unknown>;
 }
 type Failure = { code: string; message: string; details?: import("./error.ts").DatabaseErrorDetails; application?: boolean };
@@ -64,7 +65,7 @@ export class OfflineQueue {
       owner = { source: verified.source, scope: verified.scope, principal: verified.principal, authorizationScope: verified.authorizationScope };
     }
     signal.throwIfAborted();
-    const id = crypto.randomUUID();
+    const id = this.#gateway.createRequestId();
     const intent: QueuedMutation = { id, requestId: id, name: operation.name, input: operation.codecs!.input.encode(operation.input), owner, attempt: 1, state: "queued" };
     await this.#storage.enqueue(key, intent);
     signal.throwIfAborted();
@@ -200,7 +201,7 @@ export class OfflineQueue {
     if (resolution.action === "retry") {
       if (intent.attempt >= 16) throw new DatabaseError({ code: "execution_limit", message: "Offline conflict retry limit reached; the queued call was retained" });
       const { ticket: _ticket, error: _error, result: _result, ...base } = intent;
-      next = { ...base, state: "queued", requestId: crypto.randomUUID(), input: this.#gateway.contract(intent.name).input.encode(resolution.input), attempt: intent.attempt + 1 };
+      next = { ...base, state: "queued", requestId: this.#gateway.createRequestId(), input: this.#gateway.contract(intent.name).input.encode(resolution.input), attempt: intent.attempt + 1 };
     } else next = { ...intent, state: "failed" };
     if (!await this.#storage.update(key, next, intent)) throw new DatabaseError({ code: "context_changed", message: "The queued conflict changed while it was being resolved" });
     this.#deferred.delete(id);

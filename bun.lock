@@ -16,6 +16,7 @@
       },
       "devDependencies": {
         "@hulla/db": "workspace:*",
+        "@hulla/db-postgres": "workspace:*",
         "@types/bun": "1.4.2",
         "@types/node": "26.2.0",
         "better-auth": "1.7.12",
@@ -29,10 +30,8 @@
     "packages/db": {
       "name": "@hulla/db",
       "version": "0.3.3",
-      "bin": {
-        "hulla-db": "./dist/cli.js",
-      },
       "devDependencies": {
+        "@hulla/db-cli": "workspace:*",
         "@hulla/db-postgres": "workspace:*",
         "@hulla/db-sqlite": "workspace:*",
         "@hulla/db-studio": "workspace:*",
@@ -50,30 +49,45 @@
         "zod",
       ],
     },
-    "packages/db-expo": {
-      "name": "@hulla/db-expo",
+    "packages/db-cli": {
+      "name": "@hulla/db-cli",
       "version": "0.3.3",
+      "bin": {
+        "hulla-db": "./dist/cli.js",
+      },
+      "dependencies": {
+        "typescript": "7.0.2",
+      },
       "devDependencies": {
         "@hulla/db": "workspace:*",
-        "@hulla/db-sqlite": "workspace:*",
+        "@hulla/db-local-postgres": "workspace:*",
+        "@hulla/db-postgres": "workspace:*",
+        "@hulla/db-studio": "workspace:*",
         "@types/bun": "1.4.2",
         "@types/node": "26.2.0",
-        "typescript": "7.0.2",
       },
       "peerDependencies": {
         "@hulla/db": "^0.3.3",
-        "@hulla/db-sqlite": "^0.3.3",
-        "expo-crypto": "*",
-        "expo-sqlite": "*",
+        "@hulla/db-local-postgres": "^0.3.3",
+        "@hulla/db-postgres": "^0.3.3",
+        "@hulla/db-studio": "^0.3.3",
       },
       "optionalPeers": [
-        "expo-crypto",
-        "expo-sqlite",
+        "@hulla/db-local-postgres",
+        "@hulla/db-postgres",
+        "@hulla/db-studio",
       ],
+    },
+    "packages/db-local-postgres": {
+      "name": "@hulla/db-local-postgres",
+      "version": "0.3.3",
     },
     "packages/db-postgres": {
       "name": "@hulla/db-postgres",
       "version": "0.3.3",
+      "bin": {
+        "hulla-db-serve": "./dist/serve.js",
+      },
       "devDependencies": {
         "@hulla/db": "workspace:*",
         "@types/bun": "1.4.2",
@@ -95,7 +109,13 @@
       },
       "peerDependencies": {
         "@hulla/db": "^0.3.3",
+        "expo-crypto": "*",
+        "expo-sqlite": "*",
       },
+      "optionalPeers": [
+        "expo-crypto",
+        "expo-sqlite",
+      ],
     },
     "packages/react": {
       "name": "@hulla/db-react",
@@ -136,6 +156,7 @@
         "@fontsource-variable/schibsted-grotesk": "5.3.0",
         "@fontsource/ibm-plex-mono": "5.3.0",
         "@hulla/db": "workspace:*",
+        "@hulla/db-postgres": "workspace:*",
         "@hulla/style": "0.4.0",
         "@types/bun": "1.4.2",
         "@types/node": "26.2.0",
@@ -144,6 +165,7 @@
       },
       "peerDependencies": {
         "@hulla/db": "^0.3.3",
+        "@hulla/db-postgres": "^0.3.3",
       },
     },
     "packages/svelte": {
@@ -246,7 +268,9 @@
 
     "@hulla/db-better-auth": ["@hulla/db-better-auth@workspace:packages/better-auth"],
 
-    "@hulla/db-expo": ["@hulla/db-expo@workspace:packages/db-expo"],
+    "@hulla/db-cli": ["@hulla/db-cli@workspace:packages/db-cli"],
+
+    "@hulla/db-local-postgres": ["@hulla/db-local-postgres@workspace:packages/db-local-postgres"],
 
     "@hulla/db-postgres": ["@hulla/db-postgres@workspace:packages/db-postgres"],
 

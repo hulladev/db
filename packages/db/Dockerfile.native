@@ -17,13 +17,8 @@ WORKDIR /build
 COPY package.json bun.lock ./
 COPY packages ./packages
 RUN bun install --frozen-lockfile --ignore-scripts
-RUN bun run --cwd packages/db build:postgres && bun run --cwd packages/db build:development
+RUN bun run --cwd packages/db build:postgres
 
 FROM scratch AS artifacts
 COPY --from=build /native /native
-COPY --from=development /build/packages/db/native/linux-x64/hulladb-dev /native/hulladb-dev
-COPY --from=development /build/packages/db/native/linux-x64/compiler /native/compiler
-COPY --from=development /build/packages/db/native/linux-x64/postgres /native/postgres
-COPY --from=development /build/packages/db/native/linux-x64/BUN-LICENSE.md /native/BUN-LICENSE.md
-COPY --from=development /build/packages/db/native/linux-x64/development.json /native/development.json
-COPY --from=development /build/packages/db/development /development
+COPY --from=development /build/packages/db-local-postgres/native/linux-x64/ /local-postgres/

@@ -1,5 +1,5 @@
-import { generateFunctions, generateSchema } from "../src/codegen.ts";
-import { compileWorker } from "../src/worker-codegen.ts";
+import { generateFunctions, generateSchema } from "../../db-cli/src/codegen.ts";
+import { compileWorker } from "../../db-cli/src/worker-codegen.ts";
 
 await generateSchema({
   schema: new URL("./fixtures/schema.ts", import.meta.url).pathname,

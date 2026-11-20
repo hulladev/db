@@ -6,8 +6,8 @@ imports are inert. Initialize an application database with `sqlite({...})` from
 
 TypeScript supports local SQLite storage, authorized query downloads into
 readonly replicas, and durable queued server mutations with explicit conflict
-callbacks. A native Rust SQLite database driver, SQLite managed HTTP hosting and
-complete relocation of PostgreSQL native assets remain separate work. The Rust
+callbacks. A native Rust SQLite database driver and SQLite managed HTTP hosting
+remain separate work. The Rust
 client's existing SQLite result/recovery cache is a different capability.
 
 ## Reusable declarations
@@ -178,7 +178,7 @@ const db = sqlite({
 
 Globs resolve relative to the file declaring the `functions` option. Managed-worker
 generation compiles them automatically. Direct applications enable
-[`functionGlobs()` from `@hulla/db/build`](build.md) in their Bun or Vite/Rollup build;
+[`functionGlobs()` from `@hulla/db-cli/build`](build.md) in their Bun or Vite/Rollup build;
 the integration replaces literal glob properties with module imports without executing
 application startup during the build. An uncompiled glob rejects before storage
 opens. No filesystem scanning occurs in the running application.
@@ -213,13 +213,13 @@ const db = sqlite({
 })
 ```
 
-For Expo, install `@hulla/db-expo` with the matching `@hulla/db` and
-`@hulla/db-sqlite` release. Run `npx expo install expo-sqlite expo-crypto` to
+For Expo, install matching versions of `@hulla/db` and `@hulla/db-sqlite`.
+Run `npx expo install expo-sqlite expo-crypto` to
 match the application's Expo SDK. The adapter opens a dedicated connection and
 uses Expo Crypto when Web Crypto is unavailable.
 
 ```ts
-import { sqlite } from '@hulla/db-expo'
+import { sqlite } from '@hulla/db-sqlite/expo'
 
 const db = sqlite({
   schema,
@@ -227,10 +227,9 @@ const db = sqlite({
 })
 ```
 
-Starting with 0.3.4, migrate imports from `@hulla/db-sqlite/expo` to
-`@hulla/db-expo`. Keep the existing filename and schema to preserve saved data.
+Keep the existing filename and schema when switching from a custom opener.
 If the connection needs custom options, pass `open` instead of `filename` and
-wrap a fresh native connection with `expoSQLiteDriver` from `@hulla/db-expo`.
+wrap a fresh native connection with `expoSQLiteDriver` from `@hulla/db-sqlite/expo`.
 Use `randomBytes` to supply a custom secure entropy provider.
 
 SQLite supports scalar/JSON columns, defaults, codecs, UUIDs, scalar filters,

@@ -33,7 +33,8 @@
     "better-auth": "1.7.12",
     "@types/bun": "1.4.2",
     "typescript": "7.0.2",
-    "@types/node": "26.2.0"
+    "@types/node": "26.2.0",
+    "@hulla/db-postgres": "workspace:*"
   },
   "engines": {
     "node": ">=22.18.0"

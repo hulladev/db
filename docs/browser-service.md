@@ -79,17 +79,18 @@ This example uses Zod as the application's Standard Schema validator. It is not 
 required database dependency. Function discovery includes query/mutation declarations;
 ordinary exported helpers do not become endpoints.
 
-Start development:
+Install Bun and the database CLI for development. Add the local server package
+to provision a PostgreSQL instance automatically:
 
 ```sh
+npm install --save-dev @hulla/db-cli @hulla/db-local-postgres
 npx hulla-db dev db.config.ts
 ```
 
-`dev` uses a private bundled runtime and compiler to generate bindings and the
-handler bundle, start the service, and restart it after source changes. Bun,
-TypeScript, PostgreSQL and Docker do not need to be installed separately.
-With no server URL or `DATABASE_URL`, it starts its own foreground PostgreSQL
-process and initializes that database. Storage persists in `.hulla/postgres`;
+`dev` uses Bun and the CLI's TypeScript dependency to generate bindings, start
+the service, and restart it after source changes. With no server URL or
+`DATABASE_URL`, it starts PostgreSQL from `@hulla/db-local-postgres` and
+initializes that database. Storage persists in `.hulla/postgres`;
 the private connection lives in `.hulla/local.json`. Add `.hulla/` to the application's
 `.gitignore`. Generated server imports find this connection from a separate Node/Bun
 application, independent of its working directory. If `database.client` is omitted,
@@ -122,12 +123,11 @@ For startup from prepared artifacts, generate during your build step, then use
 `serve` in the runtime you choose:
 
 ```sh
-# Build step: the CLI uses its packaged runtime and compiler.
+# Build step on a machine with Bun installed.
 npx hulla-db generate db.config.ts
 
 # Runtime step: choose Node or Bun.
-node node_modules/@hulla/db/dist/cli.js serve db.config.ts
-# bun node_modules/@hulla/db/dist/cli.js serve db.config.ts
+npx --no-install hulla-db-serve db.config.ts
 ```
 
 `serve` loads existing artifacts and verifies existing storage. It does not run
@@ -137,11 +137,10 @@ in the deployment. Missing artifacts produce an error with a generation instruct
 The auth verifier executes in the chosen Node or Bun process; handler declarations
 execute in the same restricted native engine in either case.
 
-The npm package contains compiled JavaScript and native binaries for macOS arm64
-and Linux x64/glibc. Node services and the CLI require Node 22.18+; generation and
-`dev` use packaged development assets. Application database calls and `serve` do
-not load the compiler, development runtime or local PostgreSQL binaries. Production
-requires an explicit PostgreSQL URL. Commands default to `db.config.ts` in the current directory.
+`@hulla/db-postgres` contains compiled JavaScript and native binaries for macOS
+arm64 and Linux x64/glibc. The service runs on Node 22.18+ or Bun and requires an
+explicit PostgreSQL URL. Generation and `dev` use Bun and the CLI's TypeScript
+dependency. Commands default to `db.config.ts` in the current directory.
 
 `HULLADB_SERVICE`, `HULLADB_ENGINE` and `HULLADB_JS` optionally select separately
 installed compatible executables. Ordinary installations use the binaries bundled

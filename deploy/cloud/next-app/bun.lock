@@ -6,11 +6,13 @@
       "name": "hulla-cloud-compatibility-fixture",
       "dependencies": {
         "@hulla/db": "file:./hulla-db.tgz",
+        "@hulla/db-postgres": "file:./hulla-db-postgres.tgz",
         "next": "16.4.2",
         "react": "19.2.5",
         "react-dom": "19.2.5",
       },
       "devDependencies": {
+        "@hulla/db-cli": "file:./hulla-db-cli.tgz",
         "@types/node": "22.18.0",
         "@types/react": "19.2.2",
         "@types/react-dom": "19.2.2",
@@ -22,7 +24,11 @@
   "packages": {
     "@emnapi/runtime": ["@emnapi/runtime@1.11.3", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-Xz4Tpyki7XyrpbUK1jR1AhdAdaXyhhY4lZ3neLodmhpuWfy2PAQN5B46sAiU4liOXGLkHypn/qU+jvfWSCYYLA=="],
 
-    "@hulla/db": ["@hulla/db@./hulla-db.tgz", { "peerDependencies": { "typescript": "7.0.2", "zod": "^4.0.0" }, "optionalPeers": ["typescript", "zod"], "bin": { "hulla-db": "./dist/cli.js" } }, "sha512-Ry8CGotkgs2pGSUOUnDWb051waWttqUHy2sWoik8loD74rnbvr4bUIgB2D+T9KQtbo9YgM7plXNksAv6p/RdrQ=="],
+    "@hulla/db": ["@hulla/db@./hulla-db.tgz", {"peerDependencies": {"zod": "^4.0.0"}, "optionalPeers": ["zod"]}, "sha512-6KGK4G6OZ9+OIy6mIDpXnY0JsJ7ElanggURk4D4CdcDCySVW4b2+7LbscS9byPE7jDKOj9PtwFJQeXvVpSPvgA=="],
+
+    "@hulla/db-cli": ["@hulla/db-cli@./hulla-db-cli.tgz", {"dependencies": {"typescript": "7.0.2"}, "peerDependencies": {"@hulla/db": "^0.3.3", "@hulla/db-local-postgres": "^0.3.3", "@hulla/db-postgres": "^0.3.3", "@hulla/db-studio": "^0.3.3"}, "optionalPeers": ["@hulla/db-local-postgres", "@hulla/db-postgres", "@hulla/db-studio"], "bin": {"hulla-db": "./dist/cli.js"}}, "sha512-LBAJ76vrCbG3HCALFCGN+1jzWC47D8nIBuNrQKR0iNafZtrItr3XJz6TYjad9XjsIyoxscZVOrRu8VPv+BjsUQ=="],
+
+    "@hulla/db-postgres": ["@hulla/db-postgres@./hulla-db-postgres.tgz", {"peerDependencies": {"@hulla/db": "^0.3.3"}, "bin": {"hulla-db-serve": "./dist/serve.js"}}, "sha512-pVXlnngNm9sjZYvmV7BmYSmTIY334eEG8RO0Az+sAZx+Pox5TBHUaA4dAGY1pV2iFhZuHQPWP/sn25KhPZs0gw=="],
 
     "@img/colour": ["@img/colour@1.1.0", "", {}, "sha512-Td76q7j57o/tLVdgS746cYARfSyxk8iEfRxewL9h4OMzYhbW4TAcppl0mT4eyqXddh6L/jwoM75mo7ixa/pCeQ=="],
 

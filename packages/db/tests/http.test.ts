@@ -1,5 +1,6 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { HttpRuntime, type HttpRuntimeOptions } from "../src/http.ts";
+import { bindClientFunctions, createBrowserRuntime } from "../src/browser.ts";
 import { DatabaseError, type ClientAuthState, type QueryState, type MutationState } from "../src/index.ts";
 import { valueCodec } from "../src/codec.ts";
 import { queryBinding } from "../src/callable.ts";
@@ -128,6 +129,26 @@ function setup(model = peer(), extra: Partial<HttpRuntimeOptions> = {}) {
     },
   };
 }
+
+test("a generated client can use host-provided fetch and secure mutation IDs", async () => {
+  const model = peer();
+  const requestId = "2e527c0a-7af1-4ce2-b40c-931e6fb012e3";
+  const client = createBrowserRuntime(contracts, {
+    url: baseUrl,
+    auth: { key: "alice" },
+    headers: { authorization: "Bearer alice" },
+    fetch: model.fetch,
+    createRequestId: () => requestId,
+  });
+  cleanups.push(client.dispose);
+  const api = bindClientFunctions(client.runtime, { create, pending });
+  const states: QueryState<unknown>[] = [];
+  cleanups.push(api.pending.subscribe(state => states.push(state)));
+  await until(() => states.at(-1)?.status === "success");
+  await api.create({ title: "Portable write" });
+  await until(() => states.some(state => state.status === "success" && JSON.stringify(state.data).includes("Portable write")));
+  expect(model.submissions).toEqual([requestId]);
+});
 
 test("app-owned expiry retires private handles and live state before anonymous calls", async () => {
   const { adapter, model, authenticate } = setup();

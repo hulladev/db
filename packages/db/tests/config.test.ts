@@ -4,8 +4,8 @@ import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promis
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { defineConfig } from "../src/config.ts";
-import { generateProject } from "../src/codegen.ts";
-import { runtimeExportConditions } from "../src/runtime-conditions.ts";
+import { generateProject } from "../../db-cli/src/codegen.ts";
+import { runtimeExportConditions } from "../../db-cli/src/runtime-conditions.ts";
 import { API } from "typescript/unstable/async";
 
 const url = "postgresql://app:private-password@127.0.0.1:1/app";

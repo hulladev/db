@@ -190,7 +190,7 @@ a validation-library AST. Register tables containing string references with
 
 ```ts
 // db/generate.ts — run with Bun in the trusted build environment
-import { generateSchema } from '@hulla/db/codegen'
+import { generateSchema } from '@hulla/db-cli/codegen'
 
 await generateSchema({
   schema: new URL('./schema.ts', import.meta.url).pathname,

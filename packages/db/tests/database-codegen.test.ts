@@ -1,19 +1,19 @@
 import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { exportedDatabase, generateDatabase } from "../src/database-codegen.ts";
+import { exportedDatabase, generateDatabase } from "../../db-cli/src/database-codegen.ts";
 import { executeDefinition } from "../src/declarations.ts";
 import { defineSchema, defineTable, v } from "../src/index.ts";
 import { sqlite } from "@hulla/db-sqlite";
 import { initializeDatabase } from "./fixtures/sqlite.ts";
 import { primary } from "./fixtures/database-server.ts";
 import { byWorkspace } from "./fixtures/database-functions.ts";
-import { runtimeExportConditions } from "../src/runtime-conditions.ts";
+import { runtimeExportConditions } from "../../db-cli/src/runtime-conditions.ts";
 import type { FunctionRuntime } from "../src/contracts.ts";
 import type { QueryCallable } from "../src/callable.ts";
-import { compileWorker } from "../src/worker-codegen.ts";
-import { generateProject } from "../src/project-codegen.ts";
-import { loadHostConfiguration } from '../src/host-configuration.ts';
+import { compileWorker } from "../../db-cli/src/worker-codegen.ts";
+import { generateProject } from "../../db-cli/src/project-codegen.ts";
+import { loadHostConfiguration } from '../../db-postgres/src/host-configuration.ts';
 
 test('prepared PostgreSQL hosting reads deployment settings without running eager database startup', async () => {
   const directory = await mkdtemp(new URL('./.host-codegen-', import.meta.url).pathname);
@@ -63,7 +63,7 @@ test("generated granular and namespace replica queries share callables, enforce 
     await Bun.write(join(directory, "server.ts"), `export { primary } from ${JSON.stringify(serverSource)}\n`);
     await Bun.write(join(directory, "tasks.ts"), `export { byWorkspace } from ${JSON.stringify(functionSource)}\nimport { defineSchema, defineTable, v } from ${JSON.stringify(new URL("../src/index.ts", import.meta.url).pathname)}\nconst other = defineSchema({ tasks: defineTable({ title: v.string() }) })\nexport const otherOperation = other.query(() => "OTHER_DATABASE")\n`);
     await db.insert("tasks", { workspace: "alice", title: "Public", internalNotes: "PRIVATE_COLUMN" });
-    const child = Bun.spawn([process.execPath, "--conditions=hulladb-source", new URL("../src/cli.ts", import.meta.url).pathname, "generate", join(directory, "server.ts")], { stdout: "pipe", stderr: "pipe", timeout: 15_000 });
+    const child = Bun.spawn([process.execPath, "--conditions=hulladb-source", new URL("../../db-cli/src/cli.ts", import.meta.url).pathname, "generate", join(directory, "server.ts")], { stdout: "pipe", stderr: "pipe", timeout: 15_000 });
     const [exit, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
     expect({ exit, stderr: exit === 0 ? "" : stderr }).toEqual({ exit: 0, stderr: "" });
     // Regeneration must accept its own compiled worker without overwriting authored files.

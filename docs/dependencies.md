@@ -1,16 +1,14 @@
 # Dependency boundaries
 
 Updated 6 November 2026. The first sections describe assets/features present in the
-checkout. The [architecture](architecture.md#packages-and-development-tooling) gives
-the intended engine-neutral package boundaries; extraction and delivery changes
-remain unfinished. Current packaging is not a requirement to bundle every engine
-or development executable permanently.
+checkout. See the [architecture](architecture.md#packages-and-development-tooling)
+for package ownership and deployment boundaries.
 
 The SDK has no required npm runtime dependencies. Browser bindings and production
-Node/Bun entrypoints use platform APIs. Generation and `dev` use a privately packaged
-Bun runtime and TypeScript 7.0.2 compiler, rather than an application peer dependency.
-Development assets include a local PostgreSQL 18.6 build; an explicit connection
-does not start or initialize it. Production entrypoints do not load this tooling.
+Node/Bun entrypoints use platform APIs. Generation and `dev` use the developer's
+Bun installation and the pinned TypeScript dependency of `@hulla/db-cli`.
+The optional `@hulla/db-local-postgres` package contains a local PostgreSQL 18.6
+build for managed development.
 Zod 4 is an optional peer for `@hulla/db/zod`: applications
 choosing that adapter supply it; ordinary core entrypoints do not import it.
 Valibot and `@types/*` remain development fixtures/tooling. Prepared `serve` does not import the
@@ -19,21 +17,17 @@ or installation-time downloads.
 
 The optional `@hulla/db-sqlite` package uses the built-in SQLite implementations
 on Node and Bun. Its browser entrypoint accepts a dedicated connection to
-official SQLite WASM. `@hulla/db-expo` owns the `expo-sqlite` and `expo-crypto`
-peers and uses the same portable SQLite engine. Expo applications install the
+official SQLite WASM. The `/expo` entrypoint uses the same portable engine and
+loads `expo-sqlite` and `expo-crypto` as optional peers. Expo applications install the
 native modules for their SDK version. Other platforms without Web Crypto supply
 their secure entropy provider through `randomBytes`.
 
 The currently packaged local PostgreSQL is built from the official 18.6 source archive with its pinned
 SHA-256. The build disables optional ICU, readline, compression and TLS libraries;
-it listens on loopback with PostgreSQL's SCRAM authentication. Original PostgreSQL,
-TypeScript and bundled Bun notices accompany the assets. The October 26 check of
+it listens on loopback with PostgreSQL's SCRAM authentication. The local asset
+package includes the original PostgreSQL copyright notice. The October 26 check of
 [PostgreSQL 18 advisories](https://www.postgresql.org/support/security/18/) found no
 listed fix newer than 18.6. This is scoped to the added PostgreSQL dependency.
-The distributed Bun runtime is pinned to 1.4.4, which includes the upstream
-[October 22 security fixes](https://bun.sh/blog/bun-v1.4.4). This avoids shipping
-the older maintainer runtime as a newly introduced application dependency.
-
 Separate UI packages use their matching framework and `@hulla/db` as peers.
 `@hulla/db-better-auth` uses Better Auth as a peer and its already-resolved
 `@better-auth/core` 1.7.12 package directly for portable schema discovery. The
@@ -43,20 +37,12 @@ npm advisory check, not a new Rust workspace audit.
 
 ## Adapter and tooling direction
 
-`@hulla/db` owns shared TypeScript declarations and contracts. The optional
-`@hulla/db-postgres` and `@hulla/db-sqlite` adapters own engine integration.
-PostgreSQL bridge/hosting code still resides partly in core; asset extraction is
-incomplete. A PostgreSQL connection needs its driver/bridge, not a PostgreSQL server
-executable on the application host. SQLite-only consumers should not receive those
-server assets or development compilers merely by installing core.
-
-A small isolated CLI entrypoint can remain with the SDK without entering runtime
-bundles. Delegation from the existing `hulla` CLI is under review; no additional
-mandatory tooling package or new command routing has been implemented. The current
-Bun-only development implementation does not rule out Node/Bun CLI support or
-standalone distribution. Automatic local provisioning and npm binary inclusion are
-separate choices; managed engine-aware development and first-run asset delivery
-still need review.
+`@hulla/db` ships the shared TypeScript declarations, client and observations.
+`@hulla/db-sqlite` owns embedded SQLite integration. `@hulla/db-postgres` ships
+the PostgreSQL bridge, hosted service and handler executable.
+`@hulla/db-cli` ships generation and development commands. Install
+`@hulla/db-local-postgres` to opt into a managed local server. Production
+services use `hulla-db-serve` from `@hulla/db-postgres`.
 
 The Rust public direction is `hulladb` plus optional `hulladb_postgres` and
 `hulladb_sqlite`, usable by client/server applications. The current SDK still defaults

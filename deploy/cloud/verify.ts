@@ -8,14 +8,15 @@ import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:net';
 
 // A local deployment-shape proof. No cloud account or provider resource is used.
-const tarball = process.argv[2];
-if (!tarball || !process.env.HULLADB_TEST_URL) throw new Error('Usage: HULLADB_TEST_URL=... bun deploy/cloud/verify.ts /absolute/hulla-db.tgz');
+const [core, postgres, cli] = process.argv.slice(2);
+if (!core || !postgres || !cli || !process.env.HULLADB_TEST_URL)
+  throw new Error('Usage: HULLADB_TEST_URL=... bun deploy/cloud/verify.ts <core.tgz> <postgres.tgz> <cli.tgz>');
 const source = fileURLToPath(new URL('./next-app', import.meta.url));
 const root = await mkdtemp(join(tmpdir(), 'hulla-cloud-proof-'));
 const app = join(root, 'build'), runtime = join(root, 'runtime');
 const namespace = `cloud_fixture_${Date.now()}_${process.pid}`;
 const cookie = `fixture-${crypto.randomUUID()}-${crypto.randomUUID()}`;
-const packageHash = createHash('sha256').update(await readFile(resolve(tarball))).digest('hex');
+const packageHashes: Record<string, string> = {};
 const nodeLookup = Bun.spawnSync([process.env.NODE_BINARY ?? Bun.which('node')!, '-p', 'process.execPath']);
 if (nodeLookup.exitCode !== 0) throw new Error('A working Node binary is required');
 const node = nodeLookup.stdout.toString().trim();
@@ -57,34 +58,42 @@ async function files(root: string): Promise<string[]> {
     entry.isDirectory() ? files(join(root, entry.name)) : [join(root, entry.name)]))).flat();
 }
 try {
-  await cp(source, app, { recursive: true, filter: path => !path.split(/[\\/]/).some(part => ['node_modules', '.next', '_generated', 'hulla-db.tgz'].includes(part)) });
+  await cp(source, app, { recursive: true, filter: path => !path.split(/[\\/]/).some(part => ['node_modules', '.next', '_generated'].includes(part) || /^hulla-db.*\.tgz$/.test(part)) });
   // Content-address the local archive: a previous lockfile must not reuse an
   // older unpublished tarball with the same package name/version.
-  const archive = `hulla-db-${packageHash}.tgz`;
-  await cp(resolve(tarball), join(app, archive));
   const packagePath = join(app, 'package.json');
   const manifest = JSON.parse(await readFile(packagePath, 'utf8'));
-  manifest.dependencies['@hulla/db'] = `file:./${archive}`;
+  for (const [name, tarball, group] of [
+    ['db', core, 'dependencies'],
+    ['db-postgres', postgres, 'dependencies'],
+    ['db-cli', cli, 'devDependencies'],
+  ] as const) {
+    const hash = createHash('sha256').update(await readFile(resolve(tarball))).digest('hex');
+    packageHashes[name] = hash;
+    const archive = `hulla-${name}-${hash}.tgz`;
+    await cp(resolve(tarball), join(app, archive));
+    manifest[group][`@hulla/${name}`] = `file:./${archive}`;
+  }
   await writeFile(packagePath, JSON.stringify(manifest, null, 2));
   await writeFile(env.FIXTURE_SESSION_STATUS_FILE, 'active');
   console.log(`Fixture workspace: ${root}`);
   await command([process.execPath, 'install', '--ignore-scripts']);
-  await command([process.execPath, '--bun', 'node_modules/@hulla/db/dist/cli.js', 'generate']);
-  await command([node, 'node_modules/@hulla/db/dist/cli.js', 'init']);
+  await command([process.execPath, '--bun', 'node_modules/@hulla/db-cli/dist/cli.js', 'generate']);
+  await command([node, 'node_modules/@hulla/db-cli/dist/cli.js', 'init']);
   console.log('Installed package generated and initialized outside the checkout.');
   console.log(await command([node, 'node_modules/next/dist/bin/next', 'build', '--webpack']));
   await cp(join(app, '.next/standalone'), runtime, { recursive: true });
   await mkdir(join(runtime, '.next'), { recursive: true });
   await cp(join(app, '.next/static'), join(runtime, '.next/static'), { recursive: true });
-  const native = join(runtime, `node_modules/@hulla/db/native/${process.platform}-${process.arch}/hulladb-bridge`);
+  const native = join(runtime, `node_modules/@hulla/db-postgres/native/${process.platform}-${process.arch}/hulladb-bridge`);
   assert((await readFile(native)).length > 0, 'Standalone tracing omitted the native bridge');
-  assert((await readFile(join(runtime, 'node_modules/@hulla/db/package.json'), 'utf8')).includes('dist/server.js'));
+  assert((await readFile(join(runtime, 'node_modules/@hulla/db-postgres/package.json'), 'utf8')).includes('dist/server.js'));
   for (const path of await files(join(runtime, '.next/static'))) {
     const content = await readFile(path, 'utf8');
     assert(!content.includes(cookie) && !content.includes(env.DATABASE_URL!), 'Private credential leaked into browser asset');
   }
   const runtimeEnv = { ...env, PATH: `${dirname(node)}:/usr/bin:/bin` };
-  service = Bun.spawn([node, join(app, 'node_modules/@hulla/db/dist/cli.js'), 'serve', join(app, 'db.config.ts')], { cwd: app, env: runtimeEnv, stdout: 'pipe', stderr: 'pipe' });
+  service = Bun.spawn([node, join(app, 'node_modules/@hulla/db-postgres/dist/serve.js'), join(app, 'db.config.ts')], { cwd: app, env: runtimeEnv, stdout: 'pipe', stderr: 'pipe' });
   void capture(service.stdout as ReadableStream<Uint8Array>, text => { serviceLog += text; });
   void capture(service.stderr as ReadableStream<Uint8Array>, text => { serviceLog += text; });
   web = Bun.spawn([node, 'server.js'], { cwd: runtime, env: { ...runtimeEnv, HOSTNAME: '127.0.0.1', PORT: String(webPort) }, stdout: 'pipe', stderr: 'pipe' });
@@ -132,7 +141,7 @@ try {
   await writeFile(env.FIXTURE_SESSION_STATUS_FILE, 'revoked');
   await page.waitForFunction(() => document.querySelector('[data-testid=live-status]')?.textContent?.startsWith('error:'));
   assert.equal(await page.getByTestId('live-tasks').textContent(), '', 'Revoked live query retained protected rows');
-  await writeFile(join(root, 'result.json'), JSON.stringify({ namespace, packageSha256: packageHash, node: await command([node, '--version']), next: '16.4.2', react: '19.2.5', package: '0.1.0', tracedBridge: native, checks: ['standalone tracing', 'SSR', 'route write', 'server action write', 'grouped rollback', 'browser live updates', 'anonymous rejection', 'revoked live query clears data', 'no browser credentials'], deployment: false }, null, 2));
+  await writeFile(join(root, 'result.json'), JSON.stringify({ namespace, packageHashes, node: await command([node, '--version']), next: '16.4.2', react: '19.2.5', tracedBridge: native, checks: ['standalone tracing', 'SSR', 'route write', 'server action write', 'grouped rollback', 'browser live updates', 'anonymous rejection', 'revoked live query clears data', 'no browser credentials'], deployment: false }, null, 2));
   console.log(`Cloud-shape local proof passed. Evidence: ${join(root, 'result.json')}`);
 } catch (error) {
   console.error(`Service output: ${serviceLog}\nNext output: ${webLog}`);

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { resolve } from "node:path";
-import { generateFunctions } from "../src/codegen.ts";
+import { generateFunctions } from "../../db-cli/src/codegen.ts";
 import { valueCodec, type ValueShape } from "../src/codec.ts";
 import { executeDefinition } from "../src/declarations.ts";
 

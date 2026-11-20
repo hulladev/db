@@ -101,17 +101,17 @@ jobs:
         run: |
           bun run --cwd packages/db build:native
           bun run --cwd packages/db build:postgres
-          bun run --cwd packages/db build:development
       - name: Build Linux assets on the supported Debian 12 baseline
         if: matrix.platform == 'linux-x64'
         run: |
           docker build --platform linux/amd64 -f packages/db/Dockerfile.native --output type=local,dest=/tmp/hulladb-native .
           bun run --cwd packages/db build:native --from /tmp/hulladb-native/native --platform linux-x64
-          bun run --cwd packages/db build:development --from /tmp/hulladb-native/native --platform linux-x64
+          mkdir -p packages/db-local-postgres/native/linux-x64
+          cp -a /tmp/hulladb-native/local-postgres/. packages/db-local-postgres/native/linux-x64/
       - name: Archive native assets preserving executable modes
         env:
           PLATFORM: ${{ matrix.platform }}
-        run: tar -czf "$RUNNER_TEMP/native-$PLATFORM.tgz" -C packages/db "native/$PLATFORM" development
+        run: tar -czf "$RUNNER_TEMP/native-$PLATFORM.tgz" "packages/db-postgres/native/$PLATFORM" "packages/db-local-postgres/native/$PLATFORM"
       - uses: actions/upload-artifact@v6
         with:
           name: native-${{ matrix.platform }}
@@ -150,9 +150,9 @@ jobs:
       - name: Stage both supported native platforms
         run: |
           for archive in .release/native/*.tgz; do
-            tar -xzf "$archive" -C packages/db
+            tar -xzf "$archive"
           done
-          chmod +x packages/db/native/*/hulladb-*
+          chmod +x packages/db-postgres/native/*/hulladb-*
           cargo build -p hulladb_js --locked
       - name: Check release sources and consumers
         run: bun run release:check:npm

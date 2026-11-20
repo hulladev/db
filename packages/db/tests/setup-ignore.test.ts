@@ -2,8 +2,8 @@ import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { setupGeneratedIgnore } from "../src/setup-ignore.ts";
-import { parseCLI } from "../src/cli-options.ts";
+import { setupGeneratedIgnore } from "../../db-cli/src/setup-ignore.ts";
+import { parseCLI } from "../../db-cli/src/cli-options.ts";
 
 test("explicit ignore setup preserves project content, is idempotent, and does not generate or provision", async () => {
   const root = await mkdtemp(resolve(tmpdir(), "db-ignore-"));

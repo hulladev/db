@@ -51,7 +51,7 @@ for await (const line of lines) {
 }
 lines.close();process.stdin.pause();
 `, { mode: 0o755 });
-    child = spawn(process.execPath, ["--conditions=hulladb-source", fileURLToPath(new URL("../src/cli.ts", import.meta.url)), "dev", resolve(root, "db.config.ts")], {
+    child = spawn(process.execPath, ["--conditions=hulladb-source", fileURLToPath(new URL("../../db-cli/src/cli.ts", import.meta.url)), "dev", resolve(root, "db.config.ts")], {
       env: { ...process.env, HULLADB_SERVICE: executable }, stdio: ["ignore", "pipe", "pipe"],
     });
     exited = new Promise(resolve => child!.once("exit", resolve));
@@ -72,7 +72,7 @@ lines.close();process.stdin.pause();
     // A piped CLI must fail on a real bind conflict rather than prompt forever.
     const conflictConfig = resolve(scratch, "db.config.ts");
     await Bun.write(conflictConfig, `export default {database:{server:{url:'postgresql://app@localhost/app'}},schema:${JSON.stringify(resolve(root, "db/schema.ts"))},service:{port:${initialPort}}};`);
-    const conflict = Bun.spawnSync([process.execPath, "--conditions=hulladb-source", fileURLToPath(new URL("../src/cli.ts", import.meta.url)), "serve", conflictConfig], {
+    const conflict = Bun.spawnSync([process.execPath, "--conditions=hulladb-source", fileURLToPath(new URL("../../db-cli/src/cli.ts", import.meta.url)), "serve", conflictConfig], {
       env: { ...process.env, HULLADB_SERVICE: executable }, stdin: "ignore", stdout: "pipe", stderr: "pipe", timeout: 5000,
     });
     expect(conflict.exitCode).toBe(1);

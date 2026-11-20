@@ -24,7 +24,7 @@ sources download authorized query rows into replicas and support durable queued
 server calls with device-side conflict callbacks. Native Rust SQLite database
 storage and SQLite managed HTTP hosting remain separate work. See
 [schema authoring and SQLite](../../docs/sqlite.md) for runtime examples and limits.
-An optional [`@hulla/db/build` integration](../../docs/build.md) compiles application
+An optional [`@hulla/db-cli/build` integration](../../docs/build.md) compiles application
 function globs for Bun and Vite/Rollup builds without evaluating app startup.
 
 Separate `@hulla/db-react`, `@hulla/db-vue`, `@hulla/db-svelte` and
@@ -36,12 +36,12 @@ and `Output<typeof fn>` helpers infer declaration and callable contracts.
 Optional `@hulla/db-better-auth` stores provider data in PostgreSQL; see the
 [Better Auth setup](../../docs/better-auth.md).
 
-`npx hulla-db dev` uses packaged development tools, including a private Bun runtime,
-TypeScript compiler and local PostgreSQL. No Bun, PostgreSQL or Docker installation
-is needed. Omit `database.server.url` to use managed local storage; an explicit URL
-or `DATABASE_URL` uses your own database. See [local development](../../docs/browser-service.md).
-Production `serve` loads prepared artifacts under Node or Bun. Development tools
-are separate assets and are not loaded by production or browser entrypoints.
+`npx hulla-db dev` uses Bun and the CLI's pinned TypeScript compiler. Install
+`@hulla/db-local-postgres` and omit `database.server.url` to use managed local
+storage. An explicit URL or `DATABASE_URL` uses your own database.
+See [local development](../../docs/browser-service.md).
+Production `hulla-db-serve` from `@hulla/db-postgres` loads prepared artifacts
+under Node or Bun. The development tools ship in `@hulla/db-cli`.
 There are no required npm runtime dependencies. See [deployment and packaging](../../docs/deployment.md).
 See [dependency boundaries](../../docs/dependencies.md) for the native components.
 
@@ -58,11 +58,12 @@ Choose your coding agent in the installer. See [installation and version compati
 ## Install
 
 ```sh
-npm install @hulla/db@0.1.0
-npx hulla-db dev
+npm install @hulla/db
 ```
 
-The package includes native executables for macOS arm64 and Linux x64/glibc.
+Add `@hulla/db-postgres` for PostgreSQL execution or `@hulla/db-sqlite` for
+embedded SQLite. Install `@hulla/db-cli` as a development dependency for
+`hulla-db generate` and `hulla-db dev`.
 Add the matching `@hulla/db-react`, `@hulla/db-vue`, `@hulla/db-svelte` or
 `@hulla/db-solid` package for framework bindings.
 

@@ -6,7 +6,7 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 
 const root = await mkdtemp(new URL("./cli-address-project-", import.meta.url).pathname);
-const cli = Bun.fileURLToPath(new URL("../src/cli.ts", import.meta.url));
+const cli = Bun.fileURLToPath(new URL("../../db-cli/src/cli.ts", import.meta.url));
 const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: "1", NODE_ENV: "development" };
 // Exercise the same staged native assets as an ordinary checkout command.
 for (const name of ["DATABASE_URL", "HULLADB_SERVICE", "HULLADB_ENGINE", "HULLADB_JS"]) delete env[name];

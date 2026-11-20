@@ -58,9 +58,12 @@ retry a failed publication or consumer verification.
    - Workflow filename: **`release.yml`** (no path)
    - Environment: **`npm`**
    - Allowed action: **direct `npm publish`**
-4. Configure trust when an actual release is ready: a new trusted publisher must
-   complete its first publication within two days. For a never-published package,
-   bootstrap its npm package/trust configuration before expecting OIDC to work.
+4. For a new package name, the workflow stops before uploading the family. Download
+   that run's `npm-release` artifact and publish the indicated archive with an
+   authenticated npm maintainer account, then rerun the failed job. It verifies
+   and skips the identical archive. Configure trusted publishing before the next
+   release. A new trusted publisher must complete its first publication within
+   two days of setup.
 5. Optionally set **`RELEASE_PR_TOKEN`** to a GitHub App installation token delivered
    by your automation, or an appropriately scoped GitHub token. Without it the action
    uses `GITHUB_TOKEN`; PRs it creates do not automatically trigger other PR workflows.
@@ -72,7 +75,8 @@ Package settings to configure:
 
 - `@hulla/db-better-auth`
 - `@hulla/db`
-- `@hulla/db-expo`
+- `@hulla/db-cli`
+- `@hulla/db-local-postgres`
 - `@hulla/db-postgres`
 - `@hulla/db-sqlite`
 - `@hulla/db-react`
