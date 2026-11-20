@@ -10,7 +10,7 @@
     },
     "packages/better-auth": {
       "name": "@hulla/db-better-auth",
-      "version": "0.4.0",
+      "version": "0.3.3",
       "dependencies": {
         "@better-auth/core": "1.7.12",
       },
@@ -22,13 +22,13 @@
         "typescript": "7.0.2",
       },
       "peerDependencies": {
-        "@hulla/db": "^0.4.0",
+        "@hulla/db": "^0.3.3",
         "better-auth": "^1.7.12",
       },
     },
     "packages/db": {
       "name": "@hulla/db",
-      "version": "0.4.0",
+      "version": "0.3.3",
       "bin": {
         "hulla-db": "./dist/cli.js",
       },
@@ -52,7 +52,7 @@
     },
     "packages/db-postgres": {
       "name": "@hulla/db-postgres",
-      "version": "0.4.0",
+      "version": "0.3.3",
       "devDependencies": {
         "@hulla/db": "workspace:*",
         "@types/bun": "1.4.2",
@@ -60,12 +60,12 @@
         "typescript": "7.0.2",
       },
       "peerDependencies": {
-        "@hulla/db": "^0.4.0",
+        "@hulla/db": "^0.3.3",
       },
     },
     "packages/db-sqlite": {
       "name": "@hulla/db-sqlite",
-      "version": "0.4.0",
+      "version": "0.3.3",
       "devDependencies": {
         "@hulla/db": "workspace:*",
         "@types/bun": "1.4.2",
@@ -73,7 +73,7 @@
         "typescript": "7.0.2",
       },
       "peerDependencies": {
-        "@hulla/db": "^0.4.0",
+        "@hulla/db": "^0.3.3",
         "expo-crypto": "*",
       },
       "optionalPeers": [
@@ -82,7 +82,7 @@
     },
     "packages/react": {
       "name": "@hulla/db-react",
-      "version": "0.4.0",
+      "version": "0.3.3",
       "devDependencies": {
         "@hulla/db": "workspace:*",
         "@types/bun": "1.4.2",
@@ -94,13 +94,13 @@
         "typescript": "7.0.2",
       },
       "peerDependencies": {
-        "@hulla/db": "^0.4.0",
+        "@hulla/db": "^0.3.3",
         "react": "^19.0.0",
       },
     },
     "packages/solid": {
       "name": "@hulla/db-solid",
-      "version": "0.4.0",
+      "version": "0.3.3",
       "devDependencies": {
         "@hulla/db": "workspace:*",
         "@types/bun": "1.4.2",
@@ -108,13 +108,13 @@
         "typescript": "7.0.2",
       },
       "peerDependencies": {
-        "@hulla/db": "^0.4.0",
+        "@hulla/db": "^0.3.3",
         "solid-js": "^1.9.0",
       },
     },
     "packages/studio": {
       "name": "@hulla/db-studio",
-      "version": "0.4.0",
+      "version": "0.3.3",
       "devDependencies": {
         "@fontsource-variable/schibsted-grotesk": "5.3.0",
         "@fontsource/ibm-plex-mono": "5.3.0",
@@ -126,12 +126,12 @@
         "typescript": "7.0.2",
       },
       "peerDependencies": {
-        "@hulla/db": "^0.4.0",
+        "@hulla/db": "^0.3.3",
       },
     },
     "packages/svelte": {
       "name": "@hulla/db-svelte",
-      "version": "0.4.0",
+      "version": "0.3.3",
       "devDependencies": {
         "@hulla/db": "workspace:*",
         "@types/bun": "1.4.2",
@@ -140,13 +140,13 @@
         "typescript": "7.0.2",
       },
       "peerDependencies": {
-        "@hulla/db": "^0.4.0",
+        "@hulla/db": "^0.3.3",
         "svelte": "^5.7.0",
       },
     },
     "packages/vue": {
       "name": "@hulla/db-vue",
-      "version": "0.4.0",
+      "version": "0.3.3",
       "devDependencies": {
         "@hulla/db": "workspace:*",
         "@types/bun": "1.4.2",
@@ -155,7 +155,7 @@
         "vue": "^3.5.0",
       },
       "peerDependencies": {
-        "@hulla/db": "^0.4.0",
+        "@hulla/db": "^0.3.3",
         "vue": "^3.5.0",
       },
     },

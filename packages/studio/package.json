@@ -1,6 +1,6 @@
 {
   "name": "@hulla/db-studio",
-  "version": "0.4.0",
+  "version": "0.3.3",
   "description": "Optional local database workbench for @hulla/db",
   "license": "MIT",
   "repository": {
@@ -41,7 +41,7 @@
     "typescript": "7.0.2"
   },
   "peerDependencies": {
-    "@hulla/db": "^0.4.0"
+    "@hulla/db": "^0.3.3"
   },
   "engines": {
     "node": ">=22.18.0"
