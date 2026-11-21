@@ -55,7 +55,13 @@ An explicitly selected string or int64 key defaults to no generator. Table optio
 can set `keyGeneration` to `'none'`, `'uuidV4'`, `'uuidV7'`, or
 `{ handler: 'module.function', outputType: 'int64' }`. Custom handlers are metadata; the managed PostgreSQL runtime registers and executes
 them within mutation transactions.
-`insertKeyPolicy: 'generatedOnly'` requires a generator and forbids supplied keys.
+Tables with a generator default to `'generatedOnly'` and reject supplied keys.
+Tables without a generator default to `'allowExplicit'` and require a supplied
+key. Set `defaultInsertKeyPolicy` in `defineSchema` to override those defaults
+for the schema. A table's `insertKeyPolicy` takes precedence. An effective
+`'generatedOnly'` policy requires a generator. With `'allowExplicit'`, a
+generator still runs if the caller omits the key. To apply the schema's policy
+in Zod, pass the bound table to `createInsertSchema(schema.tables.tasks)`.
 
 References target the selected primary key and adopt its scalar and codec. Both
 `v.id(publications)` and `v.id('publications')` resolve through the assembled schema;
