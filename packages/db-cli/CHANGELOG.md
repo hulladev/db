@@ -1,5 +1,14 @@
 # @hulla/db-cli
 
+## 0.4.0
+
+### Patch Changes
+
+- Updated dependencies [81eecde]
+  - @hulla/db@0.4.0
+  - @hulla/db-postgres@0.4.0
+  - @hulla/db-studio@0.4.0
+
 ## 0.3.4
 
 - Reuse managed PostgreSQL downloads across CLI releases that pin the same build.
