@@ -1,5 +1,15 @@
 # @hulla/db
 
+## 0.4.0
+
+### Minor Changes
+
+- 81eecde: Add `defaultInsertKeyPolicy` to `defineSchema`. A table can override it with
+  `insertKeyPolicy`. Tables with a key generator now default to `generatedOnly`.
+  Set `allowExplicit` for inserts that supply their own generated primary keys.
+  Tables without a generator default to `allowExplicit` and require a supplied key.
+  Use `createInsertSchema(schema.tables.name)` to inherit the schema policy in Zod.
+
 ## 0.3.4
 
 ### Patch Changes

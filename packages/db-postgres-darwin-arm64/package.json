@@ -1,6 +1,6 @@
 {
   "name": "@hulla/db-postgres-darwin-arm64",
-  "version": "0.3.4",
+  "version": "0.4.0",
   "description": "Native executables for @hulla/db-postgres on darwin-arm64",
   "license": "MIT",
   "os": [

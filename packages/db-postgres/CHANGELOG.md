@@ -1,5 +1,12 @@
 # @hulla/db-postgres
 
+## 0.4.0
+
+### Patch Changes
+
+- Updated dependencies [81eecde]
+  - @hulla/db@0.4.0
+
 ## 0.3.4
 
 - Install the matching native runtime as a platform-specific optional dependency.
