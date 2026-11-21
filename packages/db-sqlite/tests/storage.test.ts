@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { defineSchema, defineTable, v, sql } from "@hulla/db";
 
 const schema = defineSchema({
-  notes: defineTable({ title: v.string().min(1), count: v.int64({ mode: "bigint" }).default(0n), done: v.boolean().default(false), extra: v.object({ tags: v.array(v.string()) }).nullable() }),
+  notes: defineTable({ title: v.string().min(1), count: v.int64({ mode: "bigint" }).default(0n), done: v.boolean().default(false), extra: v.object({ tags: v.array(v.string()) }).nullable() }, { insertKeyPolicy: "allowExplicit" }),
   private: defineTable({ value: v.string() }),
 });
 const definition = schema;
@@ -70,7 +70,7 @@ test("SQLite enforces references, checks, null uniqueness and atomic bulk upsert
 });
 
 test("SQLite filters preserve null semantics, exact int64 ordering and literal text matching", async () => {
-  const local = defineSchema({ items: defineTable({ title: v.string().nullable(), n: v.int64({ mode: "bigint" }).nullable() }) });
+  const local = defineSchema({ items: defineTable({ title: v.string().nullable(), n: v.int64({ mode: "bigint" }).nullable() }, { insertKeyPolicy: "allowExplicit" }) });
   const db = await initializeDatabase(local, { filename: ":memory:" });
   try {
     await db.insert("items", [{ id, title: "a%_\\z", n: 10n }, { id: otherId, title: null, n: null }, { title: "abc", n: -3n }]);

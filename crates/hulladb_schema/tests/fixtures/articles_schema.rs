@@ -40,7 +40,7 @@ pub fn schema() -> Result<hulladb_schema::SchemaContract, hulladb_schema::Schema
             ]);
             table.primary_key = Some("id".into());
             table.key_generation = Some(hulladb_schema::KeyGeneration::Custom { handler: "counters.next".into(), output_type: hulladb_schema::ScalarType::Int64 });
-            table.insert_key_policy = hulladb_schema::InsertKeyPolicy::AllowExplicit;
+            table.insert_key_policy = hulladb_schema::InsertKeyPolicy::GeneratedOnly;
             table
         },
     ];

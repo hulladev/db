@@ -79,3 +79,15 @@ test("foreign key schemas resolve actual target key representations instead of g
   expect(schema.parse({ owner: 2, secondary: 3 })).toEqual({ owner: 2, secondary: 3 });
   expect(schema.safeParse({ owner: "2", secondary: 3 }).success).toBe(false);
 });
+
+test("Zod insert schemas follow the policy of their own table binding", () => {
+  const entries = defineTable({ title: v.string(), privateNote: v.string() });
+  const importer = defineSchema({ entries }, { defaultInsertKeyPolicy: "allowExplicit" });
+  const journal = defineSchema({ entries });
+  const payload = { id: "aaaaaaaa-0000-0000-0000-000000000001", title: "Entry", privateNote: "Note" };
+  expect(createInsertSchema(importer.tables.entries).parse(payload)).toEqual(payload);
+  expect(createInsertSchema(journal.tables.entries).safeParse(payload).success).toBe(false);
+  expect(createInsertSchema(entries).safeParse(payload).success).toBe(false);
+  const projected = createInsertSchema(importer.tables.entries.pick("id", "title"));
+  expect(projected.parse({ id: payload.id, title: payload.title })).toEqual({ id: payload.id, title: payload.title });
+});

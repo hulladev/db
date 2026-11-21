@@ -11,7 +11,7 @@ pub fn schema() -> Result<hulladb_schema::SchemaContract, hulladb_schema::Schema
             ]);
             table.primary_key = Some("id".into());
             table.key_generation = Some(hulladb_schema::KeyGeneration::UuidV7);
-            table.insert_key_policy = hulladb_schema::InsertKeyPolicy::AllowExplicit;
+            table.insert_key_policy = hulladb_schema::InsertKeyPolicy::GeneratedOnly;
             table.unique_constraints.push(hulladb_schema::UniqueConstraintDeclaration { name: "owner_title".into(), fields: vec!["owner".into(), "title".into()], null_policy: Some(hulladb_schema::UniqueNullPolicy::NotDistinct) });
             table
         },

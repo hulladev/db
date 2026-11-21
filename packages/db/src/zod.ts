@@ -7,6 +7,7 @@ import {
   type TableDefinition,
 } from "./schema.ts";
 
+type AdaptableTable = Omit<TableDefinition, "index" | "extend" | "pick" | "omit">;
 type Narrow<S extends z.ZodType, T> = S & z.ZodType<T, T>;
 type Native<T> = 0 extends 1 & T ? z.ZodType<T> : [T] extends [Date] ? Narrow<z.ZodDate, T>
   : [T] extends [string] ? Narrow<z.ZodString, T>
@@ -18,29 +19,29 @@ type Native<T> = 0 extends 1 & T ? z.ZodType<T> : [T] extends [Date] ? Narrow<z.
 type NullableSchema<T> = null extends T ? z.ZodNullable<Native<Exclude<T, null>>> : Native<T>;
 type Schema<T> = undefined extends T ? z.ZodOptional<NullableSchema<Exclude<T, undefined>>> : NullableSchema<T>;
 type Present<T> = { [K in keyof T as [Exclude<T[K], undefined>] extends [never] ? never : K]: T[K] };
-type Select<D extends TableDefinition> = Present<D["$inferSelect"]>;
-type Insert<D extends TableDefinition> = Present<D["$inferInsert"]>;
-type Update<D extends TableDefinition> = Present<D["$inferUpdate"]>;
-type FieldSchema<D extends TableDefinition, K, T> = K extends keyof D["fields"]
+type Select<D extends AdaptableTable> = Present<D["$inferSelect"]>;
+type Insert<D extends AdaptableTable> = Present<D["$inferInsert"]>;
+type Update<D extends AdaptableTable> = Present<D["$inferUpdate"]>;
+type FieldSchema<D extends AdaptableTable, K, T> = K extends keyof D["fields"]
   ? D["fields"][K]["customCodec"] extends true ? z.ZodType<Exclude<T, null | undefined>> : Native<Exclude<T, null | undefined>>
   : Native<Exclude<T, null | undefined>>;
-type Refinements<D extends TableDefinition, T> = { [K in keyof T]?: (schema: FieldSchema<D, K, T[K]>) => z.ZodType };
+type Refinements<D extends AdaptableTable, T> = { [K in keyof T]?: (schema: FieldSchema<D, K, T[K]>) => z.ZodType };
 type NullableWrapped<T, S extends z.ZodType> = null extends T ? z.ZodNullable<S> : S;
 type Wrapped<T, S extends z.ZodType> = undefined extends T ? z.ZodOptional<NullableWrapped<T, S>> : NullableWrapped<T, S>;
-type Refined<D extends TableDefinition, T, R> = { -readonly [K in keyof T]-?: K extends keyof R
+type Refined<D extends AdaptableTable, T, R> = { -readonly [K in keyof T]-?: K extends keyof R
   ? R[K] extends (schema: never) => infer S ? S extends z.ZodType ? Wrapped<T[K], S> : Wrapped<T[K], FieldSchema<D, K, T[K]>> : Wrapped<T[K], FieldSchema<D, K, T[K]>>
   : Wrapped<T[K], FieldSchema<D, K, T[K]>> };
 
 /** Native Zod object for a complete application row, including its primary key. */
-export function createSelectSchema<D extends TableDefinition, R extends Refinements<D, Select<D>> = {}>(table: D, refinements?: R & Refinements<D, Select<D>>): z.ZodObject<Refined<D, Select<D>, R>> {
+export function createSelectSchema<D extends AdaptableTable, R extends Refinements<D, Select<D>> = {}>(table: D, refinements?: R & Refinements<D, Select<D>>): z.ZodObject<Refined<D, Select<D>, R>> {
   return tableSchema(table, "select", refinements) as never;
 }
-/** Defaults and generated keys become optional; no database defaults are applied. */
-export function createInsertSchema<D extends TableDefinition, R extends Refinements<D, Insert<D>> = {}>(table: D, refinements?: R & Refinements<D, Insert<D>>): z.ZodObject<Refined<D, Insert<D>, R>> {
+/** Generated-only keys are excluded. Use a schema-bound table to inherit its insert policy. */
+export function createInsertSchema<D extends AdaptableTable, R extends Refinements<D, Insert<D>> = {}>(table: D, refinements?: R & Refinements<D, Insert<D>>): z.ZodObject<Refined<D, Insert<D>, R>> {
   return tableSchema(table, "insert", refinements) as never;
 }
 /** Partial assignment schema with the immutable primary key excluded. */
-export function createUpdateSchema<D extends TableDefinition, R extends Refinements<D, Update<D>> = {}>(table: D, refinements?: R & Refinements<D, Update<D>>): z.ZodObject<Refined<D, Update<D>, R>> {
+export function createUpdateSchema<D extends AdaptableTable, R extends Refinements<D, Update<D>> = {}>(table: D, refinements?: R & Refinements<D, Update<D>>): z.ZodObject<Refined<D, Update<D>, R>> {
   return tableSchema(table, "update", refinements) as never;
 }
 
@@ -75,15 +76,18 @@ function fieldSchema(field: RuntimeField): z.ZodType {
   }
   return schema;
 }
-function tableSchema(table: TableDefinition, operation: "select" | "insert" | "update", refinements: object = {}): z.ZodObject<z.ZodRawShape> {
+function tableSchema(table: AdaptableTable, operation: "select" | "insert" | "update", refinements: object = {}): z.ZodObject<z.ZodRawShape> {
   const compiled = compiledTableForDefinition(table);
   if (!compiled && Object.values(table.fields).some(field => typeof field.target === "string")) throw new TypeError("Call defineSchema before adapting a table with string v.id references");
   const key = table.options.primaryKey ?? "id";
-  const fields = { ...table.fields, ...(Object.hasOwn(table.fields, key) ? {} : { [key]: v.uuid() }), ...compiled?.fields };
-  const generation = table.options.keyGeneration ?? (fields[key]?.scalar === "uuid" ? "uuidV7" : "none");
+  const fields = { ...table.fields, ...(Object.hasOwn(table.fields, key) ? {} : { [key]: v.uuid() }) };
+  const keyField = fields[key];
+  const generation = table.options.keyGeneration ?? (keyField?.target === undefined && keyField?.scalar === "uuid" ? "uuidV7" : "none");
+  const insertKeyPolicy = table.options.insertKeyPolicy ?? (generation === "none" ? "allowExplicit" : "generatedOnly");
   const shape: Record<string, z.ZodType> = {};
-  for (const [name, field] of Object.entries(fields)) {
-    if ((operation === "update" && name === key) || (operation === "insert" && name === key && table.options.insertKeyPolicy === "generatedOnly")) continue;
+  for (const [name, declaredField] of Object.entries(fields)) {
+    if ((operation === "update" && name === key) || (operation === "insert" && name === key && insertKeyPolicy === "generatedOnly")) continue;
+    const field = compiled?.fields[name] ?? declaredField;
     let schema = fieldSchema(field);
     const refine = Object.getOwnPropertyDescriptor(refinements, name);
     if (refine) {
