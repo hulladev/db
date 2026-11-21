@@ -35,7 +35,7 @@ export function bindTable(source: Omit<ReplicaSource, "bound">): BoundTable {
   const bound = Object.freeze({
     ...metadata,
     fields: Object.freeze(Object.fromEntries(columns.map(name => [name, source.definition.fields[name] ?? table.fields[name]!]))),
-    options: source.definition.options,
+    options: Object.freeze({ ...source.definition.options, insertKeyPolicy: table.insertKeyPolicy }),
     pick(...selected: string[]) { return project(selected, true); },
     omit(...selected: string[]) { return project(selected, false); },
     replica() {

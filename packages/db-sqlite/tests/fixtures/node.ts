@@ -11,7 +11,7 @@ const filename = join(directory, "db.sqlite");
 const definition = defineSchema({ items: defineTable({
   value: v.int64({ mode: "bigint" }),
   label: v.string().codec<{ text: string }>({ encode: value => value.text, decode: text => ({ text }) }),
-}) });
+}, { insertKeyPolicy: "allowExplicit" }) });
 let db;
 try {
   const settings = { open: () => nodeSQLiteDriver(filename) };

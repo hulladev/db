@@ -88,6 +88,7 @@ test("generation inherits schema defaults and honors explicit generators and ins
         { id: v.int64({ mode: "bigint" }), note: v.string().nullable().default(null) },
         {
           keyGeneration: { handler: "next", outputType: "int64" },
+          insertKeyPolicy: "allowExplicit",
         },
       ),
     },
@@ -100,11 +101,27 @@ test("generation inherits schema defaults and honors explicit generators and ins
     { handler: "next", outputType: "int64" },
   ]);
   expect(prepareInsert(declared, "inherited", {})).toEqual({});
+  expect(() => prepareInsert(declared, "inherited", { id: articleId })).toThrow("Primary key assignment forbidden");
   expect(() => prepareInsert(declared, "manual", {})).toThrow("Missing field");
+  expect(prepareInsert(declared, "manual", { id: articleId })).toEqual({ id: articleId.toLowerCase() });
   expect(prepareInsert(declared, "custom", {})).toEqual({ note: null });
   expect(
     prepareInsert(declared, "custom", { id: 4n, note: "Provided" }),
   ).toMatchObject({ id: 4n, note: "Provided" });
+});
+
+test("schema insert policy applies to inherited tables while explicit table policies win", () => {
+  const entry = defineTable({});
+  const generated = defineTable({}, { insertKeyPolicy: "generatedOnly" });
+  const importer = defineSchema({ entry, generated }, { defaultInsertKeyPolicy: "allowExplicit" });
+  const journal = defineSchema({ entry }, { defaultInsertKeyPolicy: "generatedOnly" });
+  expect(prepareInsert(importer, "entry", { id: articleId })).toEqual({ id: articleId.toLowerCase() });
+  expect(() => prepareInsert(importer, "generated", { id: articleId })).toThrow("Primary key assignment forbidden");
+  expect(() => prepareInsert(journal, "entry", { id: articleId })).toThrow("Primary key assignment forbidden");
+  expect(() => defineSchema({ manual: defineTable({ id: v.string() }) }, { defaultInsertKeyPolicy: "generatedOnly" })).toThrow("manual: Generated-only keys need a generator");
+  const manual = defineTable({ id: v.string() }, { insertKeyPolicy: "allowExplicit" });
+  const mixed = defineSchema({ manual }, { defaultInsertKeyPolicy: "generatedOnly" });
+  expect(prepareInsert(mixed, "manual", { id: "supplied" })).toEqual({ id: "supplied" });
 });
 
 test("schema declarations snapshot mutable authoring options before caching contracts", () => {

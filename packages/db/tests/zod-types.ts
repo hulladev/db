@@ -38,6 +38,16 @@ createInsertSchema(textCodec, { text: schema => {
 } });
 void [forbiddenKey, missingNote, badBigint, invalidPatch];
 
+const entry = defineTable({ title: v.string() });
+const generatedEntries = defineSchema({ entry });
+const importedEntries = defineSchema({ entry }, { defaultInsertKeyPolicy: "allowExplicit" });
+const generatedInsert = createInsertSchema(generatedEntries.tables.entry);
+const importedInsert = createInsertSchema(importedEntries.tables.entry);
+const importedEntry: z.infer<typeof importedInsert> = { id: "id", title: "Imported" };
+// @ts-expect-error Bound schemas forbid explicit keys by default when a generator exists.
+const invalidGeneratedEntry: z.infer<typeof generatedInsert> = { id: "id", title: "Generated" };
+void [importedEntry, invalidGeneratedEntry];
+
 // Function validators produce ordinary scalars, while known IDs retain table provenance.
 const folders = defineTable({ slug: v.string() }, { primaryKey: "slug" });
 const otherFolders = defineTable({ slug: v.string() }, { primaryKey: "slug" });

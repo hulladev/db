@@ -355,11 +355,12 @@ export type KeyGeneration =
   | "uuidV4"
   | "uuidV7"
   | Readonly<{ handler: string; outputType: Scalar }>;
+type InsertKeyPolicy = "allowExplicit" | "generatedOnly";
 export interface TableOptions {
   readonly checks?: { invoke(fields: CheckFields<string>): Readonly<Record<string, SqlCheck>> }["invoke"];
   readonly primaryKey?: string;
   readonly keyGeneration?: KeyGeneration;
-  readonly insertKeyPolicy?: "allowExplicit" | "generatedOnly";
+  readonly insertKeyPolicy?: InsertKeyPolicy;
   readonly unique?: Readonly<
     Record<
       string,
@@ -508,19 +509,22 @@ const compiledSchemas = new WeakMap<
   readonly CompiledTable[]
 >();
 const compiledDefinitions = new WeakMap<TableShape, CompiledTable>();
-export function compiledTableForDefinition(table: TableShape): CompiledTable | undefined { return compiledDefinitions.get(table); }
+export function compiledTableForDefinition(table: TableShape): CompiledTable | undefined {
+  return tableBindings.get(table)?.table ?? compiledDefinitions.get(table);
+}
 export interface SchemaDefinition<T extends Tables = Tables> {
   readonly tables: T;
   readonly defaultUuidGeneration: "v4" | "v7";
+  readonly defaultInsertKeyPolicy?: InsertKeyPolicy;
 }
 declare const schemaType: unique symbol;
 /** Inert authoring helpers; handlers are registered by an application instance. */
-export interface DefinedSchema<T extends Tables = Tables> extends SchemaDefinition<{
-  readonly [K in keyof T]: BoundTable<T[K], DefinedSchema<T>, Extract<K, string>, DatabaseIdentity<DefinedSchema<T>>>
+export interface DefinedSchema<T extends Tables = Tables, P extends InsertKeyPolicy | undefined = InsertKeyPolicy | undefined> extends SchemaDefinition<{
+  readonly [K in keyof T]: BoundTable<ConfiguredTable<T[K], P>, DefinedSchema<T, P>, Extract<K, string>, DatabaseIdentity<DefinedSchema<T, P>>>
 }> {
   readonly [schemaType]: true;
-  readonly query: Declarer<"query", QueryContext<DefinedSchema<T>>>;
-  readonly mutation: Declarer<"mutation", MutationContext<DefinedSchema<T>>>;
+  readonly query: Declarer<"query", QueryContext<DefinedSchema<T, P>>>;
+  readonly mutation: Declarer<"mutation", MutationContext<DefinedSchema<T, P>>>;
 }
 const definedSchemas = new WeakSet<object>();
 export function isDefinedSchema(value: unknown): value is DefinedSchema {
@@ -528,22 +532,23 @@ export function isDefinedSchema(value: unknown): value is DefinedSchema {
 }
 
 /** Validate authoring metadata immediately; storage enforcement belongs to the adapter. */
-export function defineSchema<const T extends Tables>(
+export function defineSchema<const T extends Tables, const P extends InsertKeyPolicy | undefined = undefined>(
   tables: T,
-  options: { readonly defaultUuidGeneration?: "v4" | "v7" } = {},
-): DefinedSchema<T> {
+  options: { readonly defaultUuidGeneration?: "v4" | "v7"; readonly defaultInsertKeyPolicy?: P } = {},
+): DefinedSchema<T, P> {
   plain(tables, "schema.tables");
   plain(options, "schema.options");
-  if (Object.keys(options).some((key) => key !== "defaultUuidGeneration"))
+  if (Object.keys(options).some((key) => key !== "defaultUuidGeneration" && key !== "defaultInsertKeyPolicy"))
     fail("schema.options", "Unknown schema option");
   const metadata = Object.freeze({
     tables: Object.freeze({ ...tables }),
     defaultUuidGeneration: options.defaultUuidGeneration ?? "v7",
+    ...(options.defaultInsertKeyPolicy === undefined ? {} : { defaultInsertKeyPolicy: options.defaultInsertKeyPolicy }),
   });
   const compiled = compileSchema(metadata);
-  const definitions = defineFunctions<QueryContext<DefinedSchema<T>>, MutationContext<DefinedSchema<T>>>();
+  const definitions = defineFunctions<QueryContext<DefinedSchema<T, P>>, MutationContext<DefinedSchema<T, P>>>();
   const boundTables: Record<string, BoundTable> = Object.create(null);
-  let schema!: DefinedSchema<T>;
+  let schema!: DefinedSchema<T, P>;
   const bind = <D extends (...args: never[]) => object>(declare: D): D => {
     const bound = (...args: never[]) => {
       const definition = declare(...args);
@@ -557,9 +562,9 @@ export function defineSchema<const T extends Tables>(
     if (extend) Object.assign(bound, { extend: (...args: never[]) => bind(extend(...args)) });
     return bound as D;
   };
-  schema = Object.freeze({ tables: boundTables, defaultUuidGeneration: metadata.defaultUuidGeneration,
+  schema = Object.freeze({ ...metadata, tables: boundTables,
     query: bind(definitions.query), mutation: bind(definitions.mutation),
-  }) as unknown as DefinedSchema<T>;
+  }) as unknown as DefinedSchema<T, P>;
   const owner = schemaIdentity(schema);
   for (const table of compiled) {
     const bound = bindTable({ database: owner, name: table.name, definition: tables[table.name]!, table, columns: Object.freeze(Object.keys(table.fields)) });
@@ -627,11 +632,24 @@ type Generated<D extends TableShape> = D["options"] extends {
   ? G extends "none"
     ? false
     : true
-  : TableFields<D>[KeyName<D>]["$types"]["reference"] extends undefined ? KeyValue<D> extends string
-    ? TableFields<D>[KeyName<D>]["scalar"] extends "uuid"
-      ? true
-      : false
-    : false : false;
+  : TableFields<D>[KeyName<D>]["$types"]["reference"] extends undefined
+    ? TableFields<D>[KeyName<D>]["scalar"] extends "uuid" ? true : false
+    : false;
+type DefaultInsertKeyPolicy<D extends TableShape, P extends InsertKeyPolicy | undefined> =
+  P extends InsertKeyPolicy ? P : Generated<D> extends true ? "generatedOnly" : "allowExplicit";
+type ResolvedInsertKeyPolicy<D extends TableShape, P extends InsertKeyPolicy | undefined = undefined> =
+  "insertKeyPolicy" extends keyof D["options"]
+    ? Exclude<D["options"]["insertKeyPolicy"], undefined> |
+      (undefined extends D["options"]["insertKeyPolicy"] ? DefaultInsertKeyPolicy<D, P> : never)
+    : DefaultInsertKeyPolicy<D, P>;
+type ConfiguredTableOptions<D extends TableShape, P extends InsertKeyPolicy | undefined> =
+  Omit<D["options"], "insertKeyPolicy"> & { readonly insertKeyPolicy: ResolvedInsertKeyPolicy<D, P> };
+type ConfiguredTableShape<D extends TableShape, P extends InsertKeyPolicy | undefined> =
+  Omit<D, "options" | "$inferInsert"> & {
+    readonly options: ConfiguredTableOptions<D, P> extends infer O extends TableOptions ? O : never;
+  };
+type ConfiguredTable<D extends TableShape, P extends InsertKeyPolicy | undefined> =
+  ConfiguredTableShape<D, P> & { readonly $inferInsert: StandaloneInsert<ConfiguredTableShape<D, P>> };
 type OptionalInsert<S extends SchemaDefinition, T extends keyof S["tables"]> = {
   [K in keyof TableFields<S["tables"][T]>]: K extends KeyName<S["tables"][T]>
     ? Generated<S["tables"][T]> extends true
@@ -644,9 +662,7 @@ type OptionalInsert<S extends SchemaDefinition, T extends keyof S["tables"]> = {
 type ForbiddenInsert<
   S extends SchemaDefinition,
   T extends keyof S["tables"],
-> = S["tables"][T]["options"] extends {
-  readonly insertKeyPolicy: "generatedOnly";
-}
+> = ResolvedInsertKeyPolicy<S["tables"][T]> extends "generatedOnly"
   ? KeyName<S["tables"][T]>
   : never;
 export type Insert<
@@ -665,7 +681,7 @@ export type Patch<
 };
 type StandaloneRow<D extends TableShape> = { -readonly [K in keyof TableFields<D>]: Nullable<TableFields<D>[K]["$types"]["value"], TableFields<D>[K]["$types"]["nullable"]> };
 type StandaloneOptional<D extends TableShape> = { [K in keyof TableFields<D>]: K extends KeyName<D> ? Generated<D> extends true ? K : never : TableFields<D>[K]["$types"]["default"] extends true ? K : never }[keyof TableFields<D>];
-type StandaloneForbidden<D extends TableShape> = D["options"] extends {readonly insertKeyPolicy: "generatedOnly"} ? KeyName<D> : never;
+type StandaloneForbidden<D extends TableShape> = ResolvedInsertKeyPolicy<D> extends "generatedOnly" ? KeyName<D> : never;
 type StandaloneInsert<D extends TableShape> = Omit<StandaloneRow<D>, StandaloneOptional<D> | StandaloneForbidden<D>> & { [K in Extract<StandaloneOptional<D>, keyof StandaloneRow<D>>]?: StandaloneRow<D>[K] | undefined } & { [K in StandaloneForbidden<D>]?: never };
 type StandaloneUpdate<D extends TableShape> = { [K in Exclude<keyof StandaloneRow<D>, KeyName<D>>]?: StandaloneRow<D>[K] | undefined } & { [K in KeyName<D>]?: never };
 
@@ -676,7 +692,7 @@ export interface CompiledTable {
   readonly fields: Readonly<Record<string, AnyField>>;
   readonly primaryKey: string;
   readonly keyGeneration: KeyGeneration;
-  readonly insertKeyPolicy: "allowExplicit" | "generatedOnly";
+  readonly insertKeyPolicy: InsertKeyPolicy;
   readonly unique: Readonly<
     Record<
       string,
@@ -714,6 +730,8 @@ export function compileSchema(
   plain(schema.tables, "schema.tables");
   if (!["v4", "v7"].includes(schema.defaultUuidGeneration))
     fail("schema", "Invalid UUID generation");
+  if (schema.defaultInsertKeyPolicy !== undefined && !["allowExplicit", "generatedOnly"].includes(schema.defaultInsertKeyPolicy))
+    fail("schema.options", "Invalid default insert key policy");
   const tables: CompiledTable[] = Object.entries(schema.tables).map(
     ([name, table]) => {
       if (!name || table?.[tableBrand] !== true)
@@ -791,7 +809,8 @@ export function compileSchema(
             : "uuid";
       if (outputType !== undefined && key.target === undefined && outputType !== key.scalar)
         fail(name, "Key generator output type does not match primary key");
-      const insertKeyPolicy = options.insertKeyPolicy ?? "allowExplicit";
+      const insertKeyPolicy = options.insertKeyPolicy ?? schema.defaultInsertKeyPolicy ??
+        (keyGeneration === "none" ? "allowExplicit" : "generatedOnly");
       if (!["allowExplicit", "generatedOnly"].includes(insertKeyPolicy))
         fail(name, "Invalid insert key policy");
       if (insertKeyPolicy === "generatedOnly" && keyGeneration === "none")
@@ -953,9 +972,9 @@ function sameValue(left: unknown, right: unknown): boolean {
   return keys.length === Object.keys(right).length && keys.every(key => Object.hasOwn(right, key) && sameValue((left as Record<string, unknown>)[key], (right as Record<string, unknown>)[key]));
 }
 function sameTableBinding(left: CompiledTable, right: CompiledTable): boolean {
-  // Portable templates may bind under different table names and UUID defaults.
+  // Portable templates may bind under different table names and key defaults.
   // Only incompatible field representations make the standalone validator ambiguous.
-  return left.primaryKey === right.primaryKey && left.insertKeyPolicy === right.insertKeyPolicy && Object.keys(left.fields).length === Object.keys(right.fields).length && Object.entries(left.fields).every(([name, field]) => {
+  return left.primaryKey === right.primaryKey && Object.keys(left.fields).length === Object.keys(right.fields).length && Object.entries(left.fields).every(([name, field]) => {
     const other = right.fields[name];
     return other !== undefined && field.scalar === other.scalar && field.mode === other.mode && field.precision === other.precision && field.allowsNull === other.allowsNull && field.hasDefault === other.hasDefault && field.onDelete === other.onDelete && sameValue(field.constraints, other.constraints) && field.customCodec === other.customCodec && (!field.customCodec || representations.get(field) === representations.get(other)) && (!field.hasDefault || sameValue(field.encode(field.defaultValue), other.encode(other.defaultValue)));
   });
